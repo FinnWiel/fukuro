@@ -1,0 +1,72 @@
+package nl.shazzoo.shelfplayer.data
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class LoginResponse(val user: AbsUser)
+
+@Serializable
+data class AbsUser(val id: String, val username: String, val token: String)
+
+@Serializable
+data class LibrariesResponse(val libraries: List<AbsLibrary>)
+
+@Serializable
+data class AbsLibrary(val id: String, val name: String, val mediaType: String = "book")
+
+@Serializable
+data class ItemsResponse(val results: List<LibraryItem>, val total: Int = 0)
+
+@Serializable
+data class LibraryItem(
+    val id: String,
+    val relPath: String = "",
+    val media: Media = Media(),
+)
+
+@Serializable
+data class Media(
+    val metadata: Metadata = Metadata(),
+    val duration: Double = 0.0,
+    val numAudioFiles: Int = 0,
+    val audioFiles: List<AudioFile> = emptyList(),
+)
+
+@Serializable
+data class Metadata(
+    val title: String? = null,
+    val titleIgnorePrefix: String? = null,
+    val authorName: String? = null,
+    val seriesName: String? = null,
+    val series: List<SeriesRef> = emptyList(),
+    val narratorName: String? = null,
+    val description: String? = null,
+    val publishedYear: String? = null,
+)
+
+@Serializable
+data class SeriesRef(val id: String = "", val name: String = "", val sequence: String? = null)
+
+@Serializable
+data class AudioFile(
+    val index: Int = 0,
+    val ino: String = "",
+    val duration: Double = 0.0,
+    val metadata: FileMeta = FileMeta(),
+)
+
+@Serializable
+data class FileMeta(val filename: String = "", val size: Long = 0)
+
+@Serializable
+data class MediaProgress(
+    val id: String = "",
+    val libraryItemId: String = "",
+    val duration: Double = 0.0,
+    val progress: Double = 0.0, // 0..1
+    val currentTime: Double = 0.0,
+    val isFinished: Boolean = false,
+)
+
+@Serializable
+data class MeResponse(val id: String = "", val username: String = "", val mediaProgress: List<MediaProgress> = emptyList())

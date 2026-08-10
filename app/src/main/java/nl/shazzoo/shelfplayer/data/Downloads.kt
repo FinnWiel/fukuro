@@ -1,0 +1,115 @@
+package nl.shazzoo.shelfplayer.data
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import okhttp3.Request
+import java.io.File
+
+/** Per-item download state for the UI. Absent from the map = not downloading. */
+data class DownloadState(val progress: Float, val error: String? = null)
+
+/**
+ * Offline downloads: stores each book under filesDir/downloads/{itemId}/
+ *   - item.json   (full LibraryItem metadata, for offline browsing/playback)
+ *   - cover.jpg   (artwork)
+ *   - {ino}.audio (each audio file; ino is ABS's stable file id)
+ * Files are written to *.part first and renamed when complete, so a killed
+ * download never leaves a file that looks finished.
+ */
+class DownloadRepo(private val context: Context, private val api: AbsApi) {
+
+    private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+
+    private val _states = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
+    val states: StateFlow<Map<String, DownloadState>> = _states
+
+    private fun dir(itemId: String) = File(context.filesDir, "downloads/$itemId")
+
+    fun isDownloaded(itemId: String): Boolean {
+        val d = dir(itemId)
+        if (!File(d, "item.json").exists()) return false
+        val item = localItem(itemId) ?: return false
+        return item.media.audioFiles.all { File(d, "${it.ino}.audio").exists() }
+    }
+
+    fun downloadedIds(): List<String> =
+        File(context.filesDir, "downloads").listFiles()?.filter { it.isDirectory }
+            ?.map { it.name }?.filter { isDownloaded(it) } ?: emptyList()
+
+    fun localItem(itemId: String): LibraryItem? = try {
+        json.decodeFromString<LibraryItem>(File(dir(itemId), "item.json").readText())
+    } catch (_: Exception) { null }
+
+    fun localAudioFile(itemId: String, ino: String): File? =
+        File(dir(itemId), "$ino.audio").takeIf { it.exists() }
+
+    fun localCover(itemId: String): File? =
+        File(dir(itemId), "cover.jpg").takeIf { it.exists() }
+
+    fun sizeOnDisk(itemId: String): Long =
+        dir(itemId).walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    suspend fun download(itemId: String) = withContext(Dispatchers.IO) {
+        if (_states.value.containsKey(itemId)) return@withContext // already running
+        _states.value = _states.value + (itemId to DownloadState(0f))
+        try {
+            val item = api.item(itemId)
+            val d = dir(itemId).apply { mkdirs() }
+            File(d, "item.json").writeText(json.encodeToString(LibraryItem.serializer(), item))
+
+            // cover (best effort)
+            try { fetchTo(api.coverUrl(itemId), File(d, "cover.jpg")) } catch (_: Exception) {}
+
+            val files = item.media.audioFiles.sortedBy { it.index }
+            val totalBytes = files.sumOf { it.metadata.size }.coerceAtLeast(1)
+            var doneBytes = 0L
+            for (f in files) {
+                val out = File(d, "${f.ino}.audio")
+                if (!out.exists() || out.length() != f.metadata.size) {
+                    fetchTo(api.fileUrl(itemId, f.ino), out) { written ->
+                        val p = (doneBytes + written).toFloat() / totalBytes
+                        _states.value = _states.value + (itemId to DownloadState(p.coerceIn(0f, 1f)))
+                    }
+                }
+                doneBytes += f.metadata.size
+                _states.value = _states.value + (itemId to DownloadState((doneBytes.toFloat() / totalBytes).coerceIn(0f, 1f)))
+            }
+            _states.value = _states.value - itemId
+        } catch (e: Exception) {
+            _states.value = _states.value + (itemId to DownloadState(0f, e.message ?: "Download failed"))
+        }
+    }
+
+    private inline fun fetchTo(url: String, dest: File, onProgress: (Long) -> Unit = {}) {
+        val part = File(dest.parentFile, dest.name + ".part")
+        api.http.newCall(Request.Builder().url(url).build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code} for $url")
+            resp.body!!.byteStream().use { input ->
+                part.outputStream().use { output ->
+                    val buf = ByteArray(256 * 1024)
+                    var written = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        written += n
+                        onProgress(written)
+                    }
+                }
+            }
+        }
+        if (dest.exists()) dest.delete()
+        part.renameTo(dest)
+    }
+
+    fun clearError(itemId: String) { _states.value = _states.value - itemId }
+
+    fun delete(itemId: String) {
+        dir(itemId).deleteRecursively()
+        _states.value = _states.value - itemId
+    }
+}
