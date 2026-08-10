@@ -5,10 +5,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 /**
@@ -70,6 +75,12 @@ class AbsApi(private val store: Store) {
             raw("GET", "/api/libraries/$libraryId/items?limit=1000&sort=media.metadata.title&minified=0")
         ).results
 
+    /** The item-list endpoint omits full series info; this endpoint has the real grouping. */
+    suspend fun librarySeries(libraryId: String): List<AbsSeries> =
+        json.decodeFromString<SeriesListResponse>(
+            raw("GET", "/api/libraries/$libraryId/series?limit=200&sort=name")
+        ).results
+
     suspend fun item(itemId: String): LibraryItem =
         json.decodeFromString(raw("GET", "/api/items/$itemId?expanded=1"))
 
@@ -92,6 +103,65 @@ class AbsApi(private val store: Store) {
         try { raw("DELETE", "/api/me/progress/$itemId") } catch (e: ApiException) {
             if (e.code != 404) throw e // 404 = no progress yet, fine
         }
+    }
+
+    suspend fun renameItem(itemId: String, newTitle: String) {
+        val body = buildJsonObject {
+            putJsonObject("metadata") { put("title", newTitle) }
+        }.toString()
+        raw("PATCH", "/api/items/$itemId/media", body)
+    }
+
+    /** One file selected for upload: name/size plus a fresh-stream provider (content resolver). */
+    class UploadFile(val name: String, val size: Long, val mime: String, val open: () -> InputStream)
+
+    /**
+     * Upload a new book via POST /api/upload (multipart).
+     * Uses the user's stored ABS API key when set, else the login token.
+     */
+    suspend fun uploadBook(
+        title: String, author: String?, series: String?, files: List<UploadFile>,
+    ): Unit = withContext(Dispatchers.IO) {
+        val base = store.serverUrl() ?: throw ApiException(0, "No server configured")
+        val auth = store.apiKey()?.takeIf { it.isNotBlank() } ?: store.token()
+            ?: throw ApiException(401, "Not logged in")
+        val lib = libraries().firstOrNull() ?: throw ApiException(0, "No library on server")
+        val folder = lib.folders.firstOrNull() ?: throw ApiException(0, "Library has no folders")
+
+        val mp = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("title", title)
+            .addFormDataPart("library", lib.id)
+            .addFormDataPart("folder", folder.id)
+        if (!author.isNullOrBlank()) mp.addFormDataPart("author", author)
+        if (!series.isNullOrBlank()) mp.addFormDataPart("series", series)
+        files.forEachIndexed { i, f ->
+            val body = object : RequestBody() {
+                override fun contentType() = f.mime.toMediaType()
+                override fun contentLength() = f.size
+                override fun writeTo(sink: BufferedSink) {
+                    f.open().use { input ->
+                        val buf = ByteArray(256 * 1024)
+                        while (true) {
+                            val n = input.read(buf); if (n < 0) break
+                            sink.write(buf, 0, n)
+                        }
+                    }
+                }
+            }
+            mp.addFormDataPart("$i", f.name, body)
+        }
+        val req = Request.Builder()
+            .url(base.trimEnd('/') + "/api/upload")
+            .header("Authorization", "Bearer $auth")
+            .post(mp.build())
+            .build()
+        // long timeout client: big audio files
+        http.newBuilder().writeTimeout(30, TimeUnit.MINUTES).readTimeout(5, TimeUnit.MINUTES).build()
+            .newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw ApiException(resp.code, "Upload failed HTTP ${resp.code}: ${resp.body?.string()?.take(200)}")
+                }
+            }
     }
 
     /** Direct stream URL for one audio file of an item (token as query for ExoPlayer/Coil). */

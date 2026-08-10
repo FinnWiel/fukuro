@@ -8,7 +8,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import android.net.Uri
 import nl.shazzoo.shelfplayer.ShelfApp
+import nl.shazzoo.shelfplayer.data.AbsApi
+import nl.shazzoo.shelfplayer.data.AbsSeries
 import nl.shazzoo.shelfplayer.data.DownloadState
 import nl.shazzoo.shelfplayer.data.LibraryItem
 import nl.shazzoo.shelfplayer.data.MediaProgress
@@ -19,9 +22,13 @@ data class UiState(
     val error: String? = null,
     val serverOnline: Boolean = false,
     val items: List<LibraryItem> = emptyList(),
+    val series: List<AbsSeries> = emptyList(),
     val progress: Map<String, MediaProgress> = emptyMap(),
     val downloadedIds: Set<String> = emptySet(),
 )
+
+/** Upload page state. */
+data class UploadUi(val running: Boolean = false, val message: String? = null, val success: Boolean = false)
 
 class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     private val shelf = ShelfApp.from(app)
@@ -73,9 +80,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val lib = api.libraries().firstOrNull()
                 val items = if (lib != null) api.libraryItems(lib.id) else emptyList()
+                val series = if (lib != null) try { api.librarySeries(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
                 val progress = api.me().mediaProgress.associateBy { it.libraryItemId }
                 _state.value = _state.value.copy(
-                    items = items, progress = progress, loading = false,
+                    items = items, series = series, progress = progress, loading = false,
                     serverOnline = true, downloadedIds = downloaded
                 )
             } catch (e: Exception) {
@@ -108,6 +116,50 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     fun resetProgress(itemId: String) = viewModelScope.launch {
         try { api.resetProgress(itemId); refresh() } catch (_: Exception) {}
     }
+
+    fun renameBook(itemId: String, newTitle: String, onDone: (String?) -> Unit) = viewModelScope.launch {
+        try {
+            api.renameItem(itemId, newTitle.trim())
+            refresh()
+            onDone(null)
+        } catch (e: Exception) { onDone(e.message ?: "Rename failed") }
+    }
+
+    private val _upload = MutableStateFlow(UploadUi())
+    val upload: StateFlow<UploadUi> = _upload
+
+    fun uploadBook(title: String, author: String, series: String, uris: List<Uri>) = viewModelScope.launch {
+        if (title.isBlank() || uris.isEmpty()) {
+            _upload.value = UploadUi(message = "Pick at least one file and enter a title"); return@launch
+        }
+        _upload.value = UploadUi(running = true, message = "Uploading ${uris.size} file(s)…")
+        try {
+            val resolver = getApplication<Application>().contentResolver
+            val files = uris.mapIndexed { i, uri ->
+                var name = "file_$i.m4b"; var size = -1L
+                resolver.query(uri, null, null, null, null)?.use { c ->
+                    val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val si = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (c.moveToFirst()) {
+                        if (ni >= 0) name = c.getString(ni) ?: name
+                        if (si >= 0) size = c.getLong(si)
+                    }
+                }
+                AbsApi.UploadFile(
+                    name = name, size = size,
+                    mime = resolver.getType(uri) ?: "audio/mpeg",
+                    open = { resolver.openInputStream(uri) ?: throw IllegalStateException("Cannot read $name") }
+                )
+            }
+            api.uploadBook(title.trim(), author.trim().ifBlank { null }, series.trim().ifBlank { null }, files)
+            _upload.value = UploadUi(success = true, message = "Uploaded! The server is scanning it now.")
+            refresh()
+        } catch (e: Exception) {
+            _upload.value = UploadUi(message = "Upload failed: ${e.message?.take(200)}")
+        }
+    }
+
+    fun resetUpload() { _upload.value = UploadUi() }
 
     fun logout() = viewModelScope.launch {
         store.logout()

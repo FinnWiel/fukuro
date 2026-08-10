@@ -14,16 +14,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,7 +42,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -111,8 +120,6 @@ fun LoginScreen(vm: ShelfViewModel, onLoggedIn: () -> Unit) {
 fun HomeScreen(
     vm: ShelfViewModel,
     onOpenBook: (String) -> Unit,
-    onOpenPlayer: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     val state by vm.state.collectAsState()
     val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
@@ -129,18 +136,15 @@ fun HomeScreen(
                             .background(if (state.serverOnline) Color(0xFF2FBF71) else Color(0xFFE5484D))
                     )
                 }
-            },
-            actions = {
-                IconButton(onClick = { vm.refresh() }) { Icon(Icons.Filled.Refresh, "Refresh") }
-                IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, "Settings") }
             }
         )
     }) { pad ->
-        if (state.loading && state.items.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            return@Scaffold
-        }
-        LazyColumn(Modifier.fillMaxSize().padding(pad)) {
+        PullToRefreshBox(
+            isRefreshing = state.loading,
+            onRefresh = { vm.refresh() },
+            modifier = Modifier.fillMaxSize().padding(pad)
+        ) {
+        LazyColumn(Modifier.fillMaxSize()) {
             val sections = sectionsCsv.split(',').filter { it.isNotBlank() }
             sections.forEach { section ->
                 when (section) {
@@ -154,15 +158,11 @@ fun HomeScreen(
                         }
                     }
                     "series" -> {
-                        val bySeries = state.items
-                            .filter { it.media.metadata.series.isNotEmpty() }
-                            .groupBy { it.media.metadata.series.first().name }
-                        bySeries.forEach { (name, books) ->
-                            item { SectionHeader(name) }
-                            item {
-                                BookRow(vm, books.sortedBy {
-                                    it.media.metadata.series.firstOrNull()?.sequence?.toDoubleOrNull() ?: 0.0
-                                }, state, onOpenBook)
+                        // proper grouping from the server's series endpoint
+                        state.series.forEach { series ->
+                            if (series.books.isNotEmpty()) {
+                                item { SectionHeader(series.name) }
+                                item { BookRow(vm, series.books, state, onOpenBook) }
                             }
                         }
                     }
@@ -189,6 +189,65 @@ fun HomeScreen(
                 }
             }
             item { Spacer(Modifier.height(24.dp)) }
+        }
+        }
+    }
+}
+
+/* ---------------- Library (full grid + search) ---------------- */
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LibraryScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
+    val state by vm.state.collectAsState()
+    var query by remember { mutableStateOf("") }
+    val filtered = if (query.isBlank()) state.items else state.items.filter {
+        (it.media.metadata.title ?: "").contains(query, ignoreCase = true) ||
+            (it.media.metadata.authorName ?: "").contains(query, ignoreCase = true)
+    }
+
+    Scaffold(topBar = { TopAppBar(title = { Text("Library") }) }) { pad ->
+        PullToRefreshBox(
+            isRefreshing = state.loading,
+            onRefresh = { vm.refresh() },
+            modifier = Modifier.fillMaxSize().padding(pad)
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                OutlinedTextField(
+                    query, { query = it }, singleLine = true,
+                    label = { Text("Search title or author") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(filtered, key = { it.id }) { book ->
+                        Column(Modifier.padding(4.dp).clickable { onOpenBook(book.id) }) {
+                            AsyncImage(
+                                model = vm.api.coverUrl(book.id),
+                                contentDescription = book.media.metadata.title,
+                                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
+                            )
+                            val p = state.progress[book.id]
+                            if (p != null && p.progress > 0.001 && !p.isFinished) {
+                                LinearProgressIndicator(
+                                    progress = { p.progress.toFloat() },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                )
+                            }
+                            Text(
+                                (book.media.metadata.title ?: "?") + (if (p?.isFinished == true) " ✓" else ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -240,11 +299,17 @@ fun BookScreen(vm: ShelfViewModel, itemId: String, onPlay: () -> Unit, onBack: (
     val book = state.items.firstOrNull { it.id == itemId } ?: return
     val meta = book.media.metadata
     val progress = state.progress[itemId]
+    var showRename by remember { mutableStateOf(false) }
+    var renameText by remember(meta.title) { mutableStateOf(meta.title ?: "") }
+    var renameError by remember { mutableStateOf<String?>(null) }
 
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(meta.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            actions = {
+                IconButton(onClick = { showRename = true }) { Icon(Icons.Filled.Edit, "Rename") }
+            }
         )
     }) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
@@ -256,9 +321,10 @@ fun BookScreen(vm: ShelfViewModel, itemId: String, onPlay: () -> Unit, onBack: (
                 Spacer(Modifier.height(12.dp))
                 Text(meta.title ?: "", style = MaterialTheme.typography.headlineSmall)
                 meta.authorName?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                meta.series.firstOrNull()?.let { s ->
-                    Text("${s.name} #${s.sequence ?: "?"}", style = MaterialTheme.typography.bodySmall)
-                }
+                // series info: item metadata when present, else look it up in the series list
+                val seriesText = meta.series.firstOrNull()?.let { "${it.name} #${it.sequence ?: "?"}" }
+                    ?: state.series.firstOrNull { s -> s.books.any { it.id == itemId } }?.name
+                seriesText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 Spacer(Modifier.height(8.dp))
                 progress?.let { p ->
                     if (p.isFinished) Text("Finished ✓", color = MaterialTheme.colorScheme.primary)
@@ -289,6 +355,31 @@ fun BookScreen(vm: ShelfViewModel, itemId: String, onPlay: () -> Unit, onBack: (
                 meta.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             }
         }
+    }
+
+    if (showRename) {
+        AlertDialog(
+            onDismissRequest = { showRename = false },
+            title = { Text("Rename book") },
+            text = {
+                Column {
+                    OutlinedTextField(renameText, { renameText = it }, singleLine = true,
+                        label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
+                    renameError?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.renameBook(itemId, renameText) { err ->
+                        if (err == null) showRename = false else renameError = err
+                    }
+                }, enabled = renameText.isNotBlank()) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancel") } }
+        )
     }
 }
 

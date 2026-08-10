@@ -63,6 +63,8 @@ fun PlayerScreen(vm: ShelfViewModel, controller: MediaController?, onBack: () ->
     var durationMs by remember { mutableLongStateOf(0L) }
     var sleepRemaining by remember { mutableLongStateOf(0L) }
     var showSleepDialog by remember { mutableStateOf(false) }
+    var speed by remember { mutableStateOf(1.0f) }
+    var showSpeedDialog by remember { mutableStateOf(false) }
 
     // poll player state (simple + robust for v0.1)
     LaunchedEffect(controller) {
@@ -74,6 +76,7 @@ fun PlayerScreen(vm: ShelfViewModel, controller: MediaController?, onBack: () ->
                 isPlaying = c.isPlaying
                 positionMs = c.currentPosition
                 durationMs = c.duration.coerceAtLeast(0)
+                speed = c.playbackParameters.speed
                 val f = c.sendCustomCommand(
                     SessionCommand(PlayerService.CMD_SLEEP_REMAINING, Bundle.EMPTY), Bundle.EMPTY
                 )
@@ -90,6 +93,9 @@ fun PlayerScreen(vm: ShelfViewModel, controller: MediaController?, onBack: () ->
             title = { Text("Now Playing") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
+                TextButton(onClick = { showSpeedDialog = true }) {
+                    Text("${"%.2f".format(speed).trimEnd('0').trimEnd('.', ',')}x")
+                }
                 IconButton(onClick = { showSleepDialog = true }) {
                     Icon(
                         Icons.Filled.Bedtime, "Sleep timer",
@@ -150,6 +156,30 @@ fun PlayerScreen(vm: ShelfViewModel, controller: MediaController?, onBack: () ->
                 }
             }
         }
+    }
+
+    if (showSpeedDialog) {
+        AlertDialog(
+            onDismissRequest = { showSpeedDialog = false },
+            title = { Text("Playback speed") },
+            text = {
+                Column {
+                    listOf(0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f).forEach { s ->
+                        TextButton(onClick = {
+                            controller?.setPlaybackSpeed(s)
+                            showSpeedDialog = false
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "${"%.2f".format(s).trimEnd('0').trimEnd('.', ',')}x" + (if (s == speed) "  ✓" else ""),
+                                color = if (s == speed) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
     }
 
     if (showSleepDialog) {

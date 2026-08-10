@@ -12,7 +12,25 @@ data class AbsUser(val id: String, val username: String, val token: String)
 data class LibrariesResponse(val libraries: List<AbsLibrary>)
 
 @Serializable
-data class AbsLibrary(val id: String, val name: String, val mediaType: String = "book")
+data class AbsLibrary(
+    val id: String,
+    val name: String,
+    val mediaType: String = "book",
+    val folders: List<LibFolder> = emptyList(),
+)
+
+@Serializable
+data class LibFolder(val id: String = "", val fullPath: String = "")
+
+@Serializable
+data class SeriesListResponse(val results: List<AbsSeries> = emptyList())
+
+@Serializable
+data class AbsSeries(
+    val id: String = "",
+    val name: String = "",
+    val books: List<LibraryItem> = emptyList(),
+)
 
 @Serializable
 data class ItemsResponse(val results: List<LibraryItem>, val total: Int = 0)
