@@ -42,10 +42,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,10 +77,21 @@ fun LoginScreen(vm: ShelfViewModel, onLoggedIn: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(server, { server = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(user, { user = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            user, { user = it }, label = { Text("Username") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            modifier = Modifier.fillMaxWidth()
+                // tells the Android Autofill framework (1Password etc.) this is a username field
+                .semantics { contentType = ContentType.Username }
+        )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(pass, { pass = it }, label = { Text("Password") }, singleLine = true,
-            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            pass, { pass = it }, label = { Text("Password") }, singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth()
+                .semantics { contentType = ContentType.Password }
+        )
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = { vm.login(server, user, pass) { ok -> if (ok) onLoggedIn() } },
