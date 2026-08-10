@@ -1,0 +1,114 @@
+package fukuro
+
+import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
+
+private val Context.dataStore by preferencesDataStore(name = "fukuro")
+
+/** Small persistent settings store. Blocking getters exist for non-suspend call sites (URL builders). */
+class Store(private val context: Context) {
+    private object K {
+        val SERVER = stringPreferencesKey("server_url")
+        val TOKEN = stringPreferencesKey("token")
+        val USERNAME = stringPreferencesKey("username")
+        val THEME = stringPreferencesKey("theme") // system | dark | light
+        val HOME_SECTIONS = stringPreferencesKey("home_sections") // csv order
+        val LOCAL_PROGRESS = stringPreferencesKey("local_progress") // json {itemId: currentTimeSec}
+        val ACCENT = stringPreferencesKey("accent") // "dynamic" or a key from ACCENT_COLORS
+        val PROGRESS_STYLE = stringPreferencesKey("progress_style") // "circle" | "bar"
+        val DOWNLOAD_DIR = stringPreferencesKey("download_dir") // absolute path, blank = app storage
+        val COVER_SIZE = stringPreferencesKey("cover_size") // "0".."4"
+        val FAVORITES_TOP = booleanPreferencesKey("favorites_top")
+        val SKIP_BACK = stringPreferencesKey("skip_back")     // seconds
+        val SKIP_FORWARD = stringPreferencesKey("skip_forward")
+        val API_KEY = stringPreferencesKey("abs_api_key")
+        val SPEED = stringPreferencesKey("playback_speed")
+        val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
+    }
+
+    val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
+    val accentFlow: Flow<String> = context.dataStore.data.map { it[K.ACCENT] ?: DEFAULT_ACCENT }
+    val progressStyleFlow: Flow<String> = context.dataStore.data.map { it[K.PROGRESS_STYLE] ?: "circle" }
+    val downloadDirFlow: Flow<String> = context.dataStore.data.map { it[K.DOWNLOAD_DIR] ?: "" }
+    val coverSizeFlow: Flow<Int> = context.dataStore.data.map { it[K.COVER_SIZE]?.toIntOrNull() ?: 2 }
+    val favoritesTopFlow: Flow<Boolean> = context.dataStore.data.map { it[K.FAVORITES_TOP] ?: false }
+    val skipBackFlow: Flow<Int> = context.dataStore.data.map { it[K.SKIP_BACK]?.toIntOrNull() ?: 10 }
+    val skipForwardFlow: Flow<Int> = context.dataStore.data.map { it[K.SKIP_FORWARD]?.toIntOrNull() ?: 30 }
+    fun skipBackBlocking(): Int = runBlocking { context.dataStore.data.first()[K.SKIP_BACK]?.toIntOrNull() ?: 10 }
+    fun skipForwardBlocking(): Int = runBlocking { context.dataStore.data.first()[K.SKIP_FORWARD]?.toIntOrNull() ?: 30 }
+    fun downloadDirBlocking(): String = runBlocking { context.dataStore.data.first()[K.DOWNLOAD_DIR] ?: "" }
+    val apiKeyFlow: Flow<String> = context.dataStore.data.map { it[K.API_KEY] ?: "" }
+    val homeSectionsFlow: Flow<String> =
+        context.dataStore.data.map { it[K.HOME_SECTIONS] ?: DEFAULT_SECTIONS }
+    val serverFlow: Flow<String?> = context.dataStore.data.map { it[K.SERVER] }
+    val usernameFlow: Flow<String?> = context.dataStore.data.map { it[K.USERNAME] }
+
+    suspend fun serverUrl(): String? = context.dataStore.data.first()[K.SERVER]
+    suspend fun token(): String? = context.dataStore.data.first()[K.TOKEN]
+    fun serverUrlBlocking(): String? = runBlocking { serverUrl() }
+    fun tokenBlocking(): String? = runBlocking { token() }
+
+    suspend fun setServerUrl(v: String) = context.dataStore.edit { it[K.SERVER] = v }
+    suspend fun setToken(v: String) = context.dataStore.edit { it[K.TOKEN] = v }
+    suspend fun setUsername(v: String) = context.dataStore.edit { it[K.USERNAME] = v }
+    suspend fun setTheme(v: String) = context.dataStore.edit { it[K.THEME] = v }
+    suspend fun setAccent(v: String) = context.dataStore.edit { it[K.ACCENT] = v }
+    suspend fun setProgressStyle(v: String) = context.dataStore.edit { it[K.PROGRESS_STYLE] = v }
+    suspend fun setDownloadDir(v: String) = context.dataStore.edit { it[K.DOWNLOAD_DIR] = v }
+    suspend fun setCoverSize(v: Int) = context.dataStore.edit { it[K.COVER_SIZE] = v.toString() }
+    suspend fun setFavoritesTop(v: Boolean) = context.dataStore.edit { it[K.FAVORITES_TOP] = v }
+    suspend fun setSkipBack(v: Int) = context.dataStore.edit { it[K.SKIP_BACK] = v.toString() }
+    suspend fun setSkipForward(v: Int) = context.dataStore.edit { it[K.SKIP_FORWARD] = v.toString() }
+    suspend fun setApiKey(v: String) = context.dataStore.edit { it[K.API_KEY] = v }
+    suspend fun apiKey(): String? = context.dataStore.data.first()[K.API_KEY]
+    suspend fun playbackSpeed(): Float = context.dataStore.data.first()[K.SPEED]?.toFloatOrNull() ?: 1.0f
+    suspend fun setPlaybackSpeed(v: Float) = context.dataStore.edit { it[K.SPEED] = v.toString() }
+
+    val favoritesFlow: Flow<Set<String>> = context.dataStore.data.map {
+        (it[K.FAVORITES] ?: "").split(',').filter { id -> id.isNotBlank() }.toSet()
+    }
+
+    suspend fun toggleFavorite(itemId: String) {
+        val cur = (context.dataStore.data.first()[K.FAVORITES] ?: "")
+            .split(',').filter { it.isNotBlank() }.toMutableSet()
+        if (!cur.add(itemId)) cur.remove(itemId)
+        context.dataStore.edit { it[K.FAVORITES] = cur.joinToString(",") }
+    }
+    suspend fun setHomeSections(csv: String) = context.dataStore.edit { it[K.HOME_SECTIONS] = csv }
+
+    suspend fun logout() = context.dataStore.edit { it.remove(K.TOKEN); it.remove(K.USERNAME) }
+
+    // --- local playback-position cache (used when the server is unreachable) ---
+    suspend fun localProgress(): Map<String, Double> = try {
+        val raw = context.dataStore.data.first()[K.LOCAL_PROGRESS] ?: "{}"
+        kotlinx.serialization.json.Json.decodeFromString(raw)
+    } catch (_: Exception) { emptyMap() }
+
+    suspend fun setLocalProgress(itemId: String, currentTimeSec: Double) {
+        val map = localProgress().toMutableMap()
+        map[itemId] = currentTimeSec
+        val enc = kotlinx.serialization.json.Json.encodeToString(
+            kotlinx.serialization.serializer<Map<String, Double>>(), map
+        )
+        context.dataStore.edit { it[K.LOCAL_PROGRESS] = enc }
+    }
+
+    companion object {
+        const val DEFAULT_SECTIONS = "continue,favorites,downloaded,series,all"
+        val SECTION_LABELS = mapOf(
+            "continue" to "Continue Listening",
+            "favorites" to "Favorites",
+            "downloaded" to "Downloaded",
+            "series" to "Series",
+            "authors" to "Authors",
+            "all" to "All Books",
+        )
+    }
+}

@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Local config (machine-specific SDK path)
+local.properties
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# built APKs live in GitHub Releases, not git
+*.apk
