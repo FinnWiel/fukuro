@@ -78,6 +78,17 @@ class PlayerService : MediaLibraryService() {
 
         session = MediaLibrarySession.Builder(this, player, LibraryCallback()).build()
 
+        // restore last playback speed
+        scope.launch {
+            val speed = store.playbackSpeed()
+            if (speed > 0f) player.setPlaybackSpeed(speed)
+        }
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackParametersChanged(params: androidx.media3.common.PlaybackParameters) {
+                scope.launch { store.setPlaybackSpeed(params.speed) }
+            }
+        })
+
         // periodic progress sync while playing
         scope.launch {
             while (isActive) {
@@ -294,8 +305,15 @@ class PlayerService : MediaLibraryService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
 
+    /**
+     * App swiped away from recents = stop playback completely (user preference).
+     * Backgrounding (home button / screen off) never triggers this, so playback continues there.
+     */
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (!player.playWhenReady || player.mediaItemCount == 0) stopSelf()
+        scope.launch { syncProgress() }
+        player.pause()
+        player.stop()
+        stopSelf()
     }
 
     override fun onDestroy() {
