@@ -1,9 +1,9 @@
 package fukuro
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -41,28 +41,31 @@ private val Brown = Color(0xFF35150E)
  * it that can drift out of sync.
  */
 @Composable
-fun SplashLogo(onDone: () -> Unit) {
+fun SplashLogo(onReveal: () -> Unit = {}, onDone: () -> Unit) {
     val disc = remember { Animatable(0f) }
     val owl = remember { Animatable(1f) } // 1 = parked below the disc, 0 = home
     var leaving by remember { mutableStateOf(false) }
-    val fade by animateFloatAsState(if (leaving) 0f else 1f, tween(260), label = "splashFade")
+    val fade by animateFloatAsState(if (leaving) 0f else 1f, tween(220), label = "splashFade")
 
     LaunchedEffect(Unit) {
-        // Wait for a real frame before starting. Composition of the app underneath lands
-        // on the first one or two frames of the process, and a spring started inside that
-        // stall spends its opening frames catching up — which is exactly what reads as
-        // lag on a launch animation.
+        // Wait for a real frame before starting. Composition lands on the first frame or
+        // two of the process, and an animation started inside that stall opens by
+        // catching up on elapsed time instead of easing in.
         withFrameNanos { }
-        // a touch of overshoot: it should land with a bounce, not glide
-        disc.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium))
+        // overshoots to 1.15 and settles: the disc lands with a bounce
+        disc.animateTo(1f, tween(300, easing = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f)))
     }
     LaunchedEffect(Unit) {
         withFrameNanos { }
-        delay(110) // let the disc get most of the way there first
-        owl.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow))
-        delay(170)
+        delay(70) // the disc is already on its way; the two should read as one gesture
+        // Fixed duration, not a spring. A spring covers the distance quickly and then
+        // approaches home asymptotically, and that long slow tail is what looked like the
+        // owl stalling just short of the top. A tween simply arrives.
+        owl.animateTo(0f, tween(300, easing = FastOutSlowInEasing))
+        onReveal() // build the app underneath now, while the logo is still opaque
+        delay(150)
         leaving = true
-        delay(240)
+        delay(220)
         onDone()
     }
 

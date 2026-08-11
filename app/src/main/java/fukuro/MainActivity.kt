@@ -116,8 +116,15 @@ class MainActivity : ComponentActivity() {
                 var splashDone by androidx.compose.runtime.saveable.rememberSaveable {
                     mutableStateOf(false)
                 }
-                AppNav(vm, controller, pendingLink) { pendingLink = null }
-                if (!splashDone) SplashLogo { splashDone = true }
+                // The app is built once the logo has landed, not before: composing the
+                // whole nav graph is the one thing on this thread big enough to stutter
+                // the animation, and by then the library has loaded, so it composes once
+                // with real data instead of composing empty and again a moment later.
+                var appBuilt by androidx.compose.runtime.saveable.rememberSaveable {
+                    mutableStateOf(false)
+                }
+                if (appBuilt || splashDone) AppNav(vm, controller, pendingLink) { pendingLink = null }
+                if (!splashDone) SplashLogo(onReveal = { appBuilt = true }) { splashDone = true }
             }
         }
     }
