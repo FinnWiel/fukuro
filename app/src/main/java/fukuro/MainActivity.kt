@@ -101,7 +101,12 @@ class MainActivity : ComponentActivity() {
             val themePref by vm.store.themeFlow.collectAsState(initial = "system")
             val accentPref by vm.store.accentFlow.collectAsState(initial = DEFAULT_ACCENT)
             ShelfTheme(themePref, accentPref) {
+                // saved across configuration changes: a rotation should not replay it
+                var splashDone by androidx.compose.runtime.saveable.rememberSaveable {
+                    mutableStateOf(false)
+                }
                 AppNav(vm, controller)
+                if (!splashDone) SplashLogo { splashDone = true }
             }
         }
     }
