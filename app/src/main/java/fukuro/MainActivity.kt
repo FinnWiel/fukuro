@@ -147,6 +147,8 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
         )
         c.prepare()
         c.play()
+        // listening to it again means it belongs back on the Continue shelf
+        vm.unhideFromContinue(itemId)
         // already on the book page — it switches to playing mode by itself
     }
 
@@ -172,7 +174,8 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
                         onOpenServer = { nav.navigate("login") },
                         onOpenBook = { id -> sheetItem = id },
                         onOpenSeries = { id -> nav.navigate("series/$id") },
-                        onOpenAuthor = { name -> nav.navigate("author/${android.net.Uri.encode(name)}") })
+                        onOpenAuthor = { name -> nav.navigate("author/${android.net.Uri.encode(name)}") },
+                        onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") })
                 }
                 composable("library") {
                     LibraryScreen(
@@ -188,6 +191,10 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
                 composable("author/{name}") { entry ->
                     val name = entry.arguments?.getString("name") ?: return@composable
                     AuthorGridScreen(vm, name, onOpenBook = { b -> sheetItem = b }, onBack = { nav.popBackStack() })
+                }
+                composable("narrator/{name}") { entry ->
+                    val name = entry.arguments?.getString("name") ?: return@composable
+                    NarratorGridScreen(vm, name, onOpenBook = { b -> sheetItem = b }, onBack = { nav.popBackStack() })
                 }
                 // the book/now-playing page is not a destination — it is an overlay
                 // sheet (see below) so the page behind stays visible while dragging
@@ -327,17 +334,17 @@ private fun MiniPlayer(
                     ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
                 artwork = c.mediaMetadata.artworkUri?.toString()
                 isPlaying = c.isPlaying
-                // live whole-book position straight from the service (c.duration is
-                // only the current file, which made multi-file books read as finished)
+                // progress straight from the service: it already spans whatever the
+                // setting says (whole book or current chapter)
                 val f = c.sendCustomCommand(
                     SessionCommand(PlayerService.CMD_BOOK_POSITION, Bundle.EMPTY), Bundle.EMPTY
                 )
                 f.addListener({
                     try {
                         val b = f.get().extras
-                        val pos = b.getDouble("posSec", 0.0)
-                        val dur = b.getDouble("durSec", 0.0)
-                        if (dur > 0) livePos = (pos / dur).toFloat().coerceIn(0f, 1f)
+                        if (b.getDouble("winLenSec", 0.0) > 0) {
+                            livePos = b.getDouble("frac", 0.0).toFloat().coerceIn(0f, 1f)
+                        }
                     } catch (_: Exception) {}
                 }, java.util.concurrent.Executor { it.run() })
             }

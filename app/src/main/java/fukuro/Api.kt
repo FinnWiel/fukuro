@@ -93,6 +93,22 @@ class AbsApi(private val store: Store) {
             raw("GET", "/api/libraries/$libraryId/items?limit=1000&sort=media.metadata.title&minified=0")
         ).results
 
+    /**
+     * Pulls the first chunk of an audio file and throws it away. That opens the
+     * connection, resolves DNS/TLS and gets the server reading the file, so the
+     * player has far less to do when the user actually presses play.
+     */
+    suspend fun warmUp(itemId: String, ino: String) = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url(fileUrl(itemId, ino))
+                .header("Range", "bytes=0-262143")
+                .get().build()
+            http.newCall(req).execute().use { resp -> resp.body?.source()?.readByteArray() }
+        } catch (_: Exception) { /* warming is best effort */ }
+        Unit
+    }
+
     /** Authors with their (optional) portrait; imagePath == null means no photo on the server. */
     suspend fun libraryAuthors(libraryId: String): List<AbsAuthor> =
         json.decodeFromString<AuthorsResponse>(raw("GET", "/api/libraries/$libraryId/authors")).authors

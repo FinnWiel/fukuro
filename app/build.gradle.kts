@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -30,8 +30,8 @@ android {
         // versionCode must never go down or Android refuses to install over the
         // existing app, so it stays a plain counter; the human-facing build number
         // is the commit count below.
-        versionCode = 56
-        versionName = "1.2.2"
+        versionCode = 57
+        versionName = "1.3.0"
         buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
     }
 

@@ -105,6 +105,7 @@ data class MediaProgress(
     val progress: Double = 0.0, // 0..1
     val currentTime: Double = 0.0,
     val isFinished: Boolean = false,
+    val lastUpdate: Long = 0, // epoch ms; orders Continue Listening
 )
 
 @Serializable

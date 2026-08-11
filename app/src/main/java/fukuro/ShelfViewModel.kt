@@ -25,6 +25,7 @@ data class UiState(
     val progress: Map<String, MediaProgress> = emptyMap(),
     val downloadedIds: Set<String> = emptySet(),
     val favorites: Set<String> = emptySet(),
+    val continueHidden: Set<String> = emptySet(),
     val progressStyle: String = "circle", // "circle" | "bar"
     val coverSize: Int = 2, // 0..4, 2 = default
 )
@@ -78,6 +79,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         // keep favorites in sync with the persisted set
         viewModelScope.launch {
             store.favoritesFlow.collect { fav -> _state.value = _state.value.copy(favorites = fav) }
+        }
+        viewModelScope.launch {
+            store.continueHiddenFlow.collect { h -> _state.value = _state.value.copy(continueHidden = h) }
         }
         viewModelScope.launch {
             store.progressStyleFlow.collect { s -> _state.value = _state.value.copy(progressStyle = s) }
@@ -154,6 +158,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                     loading = false, serverOnline = true, downloadedIds = downloaded,
                     localCount = localItems.size
                 )
+                prefetchContinue()
             } catch (e: Exception) {
                 // keep whatever is already on screen (cache + local + downloads)
                 val fallback = downloaded.mapNotNull { downloads.localItem(it) }
@@ -239,6 +244,36 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleFavorite(itemId: String) = viewModelScope.launch { store.toggleFavorite(itemId) }
+
+    fun hideFromContinue(itemId: String) = viewModelScope.launch { store.hideFromContinue(itemId) }
+    fun unhideFromContinue(itemId: String) = viewModelScope.launch { store.unhideFromContinue(itemId) }
+
+    /** Books on the Continue Listening shelf, most recently listened first. */
+    fun continueListening(): List<LibraryItem> =
+        _state.value.let { s ->
+            s.items.filter { item ->
+                val p = s.progress[item.id]
+                p != null && !p.isFinished && p.progress > 0.001 && item.id !in s.continueHidden
+            }.sortedByDescending { s.progress[it.id]?.lastUpdate ?: 0L }
+        }
+
+    /**
+     * Fetches details for the first few Continue Listening books and opens a
+     * connection to the top one's audio, so pressing play doesn't start with a
+     * round trip to the server.
+     */
+    private fun prefetchContinue() = viewModelScope.launch {
+        if (!_state.value.serverOnline) return@launch
+        val queue = continueListening().take(4)
+        queue.forEachIndexed { index, item ->
+            if (LocalLibrary.isLocal(item.id) || downloads.isDownloaded(item.id)) return@forEachIndexed
+            runCatching {
+                val full = shelf.itemCache[item.id] ?: api.item(item.id).also { shelf.itemCache[item.id] = it }
+                // only warm the audio connection for the book most likely to be played
+                if (index == 0) full.media.audioFiles.firstOrNull()?.let { api.warmUp(item.id, it.ino) }
+            }
+        }
+    }
 
     fun renameBook(itemId: String, newTitle: String, onDone: (String?) -> Unit) = viewModelScope.launch {
         try {

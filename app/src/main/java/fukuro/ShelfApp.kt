@@ -14,6 +14,13 @@ class ShelfApp : Application() {
     lateinit var cache: LibraryCache
         private set
 
+    /**
+     * Full item details shared between the UI and the player service. Continue
+     * Listening books are fetched into it ahead of time, so pressing play does not
+     * wait on a round trip to the server first.
+     */
+    val itemCache = java.util.concurrent.ConcurrentHashMap<String, LibraryItem>()
+
     override fun onCreate() {
         super.onCreate()
         installCrashLog()

@@ -37,6 +37,7 @@ class PlayerService : MediaLibraryService() {
         const val CMD_SEEK_BACK_10 = "SEEK_BACK_10"
         const val CMD_SEEK_FWD_30 = "SEEK_FWD_30"
         const val CMD_BOOK_POSITION = "BOOK_POSITION"
+        const val CMD_SEEK_ABS = "SEEK_ABS" // arg: posSec within the whole book
         const val ROOT_ID = "root"
         const val CONTINUE_ID = "continue"
         const val LIBRARY_ID = "library"
@@ -59,9 +60,7 @@ class PlayerService : MediaLibraryService() {
     private var currentItemId: String? = null
     private var currentItemDuration: Double = 0.0
     private var trackOffsets: List<Double> = emptyList() // cumulative start offset of each track
-
-    // short-lived cache so pressing play doesn't refetch item metadata
-    private val itemCache = HashMap<String, Pair<Long, LibraryItem>>()
+    private var currentChapters: List<Chapter> = emptyList()
 
     private suspend fun fetchItem(itemId: String): LibraryItem {
         // books from the on-device folder never touch the network
@@ -69,11 +68,11 @@ class PlayerService : MediaLibraryService() {
             ShelfApp.from(application).local.items().firstOrNull { it.id == itemId }?.let { return it }
         }
         if (downloads.isDownloaded(itemId)) downloads.localItem(itemId)?.let { return it } // local first: instant
-        itemCache[itemId]?.let { (t, cached) ->
-            if (System.currentTimeMillis() - t < 60_000) return cached
-        }
+        // prefetched by the app for Continue Listening books
+        val shared = ShelfApp.from(application).itemCache
+        shared[itemId]?.let { return it }
         val item = api.item(itemId)
-        itemCache[itemId] = System.currentTimeMillis() to item
+        shared[itemId] = item
         return item
     }
 
@@ -97,7 +96,9 @@ class PlayerService : MediaLibraryService() {
             .setSeekForwardIncrementMs(30_000)
             .build()
 
-        session = MediaLibrarySession.Builder(this, player, LibraryCallback()).build()
+        // the session gets the scoped view, everything inside this service keeps using
+        // the raw player (real per-file positions)
+        session = MediaLibrarySession.Builder(this, ScopedPlayer(player), LibraryCallback()).build()
 
         // Replace prev/next in the notification, lock screen and Android Auto
         // with -10s / +30s buttons (slots BACK and FORWARD).
@@ -131,6 +132,26 @@ class PlayerService : MediaLibraryService() {
                 if (player.isPlaying) syncProgress()
             }
         }
+
+        // A chapter boundary is not an event as far as the player is concerned, so the
+        // notification would happily count on past the end of the chapter. Touching the
+        // metadata re-publishes position and duration to every controller.
+        scope.launch {
+            var lastKey = ""
+            while (isActive) {
+                delay(1000)
+                if (currentChapters.isEmpty()) continue
+                val perChapter = store.trackScopeBlocking() == "chapter"
+                val idx = if (perChapter) {
+                    currentChapters.indexOf(chapterAt(bookPositionSec()))
+                } else -1
+                val key = "$perChapter:$idx"
+                if (key != lastKey) {
+                    lastKey = key
+                    pokeMetadata(idx)
+                }
+            }
+        }
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) scope.launch { syncProgress() }
@@ -143,6 +164,90 @@ class PlayerService : MediaLibraryService() {
         val idx = player.currentMediaItemIndex
         val offset = trackOffsets.getOrElse(idx) { 0.0 }
         return offset + player.currentPosition / 1000.0
+    }
+
+    private fun chapterAt(sec: Double): Chapter? =
+        currentChapters.firstOrNull { sec >= it.start && sec < it.end } ?: currentChapters.lastOrNull()
+
+    /**
+     * The stretch of the book the progress bar represents: the whole thing, or just the
+     * current chapter when Settings says so. Returned as (startSec, lengthSec).
+     */
+    private fun scopeWindow(): Pair<Double, Double> {
+        val bookLen = currentItemDuration
+        if (store.trackScopeBlocking() != "chapter" || currentChapters.isEmpty()) return 0.0 to bookLen
+        val ch = chapterAt(bookPositionSec()) ?: return 0.0 to bookLen
+        return ch.start to (ch.end - ch.start)
+    }
+
+    /**
+     * Swaps the current item for an identical one carrying the chapter number. Same uri, so
+     * playback runs on untouched; the point is the metadata-changed event it fires.
+     */
+    private fun pokeMetadata(chapterIndex: Int) {
+        val item = player.currentMediaItem ?: return
+        val meta = item.mediaMetadata.buildUpon()
+            .setTrackNumber(if (chapterIndex >= 0) chapterIndex + 1 else null)
+            .setTotalTrackCount(if (chapterIndex >= 0) currentChapters.size else null)
+            .build()
+        try {
+            player.replaceMediaItem(
+                player.currentMediaItemIndex, item.buildUpon().setMediaMetadata(meta).build()
+            )
+        } catch (_: Exception) { /* nothing loaded / racing a transition */ }
+    }
+
+    /** Seek by absolute book position, whatever track that lands in. */
+    private fun seekBookTo(sec: Double) {
+        val (idx, within) = locate(sec.coerceAtLeast(0.0))
+        player.seekTo(idx, within)
+    }
+
+    /**
+     * What the notification, lock screen and Android Auto see. ExoPlayer's timeline holds
+     * one entry per audio file, which means nothing to a listener, so report the book (or
+     * the current chapter) instead and translate seeks back to the real timeline.
+     */
+    private inner class ScopedPlayer(inner: Player) : androidx.media3.common.ForwardingPlayer(inner) {
+
+        /** Nothing loaded yet, or a book with no duration: leave the real values alone. */
+        private fun scoped(): Boolean = currentItemDuration > 0 && trackOffsets.isNotEmpty()
+
+        override fun getDuration(): Long {
+            if (!scoped()) return super.getDuration()
+            val len = scopeWindow().second
+            return if (len > 0) (len * 1000).toLong() else C.TIME_UNSET
+        }
+
+        override fun getContentDuration(): Long = duration
+
+        override fun getCurrentPosition(): Long {
+            if (!scoped()) return super.getCurrentPosition()
+            val (start, len) = scopeWindow()
+            val pos = ((bookPositionSec() - start) * 1000).toLong()
+            return if (len > 0) pos.coerceIn(0L, (len * 1000).toLong()) else pos.coerceAtLeast(0L)
+        }
+
+        override fun getContentPosition(): Long = currentPosition
+
+        override fun getBufferedPosition(): Long {
+            if (!scoped()) return super.getBufferedPosition()
+            val (start, len) = scopeWindow()
+            val absBuffered =
+                trackOffsets.getOrElse(super.getCurrentMediaItemIndex()) { 0.0 } +
+                    super.getBufferedPosition() / 1000.0
+            val rel = ((absBuffered - start) * 1000).toLong()
+            val max = if (len > 0) (len * 1000).toLong() else Long.MAX_VALUE
+            return rel.coerceIn(currentPosition, max)
+        }
+
+        override fun getContentBufferedPosition(): Long = bufferedPosition
+
+        /** Scrubbing the notification bar hands us a position inside the shown window. */
+        override fun seekTo(positionMs: Long) {
+            if (!scoped()) { super.seekTo(positionMs); return }
+            seekBookTo(scopeWindow().first + positionMs / 1000.0)
+        }
     }
 
     private suspend fun syncProgress() {
@@ -163,6 +268,7 @@ class PlayerService : MediaLibraryService() {
         }
         currentItemId = itemId
         currentItemDuration = item.media.duration
+        currentChapters = item.media.chapters.filter { it.end > it.start }
         val files = item.media.audioFiles.sortedBy { it.index }
         var acc = 0.0
         val offsets = ArrayList<Double>(files.size)
@@ -217,6 +323,7 @@ class PlayerService : MediaLibraryService() {
                 .add(SessionCommand(CMD_SEEK_BACK_10, Bundle.EMPTY))
                 .add(SessionCommand(CMD_SEEK_FWD_30, Bundle.EMPTY))
                 .add(SessionCommand(CMD_BOOK_POSITION, Bundle.EMPTY))
+                .add(SessionCommand(CMD_SEEK_ABS, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.accept(cmds, base.availablePlayerCommands)
         }
@@ -247,12 +354,25 @@ class PlayerService : MediaLibraryService() {
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, out))
                 }
                 CMD_BOOK_POSITION -> {
-                    // live position across the WHOLE book, for the mini player
+                    // live position across the WHOLE book, plus the window the bars should
+                    // show (book or current chapter) so the app doesn't have to work it out
+                    val pos = bookPositionSec()
+                    val (winStart, winLen) = scopeWindow()
                     val out = Bundle().apply {
-                        putDouble("posSec", bookPositionSec())
+                        putDouble("posSec", pos)
                         putDouble("durSec", currentItemDuration)
+                        putDouble("winStartSec", winStart)
+                        putDouble("winLenSec", winLen)
+                        putDouble(
+                            "frac",
+                            if (winLen > 0) ((pos - winStart) / winLen).coerceIn(0.0, 1.0) else 0.0
+                        )
                     }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, out))
+                }
+                CMD_SEEK_ABS -> {
+                    seekBookTo(args.getDouble("posSec", 0.0))
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 CMD_SEEK_BACK_10 -> {
                     val ms = store.skipBackBlocking() * 1000L
