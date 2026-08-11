@@ -119,6 +119,7 @@ fun SettingsScreen(
     val coverSize by vm.store.coverSizeFlow.collectAsState(initial = 2)
     val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
     val skipForward by vm.store.skipForwardFlow.collectAsState(initial = 30)
+    val trackScope by vm.store.trackScopeFlow.collectAsState(initial = "book")
     var showPicker by remember { mutableStateOf(false) }
     val state by vm.state.collectAsState()
     val localFolder by vm.store.localFolderFlow.collectAsState(initial = "")
@@ -300,6 +301,20 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
+            Text("Player", style = MaterialTheme.typography.titleMedium)
+            Text("What the progress bar measures", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("book" to "Whole book", "chapter" to "Current chapter").forEach { (key, label) ->
+                    FilterChip(
+                        selected = trackScope == key,
+                        onClick = { scope.launch { vm.store.setTrackScope(key) } },
+                        label = { Text(label) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
             Text("Skip buttons", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             Text("Back", style = MaterialTheme.typography.bodySmall)

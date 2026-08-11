@@ -139,6 +139,7 @@ fun PlayerScreen(
     val state by vm.state.collectAsState()
     val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
     val skipFwd by vm.store.skipForwardFlow.collectAsState(initial = 30)
+    val trackScope by vm.store.trackScopeFlow.collectAsState(initial = "book")
     var playingId by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<LibraryItem?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -337,28 +338,51 @@ fun PlayerScreen(
                         }
                         Spacer(Modifier.height(12.dp))
 
-                        // one scrubber for both modes, spanning the WHOLE book (not just the
-                        // current file). Shown before playback too, read-only until loaded.
-                        val totalSec = (if (bookDuration > 0) bookDuration else durationMs / 1000.0)
+                        // The scrubber spans either the whole book or just the current
+                        // chapter, per the Settings choice. Positions stay absolute
+                        // underneath; only the window shown on the track changes.
+                        val bookSec = (if (bookDuration > 0) bookDuration else durationMs / 1000.0)
                             .coerceAtLeast(1.0)
+                        val currentChapter = chapters.firstOrNull {
+                            absolutePosSec >= it.start && absolutePosSec < it.end
+                        }
+                        val perChapter = trackScope == "chapter" && currentChapter != null
+                        val spanStart = if (perChapter) currentChapter!!.start else 0.0
+                        val spanLen = if (perChapter) {
+                            (currentChapter!!.end - currentChapter.start).coerceAtLeast(1.0)
+                        } else bookSec
+
                         val accent = MaterialTheme.colorScheme.primary
                         // while dragging, follow the finger; otherwise follow playback
                         var dragSec by remember { mutableStateOf<Float?>(null) }
-                        val shownSec = (dragSec?.toDouble() ?: absolutePosSec).coerceIn(0.0, totalSec)
-                        val frac = (shownSec / totalSec).toFloat().coerceIn(0f, 1f)
+                        val shownSec = (dragSec?.toDouble() ?: (absolutePosSec - spanStart))
+                            .coerceIn(0.0, spanLen)
+                        val frac = (shownSec / spanLen).toFloat().coerceIn(0f, 1f)
 
                         Scrubber(
                             fraction = frac,
                             enabled = isCurrent,
                             accent = accent,
-                            onScrub = { f -> dragSec = f * totalSec.toFloat() },
-                            onScrubEnd = { f -> seekAbsolute(f * totalSec); dragSec = null }
+                            onScrub = { f -> dragSec = f * spanLen.toFloat() },
+                            onScrubEnd = { f -> seekAbsolute(spanStart + f * spanLen); dragSec = null }
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(fmtMs((shownSec * 1000).toLong()),
                                 style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
-                            Text(fmtMs((totalSec * 1000).toLong()),
-                                style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                            Text(
+                                if (perChapter) "-${fmtMs(((spanLen - shownSec) * 1000).toLong())}"
+                                else fmtMs((spanLen * 1000).toLong()),
+                                style = MaterialTheme.typography.bodySmall, color = TxtSecondary
+                            )
+                        }
+                        if (perChapter) {
+                            Text(
+                                currentChapter!!.title.ifBlank { "Chapter" } +
+                                    " · ${fmtMs((absolutePosSec * 1000).toLong())} of ${fmtMs((bookSec * 1000).toLong())}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TxtSecondary,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
                         }
 
                         Spacer(Modifier.height(16.dp))

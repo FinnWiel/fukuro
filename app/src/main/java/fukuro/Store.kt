@@ -60,6 +60,7 @@ class Store(private val context: Context) {
         val SKIP_FORWARD = stringPreferencesKey("skip_forward")
         val OFFLINE_ONLY = booleanPreferencesKey("offline_only")   // chose to use the app without a server
         val LOCAL_FOLDER = stringPreferencesKey("local_folder")    // SAF tree uri of the on-device library
+        val TRACK_SCOPE = stringPreferencesKey("track_scope")      // "book" | "chapter"
         val API_KEY = stringPreferencesKey("abs_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
@@ -75,6 +76,8 @@ class Store(private val context: Context) {
     val skipForwardFlow: Flow<Int> = context.dataStore.data.map { it[K.SKIP_FORWARD]?.toIntOrNull() ?: 30 }
     val offlineOnlyFlow: Flow<Boolean> = context.dataStore.data.map { it[K.OFFLINE_ONLY] ?: false }
     val localFolderFlow: Flow<String> = context.dataStore.data.map { it[K.LOCAL_FOLDER] ?: "" }
+    val trackScopeFlow: Flow<String> = context.dataStore.data.map { it[K.TRACK_SCOPE] ?: "book" }
+    suspend fun setTrackScope(v: String) = context.dataStore.edit { it[K.TRACK_SCOPE] = v }
     fun localFolderBlocking(): String = mLocalFolder
     suspend fun setOfflineOnly(v: Boolean) = context.dataStore.edit { it[K.OFFLINE_ONLY] = v }
     suspend fun setLocalFolder(v: String) = context.dataStore.edit { it[K.LOCAL_FOLDER] = v }
