@@ -504,9 +504,11 @@ fun HomeScreen(
                                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                                     items(withBooks, key = { it.id }) { series ->
                                         CollectionCard(
-                                            coverUrl = series.books.firstOrNull()?.let { vm.coverModel(it.id) },
+                                            // up to four covers, in reading order
+                                            covers = series.books.take(4).map { vm.coverModel(it.id) },
                                             title = series.name,
-                                            subtitle = "${series.books.size} books",
+                                            subtitle = "${series.books.size} book" +
+                                                (if (series.books.size == 1) "" else "s"),
                                             coverSize = state.coverSize,
                                             onClick = { onOpenSeries(series.id) }
                                         )
@@ -546,7 +548,7 @@ fun HomeScreen(
                                     items(authors, key = { it.id.ifBlank { it.name } }) { author ->
                                         val books = state.items.count { it.hasAuthor(author.name) }
                                         CollectionCard(
-                                            coverUrl = author.imagePath?.let { vm.api.authorImageUrl(author.id) },
+                                            covers = listOf(author.imagePath?.let { vm.api.authorImageUrl(author.id) }),
                                             title = author.name,
                                             subtitle = (if (books > 0) books else author.numBooks).let {
                                                 "$it book" + (if (it == 1) "" else "s")
@@ -570,13 +572,14 @@ fun HomeScreen(
                                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                                     items(narrators, key = { it.first }) { (name, count) ->
                                         CollectionCard(
-                                            // no narrator artwork on the server; use a book of theirs
-                                            coverUrl = state.items.firstOrNull { it.hasNarrator(name) }
-                                                ?.let { vm.coverModel(it.id) },
+                                            // the server has no narrator portraits, so the
+                                            // owl stands in, same as an author without a photo
+                                            covers = listOf(null),
                                             title = name,
                                             subtitle = "$count book" + (if (count == 1) "" else "s"),
                                             coverSize = state.coverSize,
-                                            onClick = { onOpenNarrator(name) }
+                                            onClick = { onOpenNarrator(name) },
+                                            placeholder = { OwlPlaceholder() }
                                         )
                                     }
                                 }
@@ -824,7 +827,7 @@ fun LibraryScreen(
 /** Card for a series or author in a carousel: cover, name, count. */
 @Composable
 private fun CollectionCard(
-    coverUrl: Any?, // URL for server items, a File for on-device covers
+    covers: List<Any?>, // URLs for server items, Files for on-device covers
     title: String,
     subtitle: String,
     coverSize: Int,
@@ -833,11 +836,15 @@ private fun CollectionCard(
 ) {
     // series/author cards track the cover size setting, a little wider than book cards
     Column(Modifier.width((coverRowWidth(coverSize) + 20).dp).padding(4.dp).clickable { onClick() }) {
-        CoverImage(
-            model = coverUrl, contentDescription = title,
-            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp)),
-            placeholder = placeholder
-        )
+        val shape = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+        if (covers.size > 1) {
+            CoverMosaic(covers, contentDescription = title, modifier = shape)
+        } else {
+            CoverImage(
+                model = covers.firstOrNull(), contentDescription = title,
+                modifier = shape, placeholder = placeholder
+            )
+        }
         Text(
             title, style = MaterialTheme.typography.bodyMedium,
             maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp)
