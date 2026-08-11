@@ -143,9 +143,10 @@ fun PlayerScreen(
     var playingId by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<LibraryItem?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
-    var positionMs by remember { mutableLongStateOf(0L) }
-    var durationMs by remember { mutableLongStateOf(0L) }
-    var trackIndex by remember { mutableIntStateOf(0) }
+    // absolute book position/duration from the service: the controller's own position is
+    // scoped to whatever the progress bars show, so it can't be used for this
+    var livePosSec by remember { mutableStateOf<Double?>(null) }
+    var liveDurSec by remember { mutableStateOf(0.0) }
     var sleepRemaining by remember { mutableLongStateOf(0L) }
     var showSleepDialog by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1.0f) }
@@ -161,10 +162,17 @@ fun PlayerScreen(
                     ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
                     ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
                 isPlaying = c.isPlaying
-                positionMs = c.currentPosition
-                durationMs = c.duration.coerceAtLeast(0)
-                trackIndex = c.currentMediaItemIndex
                 speed = c.playbackParameters.speed
+                val p = c.sendCustomCommand(
+                    SessionCommand(PlayerService.CMD_BOOK_POSITION, Bundle.EMPTY), Bundle.EMPTY
+                )
+                p.addListener({
+                    try {
+                        val b = p.get().extras
+                        livePosSec = b.getDouble("posSec", 0.0)
+                        liveDurSec = b.getDouble("durSec", 0.0)
+                    } catch (_: Exception) {}
+                }, java.util.concurrent.Executor { it.run() })
                 val f = c.sendCustomCommand(
                     SessionCommand(PlayerService.CMD_SLEEP_REMAINING, Bundle.EMPTY), Bundle.EMPTY
                 )
@@ -181,6 +189,7 @@ fun PlayerScreen(
 
     LaunchedEffect(displayId) {
         detail = null
+        livePosSec = null
         val id = displayId ?: return@LaunchedEffect
         detail = try { vm.api.item(id) } catch (_: Exception) { vm.downloads.localItem(id) }
     }
@@ -198,21 +207,18 @@ fun PlayerScreen(
     val saved = state.progress[displayId]
     val bookDuration = detail?.media?.duration ?: libItem?.media?.duration ?: 0.0
 
-    val offsets = remember(detail) {
-        val files = detail?.media?.audioFiles?.sortedBy { it.index } ?: emptyList()
-        var acc = 0.0
-        files.map { f -> acc.also { acc += f.duration } }
-    }
-    val absolutePosSec = if (isCurrent) {
-        (offsets.getOrElse(trackIndex) { 0.0 }) + positionMs / 1000.0
-    } else saved?.currentTime ?: 0.0
+    val absolutePosSec =
+        if (isCurrent) livePosSec ?: saved?.currentTime ?: 0.0
+        else saved?.currentTime ?: 0.0
     val chapters = detail?.media?.chapters ?: emptyList()
 
     fun seekAbsolute(sec: Double) {
-        var idx = 0
-        for (i in offsets.indices) if (offsets[i] <= sec) idx = i else break
-        val within = ((sec - offsets.getOrElse(idx) { 0.0 }) * 1000).toLong().coerceAtLeast(0)
-        controller?.seekTo(idx, within)
+        // the service owns the track layout; hand it book seconds and let it land the seek
+        controller?.sendCustomCommand(
+            SessionCommand(PlayerService.CMD_SEEK_ABS, Bundle.EMPTY),
+            Bundle().apply { putDouble("posSec", sec.coerceAtLeast(0.0)) }
+        )
+        livePosSec = sec
     }
 
     // pull down to dismiss: only takes over once the content can't scroll up any further
@@ -341,7 +347,7 @@ fun PlayerScreen(
                         // The scrubber spans either the whole book or just the current
                         // chapter, per the Settings choice. Positions stay absolute
                         // underneath; only the window shown on the track changes.
-                        val bookSec = (if (bookDuration > 0) bookDuration else durationMs / 1000.0)
+                        val bookSec = (if (bookDuration > 0) bookDuration else liveDurSec)
                             .coerceAtLeast(1.0)
                         val currentChapter = chapters.firstOrNull {
                             absolutePosSec >= it.start && absolutePosSec < it.end

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.AlertDialog
@@ -296,6 +297,18 @@ fun BookOptionsSheet(
                 vm.resetProgress(itemId)
                 onDismiss()
             }
+            // only worth offering while the book is actually on that shelf
+            if (p != null && !p.isFinished && p.progress > 0.001) {
+                val hidden = itemId in state.continueHidden
+                SheetRow(
+                    icon = Icons.Rounded.PlaylistRemove,
+                    label = if (hidden) "Back to Continue Listening" else "Remove from Continue Listening",
+                    slashed = false
+                ) {
+                    if (hidden) vm.unhideFromContinue(itemId) else vm.hideFromContinue(itemId)
+                    onDismiss()
+                }
+            }
         }
     }
 
@@ -395,6 +408,16 @@ fun authorsOf(item: LibraryItem): List<String> =
 fun LibraryItem.hasAuthor(name: String): Boolean =
     authorsOf(this).any { it.equals(name.trim(), ignoreCase = true) }
 
+/** Same treatment for narrators, which Audiobookshelf also joins into one string. */
+fun narratorsOf(item: LibraryItem): List<String> =
+    (item.media.metadata.narratorName ?: "")
+        .split(',', ';', '&')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+
+fun LibraryItem.hasNarrator(name: String): Boolean =
+    narratorsOf(this).any { it.equals(name.trim(), ignoreCase = true) }
+
 /** Cover size options: home carousel width, and how many columns the grids use. */
 val COVER_SIZE_LABELS = listOf("XS", "S", "M", "L", "XL")
 private val COVER_ROW_WIDTHS = listOf(88, 104, 120, 142, 168)
@@ -411,6 +434,7 @@ fun HomeScreen(
     vm: ShelfViewModel,
     onOpenBook: (String) -> Unit,
     onOpenServer: () -> Unit = {},
+    onOpenNarrator: (String) -> Unit = {},
     onOpenSeries: (String) -> Unit = {},
     onOpenAuthor: (String) -> Unit = {},
 ) {
@@ -465,9 +489,8 @@ fun HomeScreen(
             sections.forEach { section ->
                 when (section) {
                     "continue" -> {
-                        val inProgress = state.items.filter {
-                            val p = state.progress[it.id]; p != null && !p.isFinished && p.progress > 0.001
-                        }
+                        // most recently listened first; dismissed books are left out
+                        val inProgress = vm.continueListening()
                         if (inProgress.isNotEmpty()) {
                             item { SectionHeader("Continue Listening") }
                             item { BookRow(vm, inProgress, state, onOpenBook) }
@@ -531,6 +554,29 @@ fun HomeScreen(
                                             coverSize = state.coverSize,
                                             onClick = { onOpenAuthor(author.name) },
                                             placeholder = { OwlPlaceholder() }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "narrators" -> {
+                        val narrators = state.items.flatMap { narratorsOf(it) }
+                            .groupingBy { it }.eachCount()
+                            .toList().sortedBy { it.first.lowercase() }
+                        if (narrators.isNotEmpty()) {
+                            item { SectionHeader("Narrators") }
+                            item {
+                                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+                                    items(narrators, key = { it.first }) { (name, count) ->
+                                        CollectionCard(
+                                            // no narrator artwork on the server; use a book of theirs
+                                            coverUrl = state.items.firstOrNull { it.hasNarrator(name) }
+                                                ?.let { vm.coverModel(it.id) },
+                                            title = name,
+                                            subtitle = "$count book" + (if (count == 1) "" else "s"),
+                                            coverSize = state.coverSize,
+                                            onClick = { onOpenNarrator(name) }
                                         )
                                     }
                                 }
@@ -957,6 +1003,28 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
             modifier = Modifier.fillMaxSize().padding(pad)
         ) {
             items(series.books, key = { it.id }) { book -> BookGridCell(vm, book, state, onOpenBook) }
+        }
+    }
+}
+
+/** Grid page for one narrator. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NarratorGridScreen(vm: ShelfViewModel, narrator: String, onOpenBook: (String) -> Unit, onBack: () -> Unit) {
+    val state by vm.state.collectAsState()
+    val books = state.items.filter { it.hasNarrator(narrator) }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text(narrator, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
+        )
+    }) { pad ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(coverGridColumns(state.coverSize)),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 140.dp),
+            modifier = Modifier.fillMaxSize().padding(pad)
+        ) {
+            items(books, key = { it.id }) { book -> BookGridCell(vm, book, state, onOpenBook) }
         }
     }
 }

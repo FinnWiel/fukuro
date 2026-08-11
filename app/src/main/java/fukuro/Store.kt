@@ -29,6 +29,7 @@ class Store(private val context: Context) {
     @Volatile private var mDownloadDir: String = ""
     @Volatile private var mSkipBack: Int = 10
     @Volatile private var mSkipForward: Int = 30
+    @Volatile private var mTrackScope: String = "book"
 
     private val mirrorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -41,6 +42,7 @@ class Store(private val context: Context) {
                 mDownloadDir = p[K.DOWNLOAD_DIR] ?: ""
                 mSkipBack = p[K.SKIP_BACK]?.toIntOrNull() ?: 10
                 mSkipForward = p[K.SKIP_FORWARD]?.toIntOrNull() ?: 30
+                mTrackScope = p[K.TRACK_SCOPE] ?: "book"
             }
         }
     }
@@ -61,6 +63,7 @@ class Store(private val context: Context) {
         val OFFLINE_ONLY = booleanPreferencesKey("offline_only")   // chose to use the app without a server
         val LOCAL_FOLDER = stringPreferencesKey("local_folder")    // SAF tree uri of the on-device library
         val TRACK_SCOPE = stringPreferencesKey("track_scope")      // "book" | "chapter"
+        val CONTINUE_HIDDEN = stringPreferencesKey("continue_hidden") // csv of ids kept out of the shelf
         val API_KEY = stringPreferencesKey("abs_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
@@ -77,7 +80,27 @@ class Store(private val context: Context) {
     val offlineOnlyFlow: Flow<Boolean> = context.dataStore.data.map { it[K.OFFLINE_ONLY] ?: false }
     val localFolderFlow: Flow<String> = context.dataStore.data.map { it[K.LOCAL_FOLDER] ?: "" }
     val trackScopeFlow: Flow<String> = context.dataStore.data.map { it[K.TRACK_SCOPE] ?: "book" }
+
+    /** Books the user dismissed from Continue Listening; their progress is untouched. */
+    val continueHiddenFlow: Flow<Set<String>> = context.dataStore.data.map {
+        (it[K.CONTINUE_HIDDEN] ?: "").split(',').filter { id -> id.isNotBlank() }.toSet()
+    }
+
+    suspend fun hideFromContinue(itemId: String) {
+        val cur = continueHiddenFlow.first().toMutableSet()
+        cur.add(itemId)
+        context.dataStore.edit { it[K.CONTINUE_HIDDEN] = cur.joinToString(",") }
+    }
+
+    /** Playing a book again puts it back on the shelf. */
+    suspend fun unhideFromContinue(itemId: String) {
+        val cur = continueHiddenFlow.first()
+        if (itemId !in cur) return
+        context.dataStore.edit { it[K.CONTINUE_HIDDEN] = (cur - itemId).joinToString(",") }
+    }
     suspend fun setTrackScope(v: String) = context.dataStore.edit { it[K.TRACK_SCOPE] = v }
+    /** The player service asks for this on every position tick, so read the mirror. */
+    fun trackScopeBlocking(): String = mTrackScope
     fun localFolderBlocking(): String = mLocalFolder
     suspend fun setOfflineOnly(v: Boolean) = context.dataStore.edit { it[K.OFFLINE_ONLY] = v }
     suspend fun setLocalFolder(v: String) = context.dataStore.edit { it[K.LOCAL_FOLDER] = v }
@@ -149,6 +172,7 @@ class Store(private val context: Context) {
             "downloaded" to "Downloaded",
             "series" to "Series",
             "authors" to "Authors",
+            "narrators" to "Narrators",
             "all" to "All Books",
         )
     }
