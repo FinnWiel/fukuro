@@ -111,11 +111,15 @@ import coil.compose.AsyncImage
 fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> Unit) {
     val state by vm.state.collectAsState()
     val savedServer by vm.store.serverFlow.collectAsState(initial = null)
+    val savedUser by vm.store.usernameFlow.collectAsState(initial = null)
     var addr by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("13378") }
+    var https by remember { mutableStateOf(false) }
     var prefilled by remember { mutableStateOf(false) }
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
+    // signed in already: the form stays folded away until asked for
+    var changing by remember { mutableStateOf(false) }
 
     // prefill from the last server used on this device (nothing hardcoded)
     LaunchedEffect(savedServer) {
@@ -126,13 +130,15 @@ fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> U
             val host = rest.substringBefore('/')
             val hasPort = host.contains(':') && !host.startsWith("[") // ignore bare IPv6
             val h = if (hasPort) host.substringBeforeLast(':') else host
-            addr = if (scheme == "http") h else "$scheme://$h"
-            if (hasPort) port = host.substringAfterLast(':')
+            https = scheme == "https"
+            addr = h
+            port = if (hasPort) host.substringAfterLast(':') else ""
             prefilled = true
         }
     }
 
-    val serverUrl = buildServerUrl(addr, port)
+    val serverUrl = buildServerUrl(addr, port, https)
+    val signedIn = state.loggedIn && !savedServer.isNullOrBlank()
 
     Scaffold(topBar = {
         TopAppBar(
@@ -150,8 +156,110 @@ fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> U
     ) {
         Text("Fukuro", style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(4.dp))
-        Text("Connect to your Audiobookshelf server", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            if (signedIn) "Your Audiobookshelf server" else "Connect to your Audiobookshelf server",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        if (signedIn) {
+            Spacer(Modifier.height(20.dp))
+            // A saved server is a saved server whether or not it answers right now, so
+            // this says what is stored and reports reachability separately instead of
+            // dropping the user back to an empty form when they are offline.
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (state.serverOnline) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = if (state.serverOnline) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            state.serverOnline -> "Connected"
+                            state.serverChecked -> "Signed in, but the server isn't answering"
+                            else -> "Signed in"
+                        },
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    savedServer.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                savedUser?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        "as $it",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (!state.serverOnline && state.serverChecked) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Downloads and books on this phone still play. The rest of the " +
+                            "library comes back when the server does.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onBack) { Text("Done") }
+                    OutlinedButton(onClick = { vm.refresh() }, enabled = !state.loading) {
+                        Text(if (state.loading) "Checking…" else "Retry")
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { changing = !changing }) {
+                    Text(if (changing) "Cancel" else "Use a different server")
+                }
+                TextButton(onClick = { vm.logout(); changing = true }) { Text("Log out") }
+            }
+        }
+
+        // the form itself: always there when signed out, on request when signed in
+        if (signedIn && !changing) {
+            Spacer(Modifier.height(24.dp))
+            return@Column
+        }
+
         Spacer(Modifier.height(24.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // some servers sit behind a proxy that only speaks https, and typing the
+            // scheme into the address field is easy to get wrong
+            FilterChip(
+                selected = !https,
+                onClick = {
+                    https = false
+                    if (port == "443") port = "13378"
+                },
+                label = { Text("http") }
+            )
+            FilterChip(
+                selected = https,
+                onClick = {
+                    https = true
+                    if (port == "13378") port = "443"
+                },
+                label = { Text("https") }
+            )
+        }
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 addr, { addr = it }, singleLine = true,
@@ -163,6 +271,7 @@ fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> U
             OutlinedTextField(
                 port, { port = it.filter(Char::isDigit) }, singleLine = true,
                 label = { Text("Port") },
+                placeholder = { Text(if (https) "443" else "13378") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.width(110.dp)
             )
@@ -220,12 +329,14 @@ fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> U
 /**
  * Combines the address and port fields into a base URL.
  * Accepts a bare IP/hostname, or a full URL that may already carry a scheme,
- * a port of its own, or a subpath (reverse proxies).
+ * a port of its own, or a subpath (reverse proxies). A scheme typed into the
+ * address wins over [https], which is only the fallback for a bare host.
  */
-fun buildServerUrl(addr: String, port: String): String {
+fun buildServerUrl(addr: String, port: String, https: Boolean = false): String {
     val trimmed = addr.trim().trimEnd('/')
     if (trimmed.isEmpty()) return ""
-    val withScheme = if (trimmed.contains("://")) trimmed else "http://$trimmed"
+    val withScheme =
+        if (trimmed.contains("://")) trimmed else "${if (https) "https" else "http"}://$trimmed"
     val scheme = withScheme.substringBefore("://")
     val rest = withScheme.substringAfter("://")
     val host = rest.substringBefore('/')
