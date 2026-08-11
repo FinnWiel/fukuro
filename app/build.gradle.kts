@@ -5,6 +5,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+/**
+ * Build number = commits in this repo, so the number shown in Settings matches the
+ * project history instead of a hand-maintained counter.
+ */
+val buildNumber: Int = try {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+} catch (_: Exception) {
+    0
+}
+
 android {
     namespace = "fukuro"
     compileSdk = 35
@@ -16,8 +27,12 @@ android {
         applicationId = "nl.codefin.fukuro"
         minSdk = 26
         targetSdk = 35
-        versionCode = 54
-        versionName = "1.2.2"
+        // versionCode must never go down or Android refuses to install over the
+        // existing app, so it stays a plain counter; the human-facing build number
+        // is the commit count below.
+        versionCode = 55
+        versionName = "1.2.1"
+        buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
     }
 
     buildTypes {

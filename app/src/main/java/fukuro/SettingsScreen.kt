@@ -415,7 +415,7 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(24.dp))
             Text(
-                "Fukuro ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                "Fukuro ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
