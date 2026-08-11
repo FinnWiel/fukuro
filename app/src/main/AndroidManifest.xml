@@ -35,6 +35,41 @@
             </intent-filter>
         </activity>
 
+        <!-- home screen widgets -->
+        <receiver
+            android:name=".PlayerWidgetSmallReceiver"
+            android:exported="true"
+            android:label="@string/widget_player_small">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_small" />
+        </receiver>
+        <receiver
+            android:name=".PlayerWidgetLargeReceiver"
+            android:exported="true"
+            android:label="@string/widget_player_large">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_large" />
+        </receiver>
+        <receiver
+            android:name=".RecentWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_recent">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_recent" />
+        </receiver>
+
         <!-- how the installer reads the downloaded APK out of the app's cache -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -2,4 +2,11 @@
 <resources>
     <!-- dark brown from the Fukuro logo -->
     <color name="ic_launcher_background">#35150E</color>
+
+    <!-- Widgets live on the launcher, not in the app's theme, so their colours come
+         from resources with a -night variant rather than from MaterialTheme. -->
+    <color name="widget_on_surface">#1B1B1B</color>
+    <color name="widget_on_surface_dim">#5E5E5E</color>
+    <color name="widget_track">#33000000</color>
+    <color name="widget_accent">#EF4223</color>
 </resources>

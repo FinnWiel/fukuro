@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget backdrop. A shape rather than a plain colour so the corners round on every
+     Android version, not just the ones with widget corner radii of their own. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFBFA" />
+    <corners android:radius="18dp" />
+</shape>

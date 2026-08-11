@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @UnstableApi
 class PlayerService : MediaLibraryService() {
@@ -61,6 +62,7 @@ class PlayerService : MediaLibraryService() {
     private var currentItemDuration: Double = 0.0
     private var trackOffsets: List<Double> = emptyList() // cumulative start offset of each track
     private var currentChapters: List<Chapter> = emptyList()
+    private var widgetCoverId: String? = null // which book's cover the widgets are holding
 
     private suspend fun fetchItem(itemId: String): LibraryItem {
         // books from the on-device folder never touch the network
@@ -129,7 +131,10 @@ class PlayerService : MediaLibraryService() {
         scope.launch {
             while (isActive) {
                 delay(15_000)
-                if (player.isPlaying) syncProgress()
+                if (player.isPlaying) {
+                    syncProgress()
+                    publishNowPlaying() // moves the widget progress bar along
+                }
             }
         }
 
@@ -155,8 +160,62 @@ class PlayerService : MediaLibraryService() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) scope.launch { syncProgress() }
+                publishNowPlaying()
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                publishNowPlaying(newBook = true)
             }
         })
+    }
+
+    /**
+     * Keeps the home screen widgets in step. They read a snapshot off disk rather than
+     * asking the player, because they are usually redrawn when this process is gone.
+     */
+    private fun publishNowPlaying(newBook: Boolean = false) {
+        val id = currentItemId ?: return
+        scope.launch {
+            val meta = player.currentMediaItem?.mediaMetadata
+            WidgetData.write(
+                this@PlayerService,
+                NowPlaying(
+                    itemId = id,
+                    title = meta?.title?.toString().orEmpty(),
+                    author = meta?.artist?.toString().orEmpty(),
+                    isPlaying = player.isPlaying,
+                    positionSec = bookPositionSec(),
+                    durationSec = currentItemDuration,
+                )
+            )
+            if (newBook) withContext(Dispatchers.IO) { cacheWidgetCover(id) }
+            refreshWidgets(this@PlayerService)
+        }
+    }
+
+    /** One cover on disk for the widgets; refetched only when the book changes. */
+    private fun cacheWidgetCover(itemId: String) {
+        if (widgetCoverId == itemId) return
+        val onDisk = if (LocalLibrary.isLocal(itemId)) {
+            ShelfApp.from(application).local.coverFile(itemId)
+        } else {
+            downloads.localCover(itemId)
+        }
+        if (onDisk != null && onDisk.exists()) {
+            WidgetData.saveCover(this, onDisk)
+            widgetCoverId = itemId
+            return
+        }
+        // no local copy: fetch it once, so the widget still has art when the server goes
+        runCatching {
+            val req = okhttp3.Request.Builder().url(api.coverUrl(itemId)).build()
+            api.http.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.bytes()?.let {
+                    WidgetData.saveCover(this, it)
+                    widgetCoverId = itemId
+                }
+            }
+        }
     }
 
     /** Absolute position within the whole book (all tracks), in seconds. */

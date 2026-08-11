@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Fukuro</string>
+    <string name="widget_player_small">Fukuro player</string>
+    <string name="widget_player_small_desc">What\'s playing, with play and pause.</string>
+    <string name="widget_player_large">Fukuro player (large)</string>
+    <string name="widget_player_large_desc">What\'s playing, with progress and seek buttons.</string>
+    <string name="widget_recent">Fukuro recent</string>
+    <string name="widget_recent_desc">The last book you listened to.</string>
 </resources>

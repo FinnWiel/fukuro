@@ -302,6 +302,20 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavorite(itemId: String) = viewModelScope.launch { store.toggleFavorite(itemId) }
 
+    /* ---------------- home screen shortcuts ---------------- */
+
+    /** Pins a book to the launcher. The cover is baked into the icon at pin time. */
+    fun pinBookShortcut(itemId: String) = viewModelScope.launch {
+        val item = _state.value.items.firstOrNull { it.id == itemId } ?: return@launch
+        Shortcuts.pinBook(getApplication(), item, coverModel(itemId), api.http)
+    }
+
+    fun pinSeriesShortcut(seriesId: String) = viewModelScope.launch {
+        val series = _state.value.series.firstOrNull { it.id == seriesId } ?: return@launch
+        val cover = series.books.firstOrNull()?.let { coverModel(it.id) }
+        Shortcuts.pinSeries(getApplication(), series, cover, api.http)
+    }
+
     /* ---------------- app updates ---------------- */
 
     /**

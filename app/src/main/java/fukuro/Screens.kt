@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Close
@@ -287,6 +288,9 @@ fun BookOptionsSheet(
                 }
             }
 
+            SheetRow(Icons.Rounded.AddToHomeScreen, "Add to home screen") {
+                vm.pinBookShortcut(itemId); onDismiss()
+            }
             SheetRow(Icons.Rounded.Edit, "Rename") { showRename = true }
             SheetRow(
                 if (p?.isFinished == true) Icons.Rounded.RemoveDone else Icons.Rounded.DoneAll,
@@ -1066,6 +1070,9 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
                         Spacer(Modifier.width(12.dp))
                     }
                     else -> {
+                        IconButton(onClick = { vm.pinSeriesShortcut(seriesId) }) {
+                            Icon(Icons.Rounded.AddToHomeScreen, "Add series to home screen")
+                        }
                         if (downloadedCount < ids.size) {
                             IconButton(onClick = { vm.downloadAll(ids) }) {
                                 Icon(Icons.Rounded.Download, "Download whole series")

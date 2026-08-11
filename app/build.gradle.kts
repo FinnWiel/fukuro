@@ -30,8 +30,8 @@ android {
         // versionCode must never go down or Android refuses to install over the
         // existing app, so it stays a plain counter; the human-facing build number
         // is the commit count below.
-        versionCode = 61
-        versionName = "1.4.1"
+        versionCode = 62
+        versionName = "1.5.0"
         buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
         // where the in-app update check looks for releases; change it in a fork
         buildConfigField("String", "UPDATE_REPO", "\"FinnWiel/fukuro\"")
@@ -81,4 +81,8 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.documentfile:documentfile:1.0.1") // on-device library folder (SAF)
+
+    // home screen widgets (Compose-flavoured RemoteViews)
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.glance:glance-material3:1.1.1")
 }

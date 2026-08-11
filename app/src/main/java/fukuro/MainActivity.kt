@@ -85,13 +85,24 @@ import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
     private val vm: ShelfViewModel by viewModels()
     private var controller by mutableStateOf<MediaController?>(null)
 
+    /** fukuro:// link from a pinned shortcut or a widget, waiting to be opened. */
+    private var pendingLink by mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingLink = intent.dataString
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingLink = intent?.dataString
 
         val token = SessionToken(this, ComponentName(this, PlayerService::class.java))
         val future = MediaController.Builder(this, token).buildAsync()
@@ -105,7 +116,7 @@ class MainActivity : ComponentActivity() {
                 var splashDone by androidx.compose.runtime.saveable.rememberSaveable {
                     mutableStateOf(false)
                 }
-                AppNav(vm, controller)
+                AppNav(vm, controller, pendingLink) { pendingLink = null }
                 if (!splashDone) SplashLogo { splashDone = true }
             }
         }
@@ -126,7 +137,12 @@ private data class Tab(
 )
 
 @Composable
-fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
+fun AppNav(
+    vm: ShelfViewModel,
+    controller: MediaController?,
+    link: String? = null,
+    onLinkHandled: () -> Unit = {},
+) {
     val nav = rememberNavController()
     val state by vm.state.collectAsState()
     val backStack by nav.currentBackStackEntryAsState()
@@ -159,6 +175,36 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
 
     // book sheet: null = closed, SHEET_CURRENT = whatever is playing, else an item id
     var sheetItem by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+
+    // fukuro://book/<id> and fukuro://series/<id> from pinned shortcuts and widgets
+    val ctx = LocalContext.current
+    LaunchedEffect(link) {
+        val uri = link?.let { android.net.Uri.parse(it) } ?: return@LaunchedEffect
+        val id = uri.lastPathSegment.orEmpty()
+        // the library paints from disk a moment after launch, so give it that moment
+        // before deciding something is missing
+        val loaded = kotlinx.coroutines.withTimeoutOrNull(4000) {
+            vm.state.first { it.items.isNotEmpty() }
+        }
+        val missing = when (uri.host) {
+            "book" -> {
+                val known = loaded?.items?.any { it.id == id } == true
+                if (known) sheetItem = id
+                !known
+            }
+            "series" -> {
+                val known = loaded?.series?.any { it.id == id } == true
+                if (known) nav.navigate("series/$id")
+                !known
+            }
+            else -> false
+        }
+        // offline, a shortcut can point at something that isn't on the device
+        if (missing) android.widget.Toast.makeText(
+            ctx, "Not available without the server", android.widget.Toast.LENGTH_SHORT
+        ).show()
+        onLinkHandled()
+    }
     // screens shift their bottom spacing depending on whether the mini player is up
     var miniPlayerVisible by androidx.compose.runtime.remember { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(enabled = sheetItem != null) { sheetItem = null }
