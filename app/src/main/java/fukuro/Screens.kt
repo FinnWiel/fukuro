@@ -102,8 +102,9 @@ import coil.compose.AsyncImage
 
 /* ---------------- Login ---------------- */
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoginScreen(vm: ShelfViewModel, onLoggedIn: () -> Unit) {
+fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> Unit) {
     val state by vm.state.collectAsState()
     val savedServer by vm.store.serverFlow.collectAsState(initial = null)
     var addr by remember { mutableStateOf("") }
@@ -129,8 +130,18 @@ fun LoginScreen(vm: ShelfViewModel, onLoggedIn: () -> Unit) {
 
     val serverUrl = buildServerUrl(addr, port)
 
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                }
+            }
+        )
+    }) { pad ->
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().padding(pad).padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Text("Fukuro", style = MaterialTheme.typography.headlineLarge)
@@ -198,6 +209,7 @@ fun LoginScreen(vm: ShelfViewModel, onLoggedIn: () -> Unit) {
             onClick = { vm.continueOffline { onLoggedIn() } },
             modifier = Modifier.fillMaxWidth()
         ) { Text("Continue without a server") }
+    }
     }
 }
 

@@ -162,7 +162,10 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
         androidx.compose.foundation.layout.Box {
             NavHost(nav, startDestination = "home") {
                 composable("login") {
-                    LoginScreen(vm) { nav.navigate("home") { popUpTo("login") { inclusive = true } } }
+                    LoginScreen(
+                        vm,
+                        onBack = { if (!nav.popBackStack()) nav.navigate("home") },
+                    ) { nav.navigate("home") { popUpTo("login") { inclusive = true } } }
                 }
                 composable("home") {
                     HomeScreen(vm,
