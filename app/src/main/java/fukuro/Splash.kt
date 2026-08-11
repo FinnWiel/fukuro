@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,15 +48,21 @@ fun SplashLogo(onDone: () -> Unit) {
     val fade by animateFloatAsState(if (leaving) 0f else 1f, tween(260), label = "splashFade")
 
     LaunchedEffect(Unit) {
+        // Wait for a real frame before starting. Composition of the app underneath lands
+        // on the first one or two frames of the process, and a spring started inside that
+        // stall spends its opening frames catching up — which is exactly what reads as
+        // lag on a launch animation.
+        withFrameNanos { }
         // a touch of overshoot: it should land with a bounce, not glide
-        disc.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow))
+        disc.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium))
     }
     LaunchedEffect(Unit) {
-        delay(160) // let the disc get most of the way there first
-        owl.animateTo(0f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow))
-        delay(240)
+        withFrameNanos { }
+        delay(110) // let the disc get most of the way there first
+        owl.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow))
+        delay(170)
         leaving = true
-        delay(280)
+        delay(240)
         onDone()
     }
 

@@ -3,7 +3,9 @@ package fukuro
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -106,8 +108,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
             // 1) paint immediately from disk: last server response + on-device books.
             //    No network on this path, so a dead server costs nothing.
+            //    All of it off the main thread: reading the on-device library parses a
+            //    file that can hold thousands of books, and listing downloads stats every
+            //    audio file of every one. On the main thread that lands squarely on the
+            //    first second of the process and janks the startup animation.
             val cached = cache.read()
-            val localItems = local.items()
+            val (localItems, downloadedIds) = withContext(Dispatchers.IO) {
+                local.items() to downloads.downloadedIds().toSet()
+            }
             _state.value = _state.value.copy(
                 loggedIn = hasToken,
                 offlineOnly = offline,
@@ -115,7 +123,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 series = cached?.series ?: emptyList(),
                 authors = cached?.authors ?: emptyList(),
                 progress = (cached?.progress ?: emptyList()).associateBy { it.libraryItemId },
-                downloadedIds = downloads.downloadedIds().toSet(),
+                downloadedIds = downloadedIds,
                 localCount = localItems.size,
             )
 
@@ -173,15 +181,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         viewModelScope.launch {
-            val downloaded = downloads.downloadedIds().toSet()
-            val localItems = local.items()
+            // disk work, off the main thread — see the note in init
+            val (downloaded, localItems) = withContext(Dispatchers.IO) {
+                downloads.downloadedIds().toSet() to local.items()
+            }
             val hasServer = store.token() != null && store.serverUrl() != null
 
             // every book that can be played without the server, for the offline paths below.
             // Cached entries come first so their (fresher) server metadata wins over the
             // snapshot saved at download time.
-            fun offlineItems() =
+            suspend fun offlineItems() = withContext(Dispatchers.IO) {
                 (_state.value.allItems + downloaded.mapNotNull { downloads.localItem(it) } + localItems).unique()
+            }
 
             // no server configured: nothing to wait for
             if (!hasServer) {
@@ -240,7 +251,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     /** Re-reads the on-device folder the user picked in Settings. */
     fun rescanLocal() = viewModelScope.launch {
         _state.value = _state.value.copy(scanning = true)
-        val found = local.rescan()
+        val found = local.rescan() // already runs on IO
         val serverItems = _state.value.allItems.filterNot { LocalLibrary.isLocal(it.id) }
         _state.value = _state.value.copy(
             scanning = false,
@@ -328,6 +339,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         if (!manual) {
             if (!store.autoUpdateFlow.first()) return@launch
             if (System.currentTimeMillis() - store.lastUpdateCheck() < 6 * 60 * 60 * 1000L) return@launch
+            // nothing about this is urgent, and landing a banner mid-launch animation
+            // costs a frame for no reason
+            delay(2_500)
         }
         _update.value = u.copy(checking = true, error = null, upToDate = false)
         try {
