@@ -115,7 +115,6 @@ fun SettingsScreen(
     val theme by vm.store.themeFlow.collectAsState(initial = "system")
     val accent by vm.store.accentFlow.collectAsState(initial = DEFAULT_ACCENT)
     val progressStyle by vm.store.progressStyleFlow.collectAsState(initial = "circle")
-    val downloadDir by vm.store.downloadDirFlow.collectAsState(initial = "")
     val coverSize by vm.store.coverSizeFlow.collectAsState(initial = 2)
     val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
     val skipForward by vm.store.skipForwardFlow.collectAsState(initial = 30)
@@ -139,15 +138,6 @@ fun SettingsScreen(
                 )
             }
             vm.setLocalFolder(uri.toString())
-        }
-    }
-    // app storage plus any removable volume Android gives us an app-specific dir on
-    val storageOptions = remember {
-        buildList {
-            add("" to "App storage")
-            context.getExternalFilesDirs(null).drop(1).filterNotNull().forEachIndexed { i, f ->
-                add(File(f, "downloads").absolutePath to "SD card${if (i > 0) " ${i + 1}" else ""}")
-            }
         }
     }
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
@@ -185,32 +175,6 @@ fun SettingsScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Text("Book progress", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("circle" to "Circle", "bar" to "Bar on cover").forEach { (key, label) ->
-                    FilterChip(
-                        selected = progressStyle == key,
-                        onClick = { scope.launch { vm.store.setProgressStyle(key) } },
-                        label = { Text(label) }
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Text("Cover size", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                COVER_SIZE_LABELS.forEachIndexed { i, label ->
-                    FilterChip(
-                        selected = coverSize == i,
-                        onClick = { scope.launch { vm.store.setCoverSize(i) } },
-                        label = { Text(label) }
-                    )
-                }
-            }
-
             Spacer(Modifier.height(12.dp))
             Text("Accent color", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
@@ -250,6 +214,19 @@ fun SettingsScreen(
                         Icons.Rounded.Colorize, "Custom colour",
                         modifier = Modifier.size(18.dp),
                         tint = if (isCustom) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text("Cover size", style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                COVER_SIZE_LABELS.forEachIndexed { i, label ->
+                    FilterChip(
+                        selected = coverSize == i,
+                        onClick = { scope.launch { vm.store.setCoverSize(i) } },
+                        label = { Text(label) }
                     )
                 }
             }
@@ -302,6 +279,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(16.dp))
 
             Text("Player", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
             Text("What the progress bar measures", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -309,6 +287,19 @@ fun SettingsScreen(
                     FilterChip(
                         selected = trackScope == key,
                         onClick = { scope.launch { vm.store.setTrackScope(key) } },
+                        label = { Text(label) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text("How progress shows on covers", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("circle" to "Circle", "bar" to "Bar on cover").forEach { (key, label) ->
+                    FilterChip(
+                        selected = progressStyle == key,
+                        onClick = { scope.launch { vm.store.setProgressStyle(key) } },
                         label = { Text(label) }
                     )
                 }
@@ -368,28 +359,6 @@ fun SettingsScreen(
                     OutlinedButton(onClick = { scope.launch { vm.store.setLocalFolder(""); vm.rescanLocal() } }) {
                         Text("Remove")
                     }
-                }
-            }
-
-            Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            Text("Downloads", style = MaterialTheme.typography.titleMedium)
-            Text(
-                if (storageOptions.size > 1) "Where new offline downloads are stored. Books already downloaded stay where they are."
-                else "This device only exposes app storage to the app, so there is nowhere else to put downloads.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                storageOptions.forEach { (path, label) ->
-                    FilterChip(
-                        selected = downloadDir == path,
-                        enabled = storageOptions.size > 1,
-                        onClick = { scope.launch { vm.store.setDownloadDir(path) } },
-                        label = { Text(label) }
-                    )
                 }
             }
 
