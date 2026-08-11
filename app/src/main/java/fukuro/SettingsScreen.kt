@@ -60,6 +60,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
+/** Turns a SAF tree uri into something a human can recognise. */
+private fun prettyFolder(uri: String): String {
+    val decoded = java.net.URLDecoder.decode(uri, "UTF-8")
+    val tail = decoded.substringAfterLast("/tree/").substringAfterLast(':')
+    return if (tail.isBlank()) decoded.takeLast(40) else "…/$tail"
+}
+
 /** Hue / saturation / lightness picker for a custom accent colour. */
 @Composable
 private fun AccentPickerDialog(initial: Color, onDismiss: () -> Unit, onPick: (String) -> Unit) {
@@ -99,7 +106,12 @@ private fun AccentPickerDialog(initial: Color, onDismiss: () -> Unit, onPick: (S
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(vm: ShelfViewModel, onLoggedOut: () -> Unit, onOpenUpload: () -> Unit = {}) {
+fun SettingsScreen(
+    vm: ShelfViewModel,
+    onLoggedOut: () -> Unit,
+    onOpenUpload: () -> Unit = {},
+    onSignIn: () -> Unit = {},
+) {
     val theme by vm.store.themeFlow.collectAsState(initial = "system")
     val accent by vm.store.accentFlow.collectAsState(initial = DEFAULT_ACCENT)
     val progressStyle by vm.store.progressStyleFlow.collectAsState(initial = "circle")
@@ -108,7 +120,25 @@ fun SettingsScreen(vm: ShelfViewModel, onLoggedOut: () -> Unit, onOpenUpload: ()
     val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
     val skipForward by vm.store.skipForwardFlow.collectAsState(initial = 30)
     var showPicker by remember { mutableStateOf(false) }
+    val state by vm.state.collectAsState()
+    val localFolder by vm.store.localFolderFlow.collectAsState(initial = "")
     val context = LocalContext.current
+
+    // system folder picker; we keep read access across restarts
+    val folderPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            }
+            vm.setLocalFolder(uri.toString())
+        }
+    }
     // app storage plus any removable volume Android gives us an app-specific dir on
     val storageOptions = remember {
         buildList {
@@ -297,6 +327,38 @@ fun SettingsScreen(vm: ShelfViewModel, onLoggedOut: () -> Unit, onOpenUpload: ()
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
+            Text("Books on this phone", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Pick a folder and Fukuro will list the audiobooks inside it — no server needed. " +
+                    "Downloads are copied there too.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (localFolder.isBlank()) "No folder selected"
+                else "${state.localCount} book(s) found\n" + prettyFolder(localFolder),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { folderPicker.launch(null) }) {
+                    Text(if (localFolder.isBlank()) "Choose folder" else "Change folder")
+                }
+                if (localFolder.isNotBlank()) {
+                    OutlinedButton(onClick = { vm.rescanLocal() }, enabled = !state.scanning) {
+                        Text(if (state.scanning) "Scanning…" else "Rescan")
+                    }
+                    OutlinedButton(onClick = { scope.launch { vm.store.setLocalFolder(""); vm.rescanLocal() } }) {
+                        Text("Remove")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
             Text("Downloads", style = MaterialTheme.typography.titleMedium)
             Text(
                 if (storageOptions.size > 1) "Where new offline downloads are stored. Books already downloaded stay where they are."
@@ -343,6 +405,17 @@ fun SettingsScreen(vm: ShelfViewModel, onLoggedOut: () -> Unit, onOpenUpload: ()
 
             Text("Account", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
+            if (!state.loggedIn) {
+                Text(
+                    "Not signed in — using books on this phone only.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onSignIn) { Text("Sign in to a server") }
+                Spacer(Modifier.height(140.dp))
+                return@Column
+            }
             Text("${username ?: "?"} @ ${server ?: "?"}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = { vm.logout(); onLoggedOut() }) { Text("Log out") }

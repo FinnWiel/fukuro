@@ -6,12 +6,16 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import android.net.Uri
 
 data class UiState(
-    val loggedIn: Boolean = false,
+    val loggedIn: Boolean = false,      // has a server session
+    val offlineOnly: Boolean = false,   // chose to use the app without a server
+    val scanning: Boolean = false,      // scanning the on-device folder
+    val localCount: Int = 0,
     val loading: Boolean = false,
     val error: String? = null,
     val serverOnline: Boolean = false,
@@ -38,10 +42,34 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
 
+    val local get() = shelf.local
+    private val cache get() = shelf.cache
+
+    /** Cover for any book: a local file for on-device books, the server URL otherwise. */
+    fun coverModel(itemId: String): Any? =
+        if (LocalLibrary.isLocal(itemId)) local.coverFile(itemId) else api.coverUrl(itemId)
+
     init {
         viewModelScope.launch {
             val hasToken = store.token() != null && store.serverUrl() != null
-            _state.value = _state.value.copy(loggedIn = hasToken)
+            val offline = store.offlineOnlyFlow.first()
+
+            // 1) paint immediately from disk: last server response + on-device books.
+            //    No network on this path, so a dead server costs nothing.
+            val cached = cache.read()
+            val localItems = local.items()
+            _state.value = _state.value.copy(
+                loggedIn = hasToken,
+                offlineOnly = offline,
+                items = (cached?.items ?: emptyList()) + localItems,
+                series = cached?.series ?: emptyList(),
+                authors = cached?.authors ?: emptyList(),
+                progress = (cached?.progress ?: emptyList()).associateBy { it.libraryItemId },
+                downloadedIds = downloads.downloadedIds().toSet(),
+                localCount = localItems.size,
+            )
+
+            // 2) then talk to the server, if there is one
             if (hasToken) refresh()
         }
         // keep favorites in sync with the persisted set
@@ -87,29 +115,78 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null)
             val downloaded = downloads.downloadedIds().toSet()
+            val localItems = local.items()
+            val hasServer = store.token() != null && store.serverUrl() != null
+
+            // no server configured: nothing to wait for
+            if (!hasServer) {
+                _state.value = _state.value.copy(
+                    loading = false, serverOnline = false,
+                    items = localItems, downloadedIds = downloaded, localCount = localItems.size
+                )
+                return@launch
+            }
+
+            _state.value = _state.value.copy(loading = true, error = null)
+
+            // quick reachability probe (2s) so an absent server costs 2s, not four timeouts
+            if (!api.reachable()) {
+                _state.value = _state.value.copy(
+                    loading = false, serverOnline = false,
+                    downloadedIds = downloaded, localCount = localItems.size
+                )
+                return@launch
+            }
+
             try {
                 val lib = api.libraries().firstOrNull()
                 val items = if (lib != null) api.libraryItems(lib.id) else emptyList()
                 val series = if (lib != null) try { api.librarySeries(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
                 val authors = if (lib != null) try { api.libraryAuthors(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
                 val progress = api.me().mediaProgress.associateBy { it.libraryItemId }
+                cache.write(CachedLibrary(items, series, authors, progress.values.toList()))
                 _state.value = _state.value.copy(
-                    items = items, series = series, authors = authors, progress = progress,
-                    loading = false, serverOnline = true, downloadedIds = downloaded
+                    items = items + localItems, series = series, authors = authors, progress = progress,
+                    loading = false, serverOnline = true, downloadedIds = downloaded,
+                    localCount = localItems.size
                 )
             } catch (e: Exception) {
-                // offline: fall back to downloaded books so the app stays usable
-                val localItems = downloaded.mapNotNull { downloads.localItem(it) }
+                // keep whatever is already on screen (cache + local + downloads)
+                val fallback = downloaded.mapNotNull { downloads.localItem(it) }
                 _state.value = _state.value.copy(
                     loading = false, serverOnline = false,
-                    items = if (localItems.isNotEmpty()) localItems else _state.value.items,
-                    downloadedIds = downloaded,
-                    error = if (localItems.isEmpty()) "Could not reach server: ${e.message?.take(120)}" else null
+                    items = if (_state.value.items.isNotEmpty()) _state.value.items else fallback + localItems,
+                    downloadedIds = downloaded, localCount = localItems.size,
+                    error = null
                 )
             }
         }
+    }
+
+    /** Lets the user in without a server; they can still sign in later from Settings. */
+    fun continueOffline(onDone: () -> Unit) = viewModelScope.launch {
+        store.setOfflineOnly(true)
+        _state.value = _state.value.copy(offlineOnly = true)
+        refresh()
+        onDone()
+    }
+
+    /** Re-reads the on-device folder the user picked in Settings. */
+    fun rescanLocal() = viewModelScope.launch {
+        _state.value = _state.value.copy(scanning = true)
+        val found = local.rescan()
+        val serverItems = _state.value.items.filterNot { LocalLibrary.isLocal(it.id) }
+        _state.value = _state.value.copy(
+            scanning = false,
+            items = serverItems + found,
+            localCount = found.size,
+        )
+    }
+
+    fun setLocalFolder(uri: String) = viewModelScope.launch {
+        store.setLocalFolder(uri)
+        rescanLocal()
     }
 
     fun download(itemId: String) = viewModelScope.launch {

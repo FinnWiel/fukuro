@@ -9,12 +9,18 @@ class ShelfApp : Application() {
         private set
     lateinit var downloads: DownloadRepo
         private set
+    lateinit var local: LocalLibrary
+        private set
+    lateinit var cache: LibraryCache
+        private set
 
     override fun onCreate() {
         super.onCreate()
         store = Store(this)
         api = AbsApi(store)
-        downloads = DownloadRepo(this, api, store)
+        local = LocalLibrary(this, store)
+        cache = LibraryCache(this)
+        downloads = DownloadRepo(this, api, store, local)
     }
 
     companion object {

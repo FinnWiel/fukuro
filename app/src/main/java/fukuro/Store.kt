@@ -28,6 +28,8 @@ class Store(private val context: Context) {
         val FAVORITES_TOP = booleanPreferencesKey("favorites_top")
         val SKIP_BACK = stringPreferencesKey("skip_back")     // seconds
         val SKIP_FORWARD = stringPreferencesKey("skip_forward")
+        val OFFLINE_ONLY = booleanPreferencesKey("offline_only")   // chose to use the app without a server
+        val LOCAL_FOLDER = stringPreferencesKey("local_folder")    // SAF tree uri of the on-device library
         val API_KEY = stringPreferencesKey("abs_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
@@ -41,6 +43,12 @@ class Store(private val context: Context) {
     val favoritesTopFlow: Flow<Boolean> = context.dataStore.data.map { it[K.FAVORITES_TOP] ?: false }
     val skipBackFlow: Flow<Int> = context.dataStore.data.map { it[K.SKIP_BACK]?.toIntOrNull() ?: 10 }
     val skipForwardFlow: Flow<Int> = context.dataStore.data.map { it[K.SKIP_FORWARD]?.toIntOrNull() ?: 30 }
+    val offlineOnlyFlow: Flow<Boolean> = context.dataStore.data.map { it[K.OFFLINE_ONLY] ?: false }
+    val localFolderFlow: Flow<String> = context.dataStore.data.map { it[K.LOCAL_FOLDER] ?: "" }
+    fun localFolderBlocking(): String = runBlocking { context.dataStore.data.first()[K.LOCAL_FOLDER] ?: "" }
+    suspend fun setOfflineOnly(v: Boolean) = context.dataStore.edit { it[K.OFFLINE_ONLY] = v }
+    suspend fun setLocalFolder(v: String) = context.dataStore.edit { it[K.LOCAL_FOLDER] = v }
+
     fun skipBackBlocking(): Int = runBlocking { context.dataStore.data.first()[K.SKIP_BACK]?.toIntOrNull() ?: 10 }
     fun skipForwardBlocking(): Int = runBlocking { context.dataStore.data.first()[K.SKIP_FORWARD]?.toIntOrNull() ?: 30 }
     fun downloadDirBlocking(): String = runBlocking { context.dataStore.data.first()[K.DOWNLOAD_DIR] ?: "" }

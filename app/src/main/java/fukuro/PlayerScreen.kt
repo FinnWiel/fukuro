@@ -193,7 +193,7 @@ fun PlayerScreen(
     val meta = libItem?.media?.metadata ?: detail?.media?.metadata
     val title = meta?.title ?: ""
     val author = meta?.authorName ?: ""
-    val coverUrl = vm.api.coverUrl(displayId)
+    val coverUrl = vm.coverModel(displayId)
     val saved = state.progress[displayId]
     val bookDuration = detail?.media?.duration ?: libItem?.media?.duration ?: 0.0
 
@@ -532,7 +532,7 @@ fun PlayerScreen(
                             items(seriesOfBook.books, key = { it.id }) { b ->
                                 Column(Modifier.width(110.dp).padding(4.dp).clickable { onOpenBook(b.id) }) {
                                     CoverImage(
-                                        vm.api.coverUrl(b.id), b.media.metadata.title,
+                                        vm.coverModel(b.id), b.media.metadata.title,
                                         Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
                                     )
                                     Text(

@@ -16,8 +16,8 @@ android {
         applicationId = "nl.codefin.fukuro"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "1.0.0"
+        versionCode = 49
+        versionName = "1.1.0"
     }
 
     buildTypes {
@@ -63,4 +63,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.documentfile:documentfile:1.0.1") // on-device library folder (SAF)
 }

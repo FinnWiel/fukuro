@@ -64,6 +64,10 @@ class PlayerService : MediaLibraryService() {
     private val itemCache = HashMap<String, Pair<Long, LibraryItem>>()
 
     private suspend fun fetchItem(itemId: String): LibraryItem {
+        // books from the on-device folder never touch the network
+        if (LocalLibrary.isLocal(itemId)) {
+            ShelfApp.from(application).local.items().firstOrNull { it.id == itemId }?.let { return it }
+        }
         if (downloads.isDownloaded(itemId)) downloads.localItem(itemId)?.let { return it } // local first: instant
         itemCache[itemId]?.let { (t, cached) ->
             if (System.currentTimeMillis() - t < 60_000) return cached
@@ -145,6 +149,7 @@ class PlayerService : MediaLibraryService() {
         val id = currentItemId ?: return
         val pos = bookPositionSec()
         store.setLocalProgress(id, pos) // always cache locally (offline resume)
+        if (LocalLibrary.isLocal(id)) return // on-device book: nothing to sync
         try {
             api.updateProgress(id, pos, currentItemDuration)
         } catch (_: Exception) { /* offline: ignore, next sync retries */ }
@@ -164,11 +169,19 @@ class PlayerService : MediaLibraryService() {
         for (f in files) { offsets.add(acc); acc += f.duration }
         trackOffsets = offsets
         val meta = item.media.metadata
-        val localCover = downloads.localCover(itemId)
-        val artUri = localCover?.let { Uri.fromFile(it) } ?: Uri.parse(api.coverUrl(itemId))
+        val isLocalBook = LocalLibrary.isLocal(itemId)
+        val localCover = if (isLocalBook) ShelfApp.from(application).local.coverFile(itemId)
+        else downloads.localCover(itemId)
+        val artUri = localCover?.let { Uri.fromFile(it) }
+            ?: if (isLocalBook) null else Uri.parse(api.coverUrl(itemId))
         return files.map { f ->
-            val local = downloads.localAudioFile(itemId, f.ino)
-            val uri = local?.let { Uri.fromFile(it) } ?: Uri.parse(api.fileUrl(itemId, f.ino))
+            val downloaded = downloads.localAudioFile(itemId, f.ino)
+            val uri = when {
+                // on-device book: the ino is the document uri itself
+                isLocalBook -> Uri.parse(f.ino)
+                downloaded != null -> Uri.fromFile(downloaded)
+                else -> Uri.parse(api.fileUrl(itemId, f.ino))
+            }
             MediaItem.Builder()
                 .setMediaId("$BOOK_PREFIX$itemId#${f.index}")
                 .setUri(uri)
@@ -325,9 +338,13 @@ class PlayerService : MediaLibraryService() {
                 // resume position: prefer the position handed over by the app (no network),
                 // else ask the server (Android Auto path), else the local cache
                 val fromExtras = first?.mediaMetadata?.extras?.getDouble("startTimeSec", -1.0) ?: -1.0
-                val saved = if (fromExtras >= 0) fromExtras else try {
-                    api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId && !it.isFinished }?.currentTime
-                } catch (_: Exception) { store.localProgress()[itemId] }
+                val saved = when {
+                    fromExtras >= 0 -> fromExtras
+                    LocalLibrary.isLocal(itemId) -> store.localProgress()[itemId]
+                    else -> try {
+                        api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId && !it.isFinished }?.currentTime
+                    } catch (_: Exception) { store.localProgress()[itemId] }
+                }
                 val playlist = buildPlaylist(itemId, saved)
                 val (idx, posMs) = locate(saved ?: 0.0)
                 MediaSession.MediaItemsWithStartPosition(playlist, idx, posMs)

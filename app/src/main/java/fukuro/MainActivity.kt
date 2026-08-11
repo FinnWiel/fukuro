@@ -132,8 +132,10 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
         Tab("library", "Library", Icons.Rounded.LibraryBooks, Icons.Outlined.LibraryBooks),
         Tab("settings", "Settings", Icons.Rounded.Settings, Icons.Outlined.Settings),
     )
+    // the app is usable with a server session or in on-device-only mode
+    val entered = state.loggedIn || state.offlineOnly
     // the merged book/now-playing screen is full-bleed: no bottom chrome over it
-    val showChrome = state.loggedIn && route != "player" && route != "login" &&
+    val showChrome = entered && route != "player" && route != "login" &&
         !route.startsWith("book/")
 
     fun playBook(itemId: String) {
@@ -160,7 +162,7 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
     // Spotify-style. Screens add their own bottom spacing to clear the bars.
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.layout.Box {
-            NavHost(nav, startDestination = if (state.loggedIn) "home" else "login") {
+            NavHost(nav, startDestination = if (entered) "home" else "login") {
                 composable("login") {
                     LoginScreen(vm) { nav.navigate("home") { popUpTo("login") { inclusive = true } } }
                 }
@@ -196,7 +198,8 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
                                 launchSingleTop = true
                             }
                         },
-                        onOpenUpload = { nav.navigate("upload") }
+                        onOpenUpload = { nav.navigate("upload") },
+                        onSignIn = { nav.navigate("login") }
                     )
                 }
                 composable("upload") {
@@ -384,7 +387,9 @@ private fun MiniPlayer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CoverImage(
-                        model = artwork, contentDescription = title,
+                        // on-device books have no artwork uri from the session
+                        model = artwork ?: currentItemId?.let { vm.coverModel(it) },
+                        contentDescription = title,
                         modifier = Modifier.size(38.dp).clip(RoundedCornerShape(5.dp))
                     )
                     Spacer(Modifier.width(8.dp))

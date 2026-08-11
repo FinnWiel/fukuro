@@ -23,9 +23,27 @@ import java.util.concurrent.TimeUnit
 class AbsApi(private val store: Store) {
 
     val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .build()
+
+    /** Very short-fused client used only to answer "is the server there?". */
+    private val probe: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * One 2-second probe instead of letting four library calls time out in turn —
+     * this is what makes the app usable immediately when the server is away.
+     */
+    suspend fun reachable(): Boolean = withContext(Dispatchers.IO) {
+        val base = store.serverUrl() ?: return@withContext false
+        try {
+            val req = Request.Builder().url(base.trimEnd('/') + "/ping").get().build()
+            probe.newCall(req).execute().use { it.isSuccessful }
+        } catch (_: Exception) { false }
+    }
 
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val jsonType = "application/json".toMediaType()

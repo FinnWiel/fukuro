@@ -55,6 +55,7 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Switch
@@ -184,6 +185,19 @@ fun LoginScreen(vm: ShelfViewModel, onLoggedIn: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
+        Spacer(Modifier.height(20.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "No server? You can use Fukuro with books stored on this phone and sign in later from Settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { vm.continueOffline { onLoggedIn() } },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Continue without a server") }
     }
 }
 
@@ -427,7 +441,7 @@ fun HomeScreen(
                                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                                     items(withBooks, key = { it.id }) { series ->
                                         CollectionCard(
-                                            coverUrl = series.books.firstOrNull()?.let { vm.api.coverUrl(it.id) },
+                                            coverUrl = series.books.firstOrNull()?.let { vm.coverModel(it.id) },
                                             title = series.name,
                                             subtitle = "${series.books.size} books",
                                             coverSize = state.coverSize,
@@ -723,7 +737,7 @@ fun LibraryScreen(
 /** Card for a series or author in a carousel: cover, name, count. */
 @Composable
 private fun CollectionCard(
-    coverUrl: String?,
+    coverUrl: Any?, // URL for server items, a File for on-device covers
     title: String,
     subtitle: String,
     coverSize: Int,
@@ -842,7 +856,7 @@ fun BookGridCell(vm: ShelfViewModel, book: LibraryItem, state: UiState, onOpenBo
     ) {
         Box(Modifier.fillMaxWidth()) {
             CoverImage(
-                model = vm.api.coverUrl(book.id),
+                model = vm.coverModel(book.id),
                 contentDescription = book.media.metadata.title,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
             )
@@ -952,7 +966,7 @@ private fun BookRow(vm: ShelfViewModel, books: List<LibraryItem>, state: UiState
             ) {
                 Box(Modifier.fillMaxWidth()) {
                     CoverImage(
-                        model = vm.api.coverUrl(book.id),
+                        model = vm.coverModel(book.id),
                         contentDescription = book.media.metadata.title,
                         modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
                     )

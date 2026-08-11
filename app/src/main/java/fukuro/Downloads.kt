@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import androidx.documentfile.provider.DocumentFile
 import okhttp3.Request
 import java.io.File
 
@@ -24,6 +25,7 @@ class DownloadRepo(
     private val context: Context,
     private val api: AbsApi,
     private val store: Store,
+    private val local: LocalLibrary? = null,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
@@ -70,6 +72,31 @@ class DownloadRepo(
     fun sizeOnDisk(itemId: String): Long =
         dir(itemId).walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
+    /**
+     * When the user has picked an on-device library folder, finished downloads are
+     * copied there too, so they sit alongside their own books and survive uninstall.
+     * The app-storage copy stays as the one playback uses.
+     */
+    private fun exportToLocalFolder(item: LibraryItem, files: List<File>) {
+        val treeUri = store.localFolderBlocking().takeIf { it.isNotBlank() } ?: return
+        try {
+            val tree = DocumentFile.fromTreeUri(context, android.net.Uri.parse(treeUri)) ?: return
+            val name = (item.media.metadata.title ?: item.id).replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            val dir = tree.findFile(name)?.takeIf { it.isDirectory } ?: tree.createDirectory(name) ?: return
+            files.forEachIndexed { i, f ->
+                val fileName = item.media.audioFiles.getOrNull(i)?.metadata?.filename?.takeIf { it.isNotBlank() }
+                    ?: "${name}_${i + 1}.m4b"
+                if (dir.findFile(fileName) != null) return@forEachIndexed // already exported
+                val doc = dir.createFile("audio/mp4", fileName) ?: return@forEachIndexed
+                context.contentResolver.openOutputStream(doc.uri)?.use { out ->
+                    f.inputStream().use { it.copyTo(out) }
+                }
+            }
+        } catch (_: Exception) {
+            // exporting is a bonus; a failure here must not fail the download
+        }
+    }
+
     suspend fun download(itemId: String) = withContext(Dispatchers.IO) {
         if (_states.value.containsKey(itemId)) return@withContext // already running
         _states.value = _states.value + (itemId to DownloadState(0f))
@@ -95,6 +122,7 @@ class DownloadRepo(
                 doneBytes += f.metadata.size
                 _states.value = _states.value + (itemId to DownloadState((doneBytes.toFloat() / totalBytes).coerceIn(0f, 1f)))
             }
+            exportToLocalFolder(item, files.map { File(d, "${it.ino}.audio") })
             _states.value = _states.value - itemId
         } catch (e: Exception) {
             _states.value = _states.value + (itemId to DownloadState(0f, e.message ?: "Download failed"))
