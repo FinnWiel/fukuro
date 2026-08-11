@@ -524,8 +524,13 @@ fun PlayerScreen(
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
                                 )
-                                Text(fmtMs((ch.start * 1000).toLong()),
-                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                Text(
+                                    // per-chapter mode cares about how long each chapter
+                                    // is; whole-book mode wants where it starts
+                                    if (trackScope == "chapter") fmtMs(((ch.end - ch.start) * 1000).toLong())
+                                    else fmtMs((ch.start * 1000).toLong()),
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary
+                                )
                             }
                         }
                     }

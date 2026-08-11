@@ -30,8 +30,8 @@ android {
         // versionCode must never go down or Android refuses to install over the
         // existing app, so it stays a plain counter; the human-facing build number
         // is the commit count below.
-        versionCode = 55
-        versionName = "1.2.1"
+        versionCode = 56
+        versionName = "1.2.2"
         buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
     }
 
