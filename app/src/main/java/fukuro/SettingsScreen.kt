@@ -258,7 +258,7 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
-            Text("Home screen sections", style = MaterialTheme.typography.titleMedium)
+            Text("Shelves", style = MaterialTheme.typography.titleMedium)
             Text("Listed in the order they appear on Home — use the arrows to reorder",
                 style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))

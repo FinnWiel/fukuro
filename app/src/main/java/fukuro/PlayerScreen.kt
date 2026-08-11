@@ -574,7 +574,9 @@ fun PlayerScreen(
                 if (author.isNotBlank()) {
                     item {
                         Row(
-                            Modifier.fillMaxWidth().clickable { onOpenAuthor(author) }
+                            // co-authors live in one string; open the first one's page
+                            Modifier.fillMaxWidth()
+                                .clickable { onOpenAuthor(author.split(',', ';', '&').first().trim()) }
                                 .padding(horizontal = 12.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

@@ -381,6 +381,20 @@ fun SlashedIcon(
     }
 }
 
+/**
+ * A book's authors as separate names. Audiobookshelf stores co-authors in one
+ * string ("Neil Gaiman, Terry Pratchett"), so matching the whole string against a
+ * single author found nothing and the book vanished from both author pages.
+ */
+fun authorsOf(item: LibraryItem): List<String> =
+    (item.media.metadata.authorName ?: "")
+        .split(',', ';', '&')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+
+fun LibraryItem.hasAuthor(name: String): Boolean =
+    authorsOf(this).any { it.equals(name.trim(), ignoreCase = true) }
+
 /** Cover size options: home carousel width, and how many columns the grids use. */
 val COVER_SIZE_LABELS = listOf("XS", "S", "M", "L", "XL")
 private val COVER_ROW_WIDTHS = listOf(88, 104, 120, 142, 168)
@@ -496,17 +510,18 @@ fun HomeScreen(
                         // prefer the server's author list (it carries portraits); fall back to
                         // grouping books by author name when the endpoint isn't available
                         val authors = state.authors.ifEmpty {
-                            state.items.mapNotNull { it.media.metadata.authorName }
-                                .filter { it.isNotBlank() }
+                            // split co-authors so each gets their own card
+                            state.items.flatMap { authorsOf(it) }
                                 .groupingBy { it }.eachCount()
                                 .map { (name, count) -> AbsAuthor(id = "", name = name, numBooks = count) }
+                                .sortedBy { it.name.lowercase() }
                         }
                         if (authors.isNotEmpty()) {
                             item { SectionHeader("Authors") }
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                                     items(authors, key = { it.id.ifBlank { it.name } }) { author ->
-                                        val books = state.items.count { it.media.metadata.authorName == author.name }
+                                        val books = state.items.count { it.hasAuthor(author.name) }
                                         CollectionCard(
                                             coverUrl = author.imagePath?.let { vm.api.authorImageUrl(author.id) },
                                             title = author.name,
@@ -951,7 +966,7 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
 @Composable
 fun AuthorGridScreen(vm: ShelfViewModel, author: String, onOpenBook: (String) -> Unit, onBack: () -> Unit) {
     val state by vm.state.collectAsState()
-    val books = state.items.filter { it.media.metadata.authorName == author }
+    val books = state.items.filter { it.hasAuthor(author) }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(author, maxLines = 1, overflow = TextOverflow.Ellipsis) },
