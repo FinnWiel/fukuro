@@ -42,6 +42,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
 
+    /** Lazy lists key on item id, and a repeat key is a hard crash — never allow one. */
+    private fun List<LibraryItem>.unique() = distinctBy { it.id }
+
     val local get() = shelf.local
     private val cache get() = shelf.cache
 
@@ -61,7 +64,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(
                 loggedIn = hasToken,
                 offlineOnly = offline,
-                items = (cached?.items ?: emptyList()) + localItems,
+                items = ((cached?.items ?: emptyList()) + localItems).unique(),
                 series = cached?.series ?: emptyList(),
                 authors = cached?.authors ?: emptyList(),
                 progress = (cached?.progress ?: emptyList()).associateBy { it.libraryItemId },
@@ -123,7 +126,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             if (!hasServer) {
                 _state.value = _state.value.copy(
                     loading = false, serverOnline = false,
-                    items = localItems, downloadedIds = downloaded, localCount = localItems.size
+                    items = localItems.unique(), downloadedIds = downloaded, localCount = localItems.size
                 )
                 return@launch
             }
@@ -147,7 +150,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 val progress = api.me().mediaProgress.associateBy { it.libraryItemId }
                 cache.write(CachedLibrary(items, series, authors, progress.values.toList()))
                 _state.value = _state.value.copy(
-                    items = items + localItems, series = series, authors = authors, progress = progress,
+                    items = (items + localItems).unique(), series = series, authors = authors, progress = progress,
                     loading = false, serverOnline = true, downloadedIds = downloaded,
                     localCount = localItems.size
                 )
@@ -156,7 +159,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 val fallback = downloaded.mapNotNull { downloads.localItem(it) }
                 _state.value = _state.value.copy(
                     loading = false, serverOnline = false,
-                    items = if (_state.value.items.isNotEmpty()) _state.value.items else fallback + localItems,
+                    items = if (_state.value.items.isNotEmpty()) _state.value.items else (fallback + localItems).unique(),
                     downloadedIds = downloaded, localCount = localItems.size,
                     error = null
                 )
@@ -179,7 +182,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         val serverItems = _state.value.items.filterNot { LocalLibrary.isLocal(it.id) }
         _state.value = _state.value.copy(
             scanning = false,
-            items = serverItems + found,
+            items = (serverItems + found).unique(),
             localCount = found.size,
         )
     }

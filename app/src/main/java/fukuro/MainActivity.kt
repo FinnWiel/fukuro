@@ -132,11 +132,9 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
         Tab("library", "Library", Icons.Rounded.LibraryBooks, Icons.Outlined.LibraryBooks),
         Tab("settings", "Settings", Icons.Rounded.Settings, Icons.Outlined.Settings),
     )
-    // the app is usable with a server session or in on-device-only mode
-    val entered = state.loggedIn || state.offlineOnly
-    // the merged book/now-playing screen is full-bleed: no bottom chrome over it
-    val showChrome = entered && route != "player" && route != "login" &&
-        !route.startsWith("book/")
+    // the app always opens straight into the library; the server is optional and is
+    // added from the status chip on Home or from Settings
+    val showChrome = route != "player" && route != "login" && !route.startsWith("book/")
 
     fun playBook(itemId: String) {
         val c = controller ?: return
@@ -162,12 +160,13 @@ fun AppNav(vm: ShelfViewModel, controller: MediaController?) {
     // Spotify-style. Screens add their own bottom spacing to clear the bars.
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.layout.Box {
-            NavHost(nav, startDestination = if (entered) "home" else "login") {
+            NavHost(nav, startDestination = "home") {
                 composable("login") {
                     LoginScreen(vm) { nav.navigate("home") { popUpTo("login") { inclusive = true } } }
                 }
                 composable("home") {
                     HomeScreen(vm,
+                        onOpenServer = { nav.navigate("login") },
                         onOpenBook = { id -> sheetItem = id },
                         onOpenSeries = { id -> nav.navigate("series/$id") },
                         onOpenAuthor = { name -> nav.navigate("author/${android.net.Uri.encode(name)}") })

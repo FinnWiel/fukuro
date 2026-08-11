@@ -16,6 +16,7 @@ class ShelfApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashLog()
         store = Store(this)
         api = AbsApi(store)
         local = LocalLibrary(this, store)
@@ -23,7 +24,26 @@ class ShelfApp : Application() {
         downloads = DownloadRepo(this, api, store, local)
     }
 
+    /**
+     * Sideloaded builds have no crash reporting, so keep the last stack trace on disk
+     * and show it in Settings — otherwise a crash is just "the app closed".
+     */
+    private fun installCrashLog() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching {
+                val sw = java.io.StringWriter()
+                error.printStackTrace(java.io.PrintWriter(sw))
+                java.io.File(filesDir, CRASH_FILE).writeText(
+                    "${java.util.Date()}\nthread: ${thread.name}\n\n$sw"
+                )
+            }
+            previous?.uncaughtException(thread, error)
+        }
+    }
+
     companion object {
+        const val CRASH_FILE = "last_crash.txt"
         fun from(app: Application): ShelfApp = app as ShelfApp
     }
 }

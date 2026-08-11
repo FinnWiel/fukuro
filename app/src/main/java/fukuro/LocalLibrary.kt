@@ -5,6 +5,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -25,6 +26,8 @@ class LocalLibrary(private val context: Context, private val store: Store) {
 
     companion object {
         const val PREFIX = "local:"
+        private const val MAX_BOOKS = 2000
+        private const val MAX_FILES_PER_BOOK = 200
         private val AUDIO = setOf("m4b", "mp3", "m4a", "aac", "flac", "ogg", "opus", "wav")
         fun isLocal(itemId: String) = itemId.startsWith(PREFIX)
     }
@@ -51,9 +54,16 @@ class LocalLibrary(private val context: Context, private val store: Store) {
     /** The playable uri for one file of a local book — the ino *is* the document uri. */
     fun audioUri(ino: String): Uri? = runCatching { Uri.parse(ino) }.getOrNull()
 
-    /** Walks the chosen folder and rebuilds the cache. Returns the books found. */
+    /**
+     * Walks the chosen folder and rebuilds the cache. Never throws: a bad file, a
+     * huge tree or an out-of-memory while reading tags must not take the app down.
+     */
     suspend fun rescan(): List<LibraryItem> = withContext(Dispatchers.IO) {
-        val treeUriStr = store.localFolderBlocking()
+        try { rescanInner() } catch (t: Throwable) { items() }
+    }
+
+    private suspend fun rescanInner(): List<LibraryItem> = withContext(Dispatchers.IO) {
+        val treeUriStr = store.localFolderFlow.first()
         if (treeUriStr.isBlank()) {
             cached = emptyList(); cacheFile.delete(); return@withContext emptyList()
         }
@@ -61,21 +71,29 @@ class LocalLibrary(private val context: Context, private val store: Store) {
             ?: return@withContext emptyList()
 
         val books = mutableListOf<LibraryItem>()
-        // folders holding audio = one book each
-        collectBooks(tree, books, depth = 0)
-        // loose audio files directly in the root, one book per file
-        tree.listFiles().filter { it.isFile && it.name?.substringAfterLast('.', "")?.lowercase() in AUDIO }
+        val root = try { tree.listFiles() } catch (_: Throwable) { emptyArray() }
+
+        // each SUBfolder holding audio is one book
+        root.filter { it.isDirectory }.forEach { collectBooks(it, books, depth = 1) }
+
+        // audio sitting loose in the chosen folder: one book per file.
+        // (The root must not also be treated as a single book — that produced two
+        // entries sharing the first file's id, and duplicate keys crash the lists.)
+        root.filter { it.isFile && it.name?.substringAfterLast('.', "")?.lowercase() in AUDIO }
             .forEach { f -> buildBook(f.name ?: "Unknown", listOf(f))?.let { books.add(it) } }
 
-        val sorted = books.sortedBy { it.media.metadata.title?.lowercase() ?: "" }
+        // last line of defence: ids must be unique for the lazy lists
+        val sorted = books.distinctBy { it.id }
+            .sortedBy { it.media.metadata.title?.lowercase() ?: "" }
         cached = sorted
         runCatching { cacheFile.writeText(json.encodeToString(sorted)) }
         sorted
     }
 
     private fun collectBooks(dir: DocumentFile, out: MutableList<LibraryItem>, depth: Int) {
-        if (depth > 4) return // don't walk forever on deep trees
-        val children = dir.listFiles()
+        if (depth > 4) return          // don't walk forever on deep trees
+        if (out.size >= MAX_BOOKS) return
+        val children = try { dir.listFiles() } catch (_: Throwable) { return }
         val audio = children.filter { it.isFile && it.name?.substringAfterLast('.', "")?.lowercase() in AUDIO }
         if (audio.isNotEmpty()) {
             buildBook(dir.name ?: "Unknown", audio.sortedBy { it.name ?: "" })?.let { out.add(it) }
@@ -83,8 +101,11 @@ class LocalLibrary(private val context: Context, private val store: Store) {
         children.filter { it.isDirectory }.forEach { collectBooks(it, out, depth + 1) }
     }
 
-    /** Reads tags from the first file and totals the durations. */
-    private fun buildBook(folderName: String, files: List<DocumentFile>): LibraryItem? {
+    /** Reads tags from the first file and totals the durations. Never throws. */
+    private fun buildBook(folderName: String, files: List<DocumentFile>): LibraryItem? =
+        try { buildBookInner(folderName, files) } catch (_: Throwable) { null }
+
+    private fun buildBookInner(folderName: String, files: List<DocumentFile>): LibraryItem? {
         if (files.isEmpty()) return null
         val id = PREFIX + (files.first().uri.toString())
         var title: String? = null
@@ -94,7 +115,7 @@ class LocalLibrary(private val context: Context, private val store: Store) {
         var totalSec = 0.0
         val audioFiles = mutableListOf<AudioFile>()
 
-        files.forEachIndexed { i, doc ->
+        files.take(MAX_FILES_PER_BOOK).forEachIndexed { i, doc ->
             val mmr = MediaMetadataRetriever()
             var durSec = 0.0
             try {
@@ -115,8 +136,9 @@ class LocalLibrary(private val context: Context, private val store: Store) {
                         }
                     }
                 }
-            } catch (_: Exception) {
-                // unreadable file: still list it, playback will surface any real problem
+            } catch (_: Throwable) {
+                // unreadable file, or OOM pulling embedded art: list it anyway.
+                // Throwable, not Exception — OutOfMemoryError here used to kill the app.
             } finally {
                 runCatching { mmr.release() }
             }

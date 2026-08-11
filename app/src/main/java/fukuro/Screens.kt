@@ -384,6 +384,7 @@ fun coverGridColumns(size: Int) = COVER_GRID_COLUMNS[size.coerceIn(0, 4)]
 fun HomeScreen(
     vm: ShelfViewModel,
     onOpenBook: (String) -> Unit,
+    onOpenServer: () -> Unit = {},
     onOpenSeries: (String) -> Unit = {},
     onOpenAuthor: (String) -> Unit = {},
 ) {
@@ -394,22 +395,35 @@ fun HomeScreen(
         TopAppBar(
             title = { Text("Fukuro") },
             actions = {
-                // server connection, spelled out rather than a bare dot
+                // server status; tap to add a server or manage the connection
+                val tint = when {
+                    state.serverOnline -> Color(0xFF2FBF71)
+                    state.loggedIn -> Color(0xFFE5484D)
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(end = 12.dp)
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onOpenServer() }
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
                 ) {
                     Icon(
                         if (state.serverOnline) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
-                        contentDescription = null,
+                        contentDescription = "Server connection",
                         modifier = Modifier.size(18.dp),
-                        tint = if (state.serverOnline) Color(0xFF2FBF71) else Color(0xFFE5484D)
+                        tint = tint
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        if (state.serverOnline) "Server" else "Offline",
+                        when {
+                            state.serverOnline -> "Server"
+                            state.loggedIn -> "Offline"
+                            else -> "Add server"
+                        },
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (state.serverOnline) Color(0xFF2FBF71) else Color(0xFFE5484D)
+                        color = tint
                     )
                 }
             }

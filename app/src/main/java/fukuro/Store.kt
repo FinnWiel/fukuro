@@ -8,12 +8,42 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 private val Context.dataStore by preferencesDataStore(name = "fukuro")
 
 /** Small persistent settings store. Blocking getters exist for non-suspend call sites (URL builders). */
 class Store(private val context: Context) {
+
+    /*
+     * Values the UI and the player service need synchronously (cover URLs are built
+     * while composing, on the main thread). Reading DataStore with runBlocking there
+     * stalls the frame and can wedge the app, so keep a warm in-memory mirror instead.
+     */
+    @Volatile private var mServer: String? = null
+    @Volatile private var mToken: String? = null
+    @Volatile private var mLocalFolder: String = ""
+    @Volatile private var mDownloadDir: String = ""
+    @Volatile private var mSkipBack: Int = 10
+    @Volatile private var mSkipForward: Int = 30
+
+    private val mirrorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        mirrorScope.launch {
+            context.dataStore.data.collect { p ->
+                mServer = p[K.SERVER]
+                mToken = p[K.TOKEN]
+                mLocalFolder = p[K.LOCAL_FOLDER] ?: ""
+                mDownloadDir = p[K.DOWNLOAD_DIR] ?: ""
+                mSkipBack = p[K.SKIP_BACK]?.toIntOrNull() ?: 10
+                mSkipForward = p[K.SKIP_FORWARD]?.toIntOrNull() ?: 30
+            }
+        }
+    }
     private object K {
         val SERVER = stringPreferencesKey("server_url")
         val TOKEN = stringPreferencesKey("token")
@@ -45,13 +75,13 @@ class Store(private val context: Context) {
     val skipForwardFlow: Flow<Int> = context.dataStore.data.map { it[K.SKIP_FORWARD]?.toIntOrNull() ?: 30 }
     val offlineOnlyFlow: Flow<Boolean> = context.dataStore.data.map { it[K.OFFLINE_ONLY] ?: false }
     val localFolderFlow: Flow<String> = context.dataStore.data.map { it[K.LOCAL_FOLDER] ?: "" }
-    fun localFolderBlocking(): String = runBlocking { context.dataStore.data.first()[K.LOCAL_FOLDER] ?: "" }
+    fun localFolderBlocking(): String = mLocalFolder
     suspend fun setOfflineOnly(v: Boolean) = context.dataStore.edit { it[K.OFFLINE_ONLY] = v }
     suspend fun setLocalFolder(v: String) = context.dataStore.edit { it[K.LOCAL_FOLDER] = v }
 
-    fun skipBackBlocking(): Int = runBlocking { context.dataStore.data.first()[K.SKIP_BACK]?.toIntOrNull() ?: 10 }
-    fun skipForwardBlocking(): Int = runBlocking { context.dataStore.data.first()[K.SKIP_FORWARD]?.toIntOrNull() ?: 30 }
-    fun downloadDirBlocking(): String = runBlocking { context.dataStore.data.first()[K.DOWNLOAD_DIR] ?: "" }
+    fun skipBackBlocking(): Int = mSkipBack
+    fun skipForwardBlocking(): Int = mSkipForward
+    fun downloadDirBlocking(): String = mDownloadDir
     val apiKeyFlow: Flow<String> = context.dataStore.data.map { it[K.API_KEY] ?: "" }
     val homeSectionsFlow: Flow<String> =
         context.dataStore.data.map { it[K.HOME_SECTIONS] ?: DEFAULT_SECTIONS }
@@ -60,8 +90,8 @@ class Store(private val context: Context) {
 
     suspend fun serverUrl(): String? = context.dataStore.data.first()[K.SERVER]
     suspend fun token(): String? = context.dataStore.data.first()[K.TOKEN]
-    fun serverUrlBlocking(): String? = runBlocking { serverUrl() }
-    fun tokenBlocking(): String? = runBlocking { token() }
+    fun serverUrlBlocking(): String? = mServer
+    fun tokenBlocking(): String? = mToken
 
     suspend fun setServerUrl(v: String) = context.dataStore.edit { it[K.SERVER] = v }
     suspend fun setToken(v: String) = context.dataStore.edit { it[K.TOKEN] = v }

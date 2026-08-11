@@ -123,6 +123,7 @@ fun SettingsScreen(
     val state by vm.state.collectAsState()
     val localFolder by vm.store.localFolderFlow.collectAsState(initial = "")
     val context = LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     // system folder picker; we keep read access across restarts
     val folderPicker = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -434,6 +435,27 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // if the app died last time, keep the stack trace where it can be read
+            val crashFile = remember { java.io.File(context.filesDir, ShelfApp.CRASH_FILE) }
+            var crashText by remember { mutableStateOf(runCatching { crashFile.readText() }.getOrNull()) }
+            crashText?.let { text ->
+                Spacer(Modifier.height(16.dp))
+                Text("Last crash", style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.error)
+                Text(
+                    text.take(1200),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                    }) { Text("Copy") }
+                    OutlinedButton(onClick = { crashFile.delete(); crashText = null }) { Text("Clear") }
+                }
+            }
             Spacer(Modifier.height(140.dp)) // clear the floating chrome
         }
     }
