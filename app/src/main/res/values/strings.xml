@@ -7,4 +7,6 @@
     <string name="widget_player_large_desc">What\'s playing, with progress and seek buttons.</string>
     <string name="widget_recent">Fukuro recent</string>
     <string name="widget_recent_desc">The last book you listened to.</string>
+    <string name="widget_recent_icon">Fukuro recent (icon)</string>
+    <string name="widget_recent_icon_desc">The last book\'s cover, the size of an app icon.</string>
 </resources>

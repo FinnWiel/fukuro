@@ -86,6 +86,19 @@ class RecentWidget : GlanceAppWidget() {
     }
 }
 
+/**
+ * One cell, cover only. No card, no title, no buttons — it sits among the app icons and
+ * reads as one of them, and tapping it opens that book the way tapping an icon opens an
+ * app. The 2x2 [RecentWidget] is the version that explains itself.
+ */
+class RecentIconWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val np = WidgetData.read(context)
+        val cover = WidgetData.cover(context)
+        provideContent { RecentIconBody(np, cover) }
+    }
+}
+
 class PlayerWidgetSmallReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = PlayerWidgetSmall()
 }
@@ -98,11 +111,16 @@ class RecentWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = RecentWidget()
 }
 
+class RecentIconWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = RecentIconWidget()
+}
+
 /** Redraws every widget the user has placed. Safe to call when none are. */
 suspend fun refreshWidgets(context: Context) {
     runCatching { PlayerWidgetSmall().updateAll(context) }
     runCatching { PlayerWidgetLarge().updateAll(context) }
     runCatching { RecentWidget().updateAll(context) }
+    runCatching { RecentIconWidget().updateAll(context) }
 }
 
 /* ---------------- content ---------------- */
@@ -180,6 +198,35 @@ private fun RecentBody(np: NowPlaying?, cover: android.graphics.Bitmap?) {
             style = TextStyle(color = OnSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium),
             maxLines = 2
         )
+    }
+}
+
+@Composable
+private fun RecentIconBody(np: NowPlaying?, cover: android.graphics.Bitmap?) {
+    val context = LocalContext.current
+    Box(
+        GlanceModifier.fillMaxSize()
+            .clickable(actionStartActivity(openAppIntent(context, np?.itemId))),
+        contentAlignment = Alignment.Center
+    ) {
+        if (cover != null) {
+            Image(
+                provider = ImageProvider(cover),
+                contentDescription = np?.title,
+                // roughly an app icon's corner: enough to sit next to real ones without
+                // looking like a card
+                modifier = GlanceModifier.fillMaxSize().cornerRadius(16.dp),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            // nothing played yet: be the app's own icon rather than an empty square
+            Image(
+                provider = ImageProvider(R.mipmap.ic_launcher),
+                contentDescription = null,
+                modifier = GlanceModifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
     }
 }
 

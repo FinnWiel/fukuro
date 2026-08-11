@@ -70,6 +70,18 @@
                 android:resource="@xml/widget_recent" />
         </receiver>
 
+        <receiver
+            android:name=".RecentIconWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_recent_icon">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_recent_icon" />
+        </receiver>
+
         <!-- how the installer reads the downloaded APK out of the app's cache -->
         <provider
             android:name="androidx.core.content.FileProvider"
