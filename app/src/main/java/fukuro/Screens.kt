@@ -497,7 +497,13 @@ fun HomeScreen(
                         }
                     }
                     "series" -> {
-                        val withBooks = state.series.filter { it.books.isNotEmpty() }
+                        // offline a series shrinks to the part of it that's on the device,
+                        // and drops out entirely when none of it is
+                        val withBooks = state.series
+                            .map { s ->
+                                if (state.offline) s.copy(books = s.books.filter { state.isOnDevice(it.id) }) else s
+                            }
+                            .filter { it.books.isNotEmpty() }
                         if (withBooks.isNotEmpty()) {
                             item { SectionHeader("Series") }
                             item {
@@ -541,6 +547,8 @@ fun HomeScreen(
                                 .map { (name, count) -> AbsAuthor(id = "", name = name, numBooks = count) }
                                 .sortedBy { it.name.lowercase() }
                         }
+                            // offline, an author whose books are all on the server is a dead end
+                            .filter { a -> !state.offline || state.items.any { it.hasAuthor(a.name) } }
                         if (authors.isNotEmpty()) {
                             item { SectionHeader("Authors") }
                             item {
@@ -972,7 +980,9 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
     val state by vm.state.collectAsState()
     val dlStates by vm.downloadStates.collectAsState()
     val series = state.series.firstOrNull { it.id == seriesId } ?: return
-    val ids = series.books.map { it.id }
+    // offline the page shows only the books that can actually be opened
+    val books = if (state.offline) series.books.filter { state.isOnDevice(it.id) } else series.books
+    val ids = books.map { it.id }
     val downloadedCount = ids.count { it in state.downloadedIds }
     val busy = ids.any { dlStates.containsKey(it) }
 
@@ -1009,7 +1019,7 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 140.dp),
             modifier = Modifier.fillMaxSize().padding(pad)
         ) {
-            items(series.books, key = { it.id }) { book -> BookGridCell(vm, book, state, onOpenBook) }
+            items(books, key = { it.id }) { book -> BookGridCell(vm, book, state, onOpenBook) }
         }
     }
 }

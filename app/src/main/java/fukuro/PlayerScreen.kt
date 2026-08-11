@@ -108,8 +108,10 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -117,6 +119,10 @@ import kotlin.math.roundToInt
 private val TxtPrimary = Color.White
 private val TxtSecondary = Color(0xB3FFFFFF)
 private val PanelBg = Color(0x59000000)
+
+// what the blurred artwork sits on. Books with no cover used to leave the page
+// see-through onto the screen behind it; this keeps it solid either way.
+private val PlayerBg = Color(0xFF101312)
 
 /**
  * The book page. Doubles as the now-playing screen:
@@ -191,7 +197,12 @@ fun PlayerScreen(
         detail = null
         livePosSec = null
         val id = displayId ?: return@LaunchedEffect
-        detail = try { vm.api.item(id) } catch (_: Exception) { vm.downloads.localItem(id) }
+        // a downloaded book reads from disk first: the page fills in at once and still
+        // works with no server. The server copy then replaces it when there is one.
+        detail = withContext(Dispatchers.IO) { vm.downloads.localItem(id) }
+        if (detail == null || vm.state.value.serverOnline) {
+            runCatching { vm.api.item(id) }.getOrNull()?.let { detail = it }
+        }
     }
 
     if (displayId == null) {
@@ -269,6 +280,7 @@ fun PlayerScreen(
                     topEnd = (dragPx / dismissPx * 28f).coerceIn(0f, 28f).dp
                 )
             )
+            .background(PlayerBg)
     ) {
         AsyncImage(
             model = coverUrl, contentDescription = null,

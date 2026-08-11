@@ -19,7 +19,8 @@ data class UiState(
     val loading: Boolean = false,
     val error: String? = null,
     val serverOnline: Boolean = false,
-    val items: List<LibraryItem> = emptyList(),
+    val serverChecked: Boolean = false, // have we actually probed the server yet?
+    val allItems: List<LibraryItem> = emptyList(),
     val series: List<AbsSeries> = emptyList(),
     val authors: List<AbsAuthor> = emptyList(),
     val progress: Map<String, MediaProgress> = emptyMap(),
@@ -28,7 +29,27 @@ data class UiState(
     val continueHidden: Set<String> = emptySet(),
     val progressStyle: String = "circle", // "circle" | "bar"
     val coverSize: Int = 2, // 0..4, 2 = default
-)
+) {
+    /**
+     * Offline means the server was probed and wasn't there. Before the first probe it
+     * is simply unknown, so nothing is hidden on the way in — the cached library keeps
+     * showing until we know better.
+     */
+    val offline: Boolean get() = serverChecked && !serverOnline
+
+    /** Only books whose audio sits on the device can be opened without the server. */
+    fun isOnDevice(itemId: String) = LocalLibrary.isLocal(itemId) || itemId in downloadedIds
+
+    /**
+     * What the library shows. With the server reachable that's everything; offline it
+     * is only the books that can actually be played, since the rest are dead covers.
+     * Computed once per state (lazily) rather than on every read — the lists are long
+     * and the screens touch [items] many times per frame.
+     */
+    val items: List<LibraryItem> by lazy {
+        if (!offline) allItems else allItems.filter { isOnDevice(it.id) }
+    }
+}
 
 /** Upload page state. */
 data class UploadUi(val running: Boolean = false, val message: String? = null, val success: Boolean = false)
@@ -49,9 +70,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     val local get() = shelf.local
     private val cache get() = shelf.cache
 
-    /** Cover for any book: a local file for on-device books, the server URL otherwise. */
-    fun coverModel(itemId: String): Any? =
-        if (LocalLibrary.isLocal(itemId)) local.coverFile(itemId) else api.coverUrl(itemId)
+    /**
+     * Cover for any book. On-device books use the file scanned out of their folder and
+     * downloaded books the cover saved next to their audio — the server URL is only the
+     * last resort, so a downloaded book still shows its art with no connection.
+     */
+    fun coverModel(itemId: String): Any? = when {
+        LocalLibrary.isLocal(itemId) -> local.coverFile(itemId)
+        // covers are resolved while composing, so only touch the disk for books that
+        // are actually on it
+        itemId in _state.value.downloadedIds -> downloads.localCover(itemId) ?: api.coverUrl(itemId)
+        else -> api.coverUrl(itemId)
+    }
 
     init {
         viewModelScope.launch {
@@ -65,7 +95,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(
                 loggedIn = hasToken,
                 offlineOnly = offline,
-                items = ((cached?.items ?: emptyList()) + localItems).unique(),
+                allItems = ((cached?.items ?: emptyList()) + localItems).unique(),
                 series = cached?.series ?: emptyList(),
                 authors = cached?.authors ?: emptyList(),
                 progress = (cached?.progress ?: emptyList()).associateBy { it.libraryItemId },
@@ -99,7 +129,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                     val progress = if (ok) try {
                         api.me().mediaProgress.associateBy { it.libraryItemId }
                     } catch (_: Exception) { _state.value.progress } else _state.value.progress
-                    _state.value = _state.value.copy(serverOnline = ok, progress = progress)
+                    _state.value = _state.value.copy(
+                        serverOnline = ok, serverChecked = true, progress = progress
+                    )
                 }
             }
         }
@@ -110,7 +142,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(loading = true, error = null)
             try {
                 api.login(server.trim(), username.trim(), password)
-                _state.value = _state.value.copy(loggedIn = true, loading = false, serverOnline = true)
+                _state.value = _state.value.copy(
+                    loggedIn = true, loading = false, serverOnline = true, serverChecked = true
+                )
                 refresh()
                 onDone(true)
             } catch (e: Exception) {
@@ -126,11 +160,17 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             val localItems = local.items()
             val hasServer = store.token() != null && store.serverUrl() != null
 
+            // every book that can be played without the server, for the offline paths below.
+            // Cached entries come first so their (fresher) server metadata wins over the
+            // snapshot saved at download time.
+            fun offlineItems() =
+                (_state.value.allItems + downloaded.mapNotNull { downloads.localItem(it) } + localItems).unique()
+
             // no server configured: nothing to wait for
             if (!hasServer) {
                 _state.value = _state.value.copy(
-                    loading = false, serverOnline = false,
-                    items = localItems.unique(), downloadedIds = downloaded, localCount = localItems.size
+                    loading = false, serverOnline = false, serverChecked = true,
+                    allItems = offlineItems(), downloadedIds = downloaded, localCount = localItems.size
                 )
                 return@launch
             }
@@ -140,7 +180,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             // quick reachability probe (2s) so an absent server costs 2s, not four timeouts
             if (!api.reachable()) {
                 _state.value = _state.value.copy(
-                    loading = false, serverOnline = false,
+                    loading = false, serverOnline = false, serverChecked = true,
+                    allItems = offlineItems(),
                     downloadedIds = downloaded, localCount = localItems.size
                 )
                 return@launch
@@ -154,17 +195,16 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 val progress = api.me().mediaProgress.associateBy { it.libraryItemId }
                 cache.write(CachedLibrary(items, series, authors, progress.values.toList()))
                 _state.value = _state.value.copy(
-                    items = (items + localItems).unique(), series = series, authors = authors, progress = progress,
-                    loading = false, serverOnline = true, downloadedIds = downloaded,
+                    allItems = (items + localItems).unique(), series = series, authors = authors, progress = progress,
+                    loading = false, serverOnline = true, serverChecked = true, downloadedIds = downloaded,
                     localCount = localItems.size
                 )
                 prefetchContinue()
             } catch (e: Exception) {
                 // keep whatever is already on screen (cache + local + downloads)
-                val fallback = downloaded.mapNotNull { downloads.localItem(it) }
                 _state.value = _state.value.copy(
-                    loading = false, serverOnline = false,
-                    items = if (_state.value.items.isNotEmpty()) _state.value.items else (fallback + localItems).unique(),
+                    loading = false, serverOnline = false, serverChecked = true,
+                    allItems = offlineItems(),
                     downloadedIds = downloaded, localCount = localItems.size,
                     error = null
                 )
@@ -184,10 +224,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     fun rescanLocal() = viewModelScope.launch {
         _state.value = _state.value.copy(scanning = true)
         val found = local.rescan()
-        val serverItems = _state.value.items.filterNot { LocalLibrary.isLocal(it.id) }
+        val serverItems = _state.value.allItems.filterNot { LocalLibrary.isLocal(it.id) }
         _state.value = _state.value.copy(
             scanning = false,
-            items = (serverItems + found).unique(),
+            allItems = (serverItems + found).unique(),
             localCount = found.size,
         )
     }
