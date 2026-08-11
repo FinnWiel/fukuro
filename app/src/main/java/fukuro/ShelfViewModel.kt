@@ -54,6 +54,19 @@ data class UiState(
 /** Upload page state. */
 data class UploadUi(val running: Boolean = false, val message: String? = null, val success: Boolean = false)
 
+/** Where the app has got to with a newer release. */
+data class UpdateUi(
+    val checking: Boolean = false,
+    val info: UpdateInfo? = null,
+    val downloading: Boolean = false,
+    val progress: Float = 0f,
+    val file: java.io.File? = null,      // downloaded, waiting to be installed
+    val needsPermission: Boolean = false, // the user has not allowed installs yet
+    val upToDate: Boolean = false,        // set by a manual check that found nothing
+    val error: String? = null,
+    val dismissed: Boolean = false,       // banner hidden for this run
+)
+
 class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     private val shelf = ShelfApp.from(app)
     val api get() = shelf.api
@@ -63,6 +76,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
+
+    private val _update = MutableStateFlow(UpdateUi())
+    val update: StateFlow<UpdateUi> = _update
 
     /** Lazy lists key on item id, and a repeat key is a hard crash — never allow one. */
     private fun List<LibraryItem>.unique() = distinctBy { it.id }
@@ -105,6 +121,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
             // 2) then talk to the server, if there is one
             if (hasToken) refresh()
+            checkForUpdate()
         }
         // keep favorites in sync with the persisted set
         viewModelScope.launch {
@@ -284,6 +301,77 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleFavorite(itemId: String) = viewModelScope.launch { store.toggleFavorite(itemId) }
+
+    /* ---------------- app updates ---------------- */
+
+    /**
+     * Looks for a newer release. The automatic call (app start) respects the setting and
+     * only goes out once every six hours; [manual] ignores both and always reports back.
+     */
+    fun checkForUpdate(manual: Boolean = false) = viewModelScope.launch {
+        val u = _update.value
+        if (u.checking || u.downloading) return@launch
+        if (!manual) {
+            if (!store.autoUpdateFlow.first()) return@launch
+            if (System.currentTimeMillis() - store.lastUpdateCheck() < 6 * 60 * 60 * 1000L) return@launch
+        }
+        _update.value = u.copy(checking = true, error = null, upToDate = false)
+        try {
+            val info = shelf.updater.check()
+            store.setLastUpdateCheck(System.currentTimeMillis())
+            _update.value = _update.value.copy(
+                checking = false, info = info, upToDate = info == null, dismissed = false
+            )
+        } catch (e: Exception) {
+            // an unreachable GitHub is not worth shouting about on a background check
+            _update.value = _update.value.copy(
+                checking = false,
+                error = if (manual) (e.message ?: "Could not reach GitHub") else null
+            )
+        }
+    }
+
+    fun downloadUpdate() = viewModelScope.launch {
+        val info = _update.value.info ?: return@launch
+        if (_update.value.downloading) return@launch
+        _update.value = _update.value.copy(downloading = true, progress = 0f, error = null)
+        try {
+            // the download reports every chunk; only redraw when the percentage moves
+            var lastPct = -1
+            val file = shelf.updater.download(info) { p ->
+                val pct = (p * 100).toInt()
+                if (pct != lastPct) {
+                    lastPct = pct
+                    _update.value = _update.value.copy(progress = p)
+                }
+            }
+            _update.value = _update.value.copy(downloading = false, file = file)
+            installUpdate() // straight into the installer; nothing else to wait for
+        } catch (e: Exception) {
+            _update.value = _update.value.copy(
+                downloading = false, error = e.message ?: "Download failed"
+            )
+        }
+    }
+
+    /**
+     * Hands the downloaded APK to the system installer. If the user has not allowed this
+     * app to install, that has to happen first — the file stays put meanwhile, so coming
+     * back is one tap.
+     */
+    fun installUpdate() {
+        val file = _update.value.file ?: return
+        if (!shelf.updater.canInstall()) {
+            _update.value = _update.value.copy(needsPermission = true)
+            return
+        }
+        _update.value = _update.value.copy(needsPermission = false)
+        shelf.updater.install(file)
+    }
+
+    fun grantInstallPermission() = shelf.updater.requestInstallPermission()
+
+    fun dismissUpdate() { _update.value = _update.value.copy(dismissed = true) }
 
     fun hideFromContinue(itemId: String) = viewModelScope.launch { store.hideFromContinue(itemId) }
     fun unhideFromContinue(itemId: String) = viewModelScope.launch { store.unhideFromContinue(itemId) }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The only file ever shared out of the app: a downloaded update, handed to the
+     system installer. Nothing else in the cache is exposed. -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

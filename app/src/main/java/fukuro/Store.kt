@@ -64,6 +64,8 @@ class Store(private val context: Context) {
         val LOCAL_FOLDER = stringPreferencesKey("local_folder")    // SAF tree uri of the on-device library
         val TRACK_SCOPE = stringPreferencesKey("track_scope")      // "book" | "chapter"
         val CONTINUE_HIDDEN = stringPreferencesKey("continue_hidden") // csv of ids kept out of the shelf
+        val AUTO_UPDATE = booleanPreferencesKey("auto_update_check")
+        val UPDATE_LAST_CHECK = stringPreferencesKey("update_last_check") // epoch ms
         val API_KEY = stringPreferencesKey("abs_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
@@ -80,6 +82,13 @@ class Store(private val context: Context) {
     val offlineOnlyFlow: Flow<Boolean> = context.dataStore.data.map { it[K.OFFLINE_ONLY] ?: false }
     val localFolderFlow: Flow<String> = context.dataStore.data.map { it[K.LOCAL_FOLDER] ?: "" }
     val trackScopeFlow: Flow<String> = context.dataStore.data.map { it[K.TRACK_SCOPE] ?: "book" }
+    val autoUpdateFlow: Flow<Boolean> = context.dataStore.data.map { it[K.AUTO_UPDATE] ?: true }
+
+    suspend fun setAutoUpdate(v: Boolean) = context.dataStore.edit { it[K.AUTO_UPDATE] = v }
+    suspend fun lastUpdateCheck(): Long =
+        context.dataStore.data.first()[K.UPDATE_LAST_CHECK]?.toLongOrNull() ?: 0L
+    suspend fun setLastUpdateCheck(ms: Long) =
+        context.dataStore.edit { it[K.UPDATE_LAST_CHECK] = ms.toString() }
 
     /** Books the user dismissed from Continue Listening; their progress is untouched. */
     val continueHiddenFlow: Flow<Set<String>> = context.dataStore.data.map {

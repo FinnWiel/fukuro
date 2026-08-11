@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
@@ -59,6 +60,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
@@ -485,6 +487,7 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize().padding(pad)
         ) {
         LazyColumn(Modifier.fillMaxSize()) {
+            item { UpdateBanner(vm) }
             val sections = sectionsCsv.split(',').filter { it.isNotBlank() }
             sections.forEach { section ->
                 when (section) {
@@ -602,6 +605,70 @@ fun HomeScreen(
             }
             item { Spacer(Modifier.height(140.dp)) } // clear the floating chrome
         }
+        }
+    }
+}
+
+/**
+ * Quiet strip at the top of Home when a newer release is out — otherwise the automatic
+ * check would only ever be visible to someone who went looking in Settings.
+ */
+@Composable
+private fun UpdateBanner(vm: ShelfViewModel) {
+    val u by vm.update.collectAsState()
+    val info = u.info
+    if (info == null || u.dismissed) return
+
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            Modifier.height(52.dp).padding(start = 14.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                when {
+                    u.downloading -> "Downloading ${info.version}… ${(u.progress * 100).toInt()}%"
+                    u.needsPermission -> "Allow Fukuro to install apps"
+                    else -> "Fukuro ${info.version} is available"
+                },
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 2, overflow = TextOverflow.Ellipsis
+            )
+            if (u.downloading) {
+                CircularProgressIndicator(
+                    progress = { u.progress },
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(Modifier.width(12.dp))
+            } else {
+                TextButton(onClick = {
+                    when {
+                        u.needsPermission -> vm.grantInstallPermission()
+                        u.file != null -> vm.installUpdate()
+                        else -> vm.downloadUpdate()
+                    }
+                }) {
+                    Text(
+                        when {
+                            u.needsPermission -> "Allow"
+                            u.file != null -> "Install"
+                            else -> "Update"
+                        }
+                    )
+                }
+            }
+            IconButton(onClick = { vm.dismissUpdate() }, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Rounded.Close, "Dismiss", Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
         }
     }
 }

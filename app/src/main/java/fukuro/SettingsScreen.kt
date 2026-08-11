@@ -60,6 +60,108 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
+/**
+ * Update check, sitting right under the version it compares against.
+ *
+ * The app can notice a release and fetch it, but Android reserves the install itself for
+ * the system installer, so the last step is always a confirmation the user taps.
+ */
+@Composable
+private fun UpdatesSection(vm: ShelfViewModel) {
+    val u by vm.update.collectAsState()
+    val auto by vm.store.autoUpdateFlow.collectAsState(initial = true)
+    val scope = rememberCoroutineScope()
+    val info = u.info
+
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = auto, onCheckedChange = { on -> scope.launch { vm.store.setAutoUpdate(on) } })
+        Text("Check for updates on start", Modifier.weight(1f))
+    }
+
+    if (info != null) {
+        Spacer(Modifier.height(4.dp))
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(14.dp)
+        ) {
+            Text(
+                "Fukuro ${info.version} is available",
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                "${info.sizeBytes / 1_000_000} MB",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (info.notes.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    info.notes.take(600),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            when {
+                u.downloading -> {
+                    Text(
+                        "Downloading ${(u.progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        Modifier.fillMaxWidth().height(4.dp).clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f))
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth(u.progress.coerceIn(0f, 1f)).height(4.dp)
+                                .clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+                // the permission is a one-off: granted once, later updates skip straight
+                // to the installer
+                u.needsPermission -> {
+                    Text(
+                        "Android needs your permission to let Fukuro install apps. " +
+                            "Allow it, then tap Install.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.grantInstallPermission() }) { Text("Allow") }
+                        OutlinedButton(onClick = { vm.installUpdate() }) { Text("Install") }
+                    }
+                }
+                u.file != null -> Button(onClick = { vm.installUpdate() }) { Text("Install") }
+                else -> Button(onClick = { vm.downloadUpdate() }) { Text("Download and install") }
+            }
+        }
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = { vm.checkForUpdate(manual = true) },
+            enabled = !u.checking && !u.downloading
+        ) { Text(if (u.checking) "Checking…" else "Check for updates") }
+        when {
+            u.upToDate -> Text(
+                "Up to date", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            u.error != null -> Text(
+                u.error ?: "", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
 /** Turns a SAF tree uri into something a human can recognise. */
 private fun prettyFolder(uri: String): String {
     val decoded = java.net.URLDecoder.decode(uri, "UTF-8")
@@ -419,6 +521,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            UpdatesSection(vm)
 
             // if the app died last time, keep the stack trace where it can be read
             val crashFile = remember { java.io.File(context.filesDir, ShelfApp.CRASH_FILE) }

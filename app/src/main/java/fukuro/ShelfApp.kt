@@ -13,6 +13,8 @@ class ShelfApp : Application() {
         private set
     lateinit var cache: LibraryCache
         private set
+    lateinit var updater: Updater
+        private set
 
     /**
      * Full item details shared between the UI and the player service. Continue
@@ -29,6 +31,7 @@ class ShelfApp : Application() {
         local = LocalLibrary(this, store)
         cache = LibraryCache(this)
         downloads = DownloadRepo(this, api, store, local)
+        updater = Updater(this, api.http)
     }
 
     /**
