@@ -23,11 +23,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 @UnstableApi
 class PlayerService : MediaLibraryService() {
@@ -39,6 +41,12 @@ class PlayerService : MediaLibraryService() {
         const val CMD_SEEK_FWD_30 = "SEEK_FWD_30"
         const val CMD_BOOK_POSITION = "BOOK_POSITION"
         const val CMD_SEEK_ABS = "SEEK_ABS" // arg: posSec within the whole book
+        /**
+         * How long onPlaybackResumption may take. Android's foreground-service window is
+         * ~5s from the moment it starts us; staying under that is what keeps a slow or
+         * absent server from turning a resume into a process kill.
+         */
+        private const val RESUMPTION_BUDGET_MS = 3_000L
         const val ROOT_ID = "root"
         const val CONTINUE_ID = "continue"
         const val LIBRARY_ID = "library"
@@ -326,6 +334,7 @@ class PlayerService : MediaLibraryService() {
             downloads.localItem(itemId) ?: throw e
         }
         currentItemId = itemId
+        scope.launch { store.setLastItem(itemId) } // what onPlaybackResumption answers with
         currentItemDuration = item.media.duration
         currentChapters = item.media.chapters.filter { it.end > it.start }
         val files = item.media.audioFiles.sortedBy { it.index }
@@ -335,10 +344,9 @@ class PlayerService : MediaLibraryService() {
         trackOffsets = offsets
         val meta = item.media.metadata
         val isLocalBook = LocalLibrary.isLocal(itemId)
-        val localCover = if (isLocalBook) ShelfApp.from(application).local.coverFile(itemId)
-        else downloads.localCover(itemId)
-        val artUri = localCover?.let { Uri.fromFile(it) }
-            ?: if (isLocalBook) null else Uri.parse(api.coverUrl(itemId))
+        // always the provider: a file:// path or an http url is artwork Android Auto
+        // will not load. CoverProvider sorts out where the image actually comes from.
+        val artUri = CoverProvider.uriFor(this, itemId)
         return files.map { f ->
             val downloaded = downloads.localAudioFile(itemId, f.ino)
             val uri = when {
@@ -505,6 +513,40 @@ class PlayerService : MediaLibraryService() {
             }
         }
 
+        /**
+         * The system asking us to resume the last book on its own — a car connecting, a
+         * headset button, the media resumption chip in Quick Settings, a reboot.
+         *
+         * This has to answer, and answer quickly. Android starts the service in the
+         * foreground before asking, and if nothing is playing ~5s later it kills the
+         * process with ForegroundServiceDidNotStartInTimeException — which is exactly what
+         * happened while this callback was missing: media3 had nothing to hand back, so no
+         * notification was ever posted. Failing the future is a fine answer (media3 then
+         * shuts the service down cleanly); hanging on a 20s read timeout is not, so the
+         * whole lookup is time-boxed well inside the window.
+         */
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession, controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
+            try {
+                withTimeout(RESUMPTION_BUDGET_MS) {
+                    val itemId = currentItemId ?: store.lastItem()
+                        ?: throw IllegalStateException("no book to resume")
+                    // the locally cached position, written every 15s while playing and again
+                    // on pause; the server is not worth a round trip on this deadline
+                    val saved = store.localProgress()[itemId] ?: 0.0
+                    val playlist = buildPlaylist(itemId, saved)
+                    if (playlist.isEmpty()) throw IllegalStateException("nothing playable in $itemId")
+                    val (idx, posMs) = locate(saved)
+                    MediaSession.MediaItemsWithStartPosition(playlist, idx, posMs)
+                }
+            } catch (e: TimeoutCancellationException) {
+                // a failed future is an answer; a cancelled one is vaguer, and this future
+                // is the only thing standing between us and the 5s kill
+                throw IllegalStateException("resume lookup timed out", e)
+            }
+        }
+
         /** Resolve a browsed/selected book into its real playable playlist (used by Auto + app). */
         override fun onSetMediaItems(
             mediaSession: MediaSession, controller: MediaSession.ControllerInfo,
@@ -539,8 +581,7 @@ class PlayerService : MediaLibraryService() {
             ).build()
 
         private fun bookItem(item: LibraryItem): MediaItem {
-            val localCover = downloads.localCover(item.id)
-            val art = localCover?.let { Uri.fromFile(it) } ?: Uri.parse(api.coverUrl(item.id))
+            val art = CoverProvider.uriFor(this@PlayerService, item.id)
             return MediaItem.Builder().setMediaId("$BOOK_PREFIX${item.id}").setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(item.media.metadata.title ?: item.relPath)
@@ -563,6 +604,11 @@ class PlayerService : MediaLibraryService() {
         scope.launch { syncProgress() }
         player.pause()
         player.stop()
+        player.clearMediaItems()
+        // leave the foreground before stopping rather than while media3 is still promoting
+        // us into it, which is the other way this service earns a
+        // ForegroundServiceDidNotStartInTimeException
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
