@@ -66,6 +66,7 @@ class Store(private val context: Context) {
         val CONTINUE_HIDDEN = stringPreferencesKey("continue_hidden") // csv of ids kept out of the shelf
         val API_KEY = stringPreferencesKey("abs_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
+        val LAST_ITEM = stringPreferencesKey("last_item") // what the system offers to resume
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
     }
 
@@ -148,6 +149,14 @@ class Store(private val context: Context) {
     suspend fun setHomeSections(csv: String) = context.dataStore.edit { it[K.HOME_SECTIONS] = csv }
 
     suspend fun logout() = context.dataStore.edit { it.remove(K.TOKEN); it.remove(K.USERNAME) }
+
+    /**
+     * The last book that was loaded into the player. Survives the process, so when the
+     * system asks the app to resume playback — a car, a headset, the media resumption
+     * chip — there is something to answer with even on a cold start.
+     */
+    suspend fun setLastItem(itemId: String) = context.dataStore.edit { it[K.LAST_ITEM] = itemId }
+    suspend fun lastItem(): String? = context.dataStore.data.first()[K.LAST_ITEM]
 
     // --- local playback-position cache (used when the server is unreachable) ---
     suspend fun localProgress(): Map<String, Double> = try {
