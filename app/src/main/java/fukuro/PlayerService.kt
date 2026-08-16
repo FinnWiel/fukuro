@@ -276,10 +276,9 @@ class PlayerService : MediaLibraryService() {
         trackOffsets = offsets
         val meta = item.media.metadata
         val isLocalBook = LocalLibrary.isLocal(itemId)
-        val localCover = if (isLocalBook) ShelfApp.from(application).local.coverFile(itemId)
-        else downloads.localCover(itemId)
-        val artUri = localCover?.let { Uri.fromFile(it) }
-            ?: if (isLocalBook) null else Uri.parse(api.coverUrl(itemId))
+        // always the provider: a file:// path or an http url is artwork Android Auto
+        // will not load. CoverProvider sorts out where the image actually comes from.
+        val artUri = CoverProvider.uriFor(this, itemId)
         return files.map { f ->
             val downloaded = downloads.localAudioFile(itemId, f.ino)
             val uri = when {
@@ -480,8 +479,7 @@ class PlayerService : MediaLibraryService() {
             ).build()
 
         private fun bookItem(item: LibraryItem): MediaItem {
-            val localCover = downloads.localCover(item.id)
-            val art = localCover?.let { Uri.fromFile(it) } ?: Uri.parse(api.coverUrl(item.id))
+            val art = CoverProvider.uriFor(this@PlayerService, item.id)
             return MediaItem.Builder().setMediaId("$BOOK_PREFIX${item.id}").setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(item.media.metadata.title ?: item.relPath)
