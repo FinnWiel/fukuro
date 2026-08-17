@@ -452,14 +452,14 @@ private fun MiniPlayer(
             Column {
                 Row(
                     Modifier.fillMaxWidth().clickable { onOpen() }
-                        .padding(start = 6.dp, top = 5.dp, bottom = 5.dp, end = 2.dp),
+                        .padding(start = 7.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CoverImage(
                         // on-device books have no artwork uri from the session
                         model = artwork ?: currentItemId?.let { vm.coverModel(it) },
                         contentDescription = title,
-                        modifier = Modifier.size(38.dp).clip(RoundedCornerShape(5.dp))
+                        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(6.dp))
                     )
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
@@ -477,22 +477,22 @@ private fun MiniPlayer(
                     }
                     currentItemId?.let { id ->
                         val fav = id in state.favorites
-                        IconButton(onClick = { vm.toggleFavorite(id) }, modifier = Modifier.size(38.dp)) {
+                        IconButton(onClick = { vm.toggleFavorite(id) }, modifier = Modifier.size(44.dp)) {
                             Icon(
                                 if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                                 if (fav) "Remove favorite" else "Add favorite",
-                                Modifier.size(20.dp),
+                                Modifier.size(24.dp),
                                 tint = if (fav) MaterialTheme.colorScheme.primary else onBarDim
                             )
                         }
                     }
                     IconButton(
                         onClick = { if (isPlaying) controller?.pause() else controller?.play() },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(46.dp)
                     ) {
                         Icon(
                             if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            "Play/Pause", Modifier.size(28.dp), tint = onBar
+                            "Play/Pause", Modifier.size(32.dp), tint = onBar
                         )
                     }
                     Spacer(Modifier.width(10.dp)) // breathing room to the right of play

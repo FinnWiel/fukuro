@@ -100,6 +100,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -563,7 +564,14 @@ fun HomeScreen(
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Fukuro") },
+            title = {
+                Icon(
+                    painter = painterResource(R.drawable.ic_owl),
+                    contentDescription = "Fukuro",
+                    tint = Color(0xFFEF4223),
+                    modifier = Modifier.width(52.dp).height(32.dp),
+                )
+            },
             actions = {
                 // server status; tap to add a server or manage the connection
                 val tint = when {
