@@ -158,6 +158,15 @@ class Store(private val context: Context) {
         if (!cur.add(itemId)) cur.remove(itemId)
         context.dataStore.edit { it[K.FAVORITES] = cur.joinToString(",") }
     }
+
+    /** Updates a whole collection in one DataStore write (used by series favorites). */
+    suspend fun setFavorites(itemIds: Collection<String>, favorite: Boolean) {
+        if (itemIds.isEmpty()) return
+        val cur = (context.dataStore.data.first()[K.FAVORITES] ?: "")
+            .split(',').filter { it.isNotBlank() }.toMutableSet()
+        if (favorite) cur.addAll(itemIds) else cur.removeAll(itemIds.toSet())
+        context.dataStore.edit { it[K.FAVORITES] = cur.joinToString(",") }
+    }
     suspend fun setHomeSections(csv: String) = context.dataStore.edit { it[K.HOME_SECTIONS] = csv }
 
     suspend fun logout() = context.dataStore.edit { it.remove(K.TOKEN); it.remove(K.USERNAME) }

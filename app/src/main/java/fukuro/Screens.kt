@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,6 +58,7 @@ import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
@@ -1165,8 +1167,78 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
     // offline the page shows only the books that can actually be opened
     val books = if (state.offline) series.books.filter { state.isOnDevice(it.id) } else series.books
     val ids = books.map { it.id }
-    val downloadedCount = ids.count { it in state.downloadedIds }
+    val allIds = series.books.map { it.id }
+    val downloadedIds = allIds.filter { it in state.downloadedIds }
+    val downloadedCount = downloadedIds.size
+    val allFavorite = allIds.isNotEmpty() && allIds.all { it in state.favorites }
     val busy = ids.any { dlStates.containsKey(it) }
+    var showRemoveDownloads by remember(seriesId) { mutableStateOf(false) }
+    var selectedForRemoval by remember(seriesId) { mutableStateOf<Set<String>>(emptySet()) }
+
+    if (showRemoveDownloads) {
+        val allSelected = downloadedIds.isNotEmpty() && downloadedIds.all { it in selectedForRemoval }
+        AlertDialog(
+            onDismissRequest = { showRemoveDownloads = false },
+            title = { Text("Remove series downloads?") },
+            text = {
+                Column {
+                    Text("Choose which offline books to remove. The books stay on your server.")
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            selectedForRemoval = if (allSelected) emptySet() else downloadedIds.toSet()
+                        }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = allSelected,
+                            onCheckedChange = {
+                                selectedForRemoval = if (it) downloadedIds.toSet() else emptySet()
+                            }
+                        )
+                        Text("Select all (${downloadedIds.size})")
+                    }
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp)) {
+                        items(series.books.filter { it.id in state.downloadedIds }, key = { it.id }) { book ->
+                            val checked = book.id in selectedForRemoval
+                            Row(
+                                Modifier.fillMaxWidth().clickable {
+                                    selectedForRemoval = if (checked) selectedForRemoval - book.id
+                                    else selectedForRemoval + book.id
+                                }.padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { on ->
+                                        selectedForRemoval = if (on) selectedForRemoval + book.id
+                                        else selectedForRemoval - book.id
+                                    }
+                                )
+                                Text(
+                                    book.media.metadata.title ?: book.relPath,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = selectedForRemoval.isNotEmpty(),
+                    onClick = {
+                        vm.deleteAll(selectedForRemoval.toList())
+                        showRemoveDownloads = false
+                    }
+                ) { Text("Remove (${selectedForRemoval.size})") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveDownloads = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -1181,6 +1253,14 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
                         Spacer(Modifier.width(12.dp))
                     }
                     else -> {
+                        IconButton(onClick = { vm.toggleSeriesFavorite(allIds) }) {
+                            Icon(
+                                if (allFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                if (allFavorite) "Remove series from favorites" else "Add full series to favorites",
+                                tint = if (allFavorite) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                         IconButton(onClick = { vm.pinSeriesShortcut(seriesId) }) {
                             Icon(Icons.Rounded.AddToHomeScreen, "Add series to home screen")
                         }
@@ -1190,7 +1270,10 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
                             }
                         }
                         if (downloadedCount > 0) {
-                            IconButton(onClick = { vm.deleteAll(ids) }) {
+                            IconButton(onClick = {
+                                selectedForRemoval = downloadedIds.toSet()
+                                showRemoveDownloads = true
+                            }) {
                                 Icon(Icons.Rounded.Delete, "Delete downloaded books in series")
                             }
                         }
