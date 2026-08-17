@@ -396,7 +396,7 @@ fun PlayerScreen(
                                 style = MaterialTheme.typography.bodySmall, color = TxtSecondary
                             )
                         }
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(28.dp))
                         // sleep and speed pinned to the edges, transport centred with room
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -419,10 +419,11 @@ fun PlayerScreen(
                             // skip buttons are always visible; dimmed until the book is loaded
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(18.dp)
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
                                 IconButton(
                                     enabled = isCurrent,
+                                    modifier = Modifier.size(56.dp),
                                     onClick = {
                                         controller?.let {
                                             it.seekTo((it.currentPosition - skipBack * 1000L).coerceAtLeast(0))
@@ -430,7 +431,7 @@ fun PlayerScreen(
                                     }
                                 ) {
                                     Icon(
-                                        Icons.Rounded.Replay10, "Back $skipBack seconds", Modifier.size(40.dp),
+                                        Icons.Rounded.Replay10, "Back $skipBack seconds", Modifier.size(44.dp),
                                         tint = if (isCurrent) TxtPrimary else TxtPrimary.copy(alpha = 0.35f)
                                     )
                                 }
@@ -443,26 +444,30 @@ fun PlayerScreen(
                                 )
                                 IconButton(
                                     enabled = isCurrent,
+                                    modifier = Modifier.size(56.dp),
                                     onClick = {
                                         controller?.let { it.seekTo(it.currentPosition + skipFwd * 1000L) }
                                     }
                                 ) {
                                     Icon(
-                                        Icons.Rounded.Forward30, "Forward $skipFwd seconds", Modifier.size(40.dp),
+                                        Icons.Rounded.Forward30, "Forward $skipFwd seconds", Modifier.size(44.dp),
                                         tint = if (isCurrent) TxtPrimary else TxtPrimary.copy(alpha = 0.35f)
                                     )
                                 }
                             }
                             // sleep timer on the right, accent when running
-                            IconButton(onClick = { showSleepDialog = true }) {
+                            IconButton(
+                                onClick = { showSleepDialog = true },
+                                modifier = Modifier.size(52.dp),
+                            ) {
                                 Icon(
-                                    Icons.Filled.Bedtime, "Sleep timer", Modifier.size(26.dp),
+                                    Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
                                     tint = if (sleepRemaining > 0) MaterialTheme.colorScheme.primary
                                     else TxtSecondary
                                 )
                             }
                         }
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(24.dp))
                     }
                 }
 
@@ -844,7 +849,7 @@ private fun DownloadIconButton(vm: ShelfViewModel, itemId: String) {
 private fun PlayPauseKnockout(isPlaying: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(52.dp)
+            .size(72.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick)
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
