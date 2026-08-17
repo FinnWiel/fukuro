@@ -510,7 +510,6 @@ private fun MiniPlayer(
                             .background(Color.White)
                     )
                 }
-                Spacer(Modifier.height(3.dp))
             }
         }
     }
