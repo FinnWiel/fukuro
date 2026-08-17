@@ -396,16 +396,6 @@ fun PlayerScreen(
                                 style = MaterialTheme.typography.bodySmall, color = TxtSecondary
                             )
                         }
-                        if (perChapter) {
-                            Text(
-                                currentChapter!!.title.ifBlank { "Chapter" } +
-                                    " · ${fmtMs((absolutePosSec * 1000).toLong())} of ${fmtMs((bookSec * 1000).toLong())}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TxtSecondary,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
                         Spacer(Modifier.height(16.dp))
                         // sleep and speed pinned to the edges, transport centred with room
                         Row(

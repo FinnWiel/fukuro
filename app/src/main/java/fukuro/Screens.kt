@@ -559,6 +559,7 @@ fun HomeScreen(
 ) {
     val state by vm.state.collectAsState()
     val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
+    val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
 
     Scaffold(topBar = {
         TopAppBar(
@@ -655,6 +656,32 @@ fun HomeScreen(
                         if (downloaded.isNotEmpty()) {
                             item { SectionHeader("Downloaded") }
                             item { BookRow(vm, downloaded, state, onOpenBook) }
+                        }
+                    }
+                    "custom" -> {
+                        val visible = customShelf.filter { entry ->
+                            when (entry.type) {
+                                "book" -> state.items.any { it.id == entry.id }
+                                "series" -> state.series.firstOrNull { it.id == entry.id }
+                                    ?.books?.any { !state.offline || state.isOnDevice(it.id) } == true
+                                "author" -> state.items.any { it.hasAuthor(entry.id) }
+                                "narrator" -> state.items.any { it.hasNarrator(entry.id) }
+                                else -> false
+                            }
+                        }
+                        if (visible.isNotEmpty()) {
+                            item { SectionHeader("Custom") }
+                            item {
+                                CustomShelfRow(
+                                    vm = vm,
+                                    entries = visible,
+                                    state = state,
+                                    onOpenBook = onOpenBook,
+                                    onOpenSeries = onOpenSeries,
+                                    onOpenAuthor = onOpenAuthor,
+                                    onOpenNarrator = onOpenNarrator,
+                                )
+                            }
                         }
                     }
                     "authors" -> {
@@ -1348,30 +1375,104 @@ private fun SectionHeader(title: String) {
 private fun BookRow(vm: ShelfViewModel, books: List<LibraryItem>, state: UiState, onOpenBook: (String) -> Unit) {
     LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) {
         items(books, key = { it.id }) { book ->
-            val p = state.progress[book.id]
-            var showOptions by remember { mutableStateOf(false) }
-            if (showOptions) BookOptionsSheet(vm, book.id, onDismiss = { showOptions = false })
-            Column(
-                Modifier.width(coverRowWidth(state.coverSize).dp).padding(4.dp)
-                    .combinedClickable(
-                        onClick = { onOpenBook(book.id) },
-                        onLongClick = { showOptions = true }
-                    )
-            ) {
-                Box(Modifier.fillMaxWidth()) {
-                    CoverImage(
-                        model = vm.coverModel(book.id),
-                        contentDescription = book.media.metadata.title,
-                        modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
-                    )
-                    CoverProgressOverlay(p, state.progressStyle, this)
+            BookShelfCard(vm, book, state, onOpenBook)
+        }
+    }
+}
+
+@Composable
+private fun BookShelfCard(
+    vm: ShelfViewModel,
+    book: LibraryItem,
+    state: UiState,
+    onOpenBook: (String) -> Unit,
+) {
+    val p = state.progress[book.id]
+    var showOptions by remember { mutableStateOf(false) }
+    if (showOptions) BookOptionsSheet(vm, book.id, onDismiss = { showOptions = false })
+    Column(
+        Modifier.width(coverRowWidth(state.coverSize).dp).padding(4.dp)
+            .combinedClickable(
+                onClick = { onOpenBook(book.id) },
+                onLongClick = { showOptions = true },
+            )
+    ) {
+        Box(Modifier.fillMaxWidth()) {
+            CoverImage(
+                model = vm.coverModel(book.id),
+                contentDescription = book.media.metadata.title,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp)),
+            )
+            CoverProgressOverlay(p, state.progressStyle, this)
+        }
+        Text(
+            book.media.metadata.title ?: "?",
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+/** A single ordered row that deliberately keeps unlike library entities mixed. */
+@Composable
+private fun CustomShelfRow(
+    vm: ShelfViewModel,
+    entries: List<CustomShelfEntry>,
+    state: UiState,
+    onOpenBook: (String) -> Unit,
+    onOpenSeries: (String) -> Unit,
+    onOpenAuthor: (String) -> Unit,
+    onOpenNarrator: (String) -> Unit,
+) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+        items(entries, key = { "${it.type}:${it.id}" }) { entry ->
+            when (entry.type) {
+                "book" -> state.items.firstOrNull { it.id == entry.id }?.let {
+                    BookShelfCard(vm, it, state, onOpenBook)
                 }
-                Text(
-                    book.media.metadata.title ?: "?",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                "series" -> state.series.firstOrNull { it.id == entry.id }?.let { series ->
+                    val books = if (state.offline) {
+                        series.books.filter { state.isOnDevice(it.id) }
+                    } else series.books
+                    if (books.isNotEmpty()) {
+                        CollectionCard(
+                            covers = books.take(4).map { vm.coverModel(it.id) },
+                            title = entry.title,
+                            subtitle = "${books.size} book" + if (books.size == 1) "" else "s",
+                            coverSize = state.coverSize,
+                            onClick = { onOpenSeries(entry.id) },
+                        )
+                    }
+                }
+                "author" -> {
+                    val books = state.items.filter { it.hasAuthor(entry.id) }
+                    if (books.isNotEmpty()) {
+                        val author = state.authors.firstOrNull { it.name.equals(entry.id, ignoreCase = true) }
+                        CollectionCard(
+                            covers = listOf(author?.imagePath?.let { vm.api.authorImageUrl(author.id) }),
+                            title = entry.title,
+                            subtitle = "${books.size} book" + if (books.size == 1) "" else "s",
+                            coverSize = state.coverSize,
+                            onClick = { onOpenAuthor(entry.id) },
+                            placeholder = { OwlPlaceholder() },
+                        )
+                    }
+                }
+                "narrator" -> {
+                    val count = state.items.count { it.hasNarrator(entry.id) }
+                    if (count > 0) {
+                        CollectionCard(
+                            covers = listOf(null),
+                            title = entry.title,
+                            subtitle = "$count book" + if (count == 1) "" else "s",
+                            coverSize = state.coverSize,
+                            onClick = { onOpenNarrator(entry.id) },
+                            placeholder = { OwlPlaceholder() },
+                        )
+                    }
+                }
             }
         }
     }
