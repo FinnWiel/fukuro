@@ -2,6 +2,14 @@ package fukuro
 
 import kotlinx.serialization.Serializable
 
+/** One user-selected card on the mixed Custom Home shelf. */
+@Serializable
+data class CustomShelfEntry(
+    val type: String,
+    val id: String,
+    val title: String,
+)
+
 @Serializable
 data class LoginResponse(val user: AbsUser)
 

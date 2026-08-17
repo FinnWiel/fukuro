@@ -73,6 +73,7 @@ class Store(private val context: Context) {
         val SPEED = stringPreferencesKey("playback_speed")
         val LAST_ITEM = stringPreferencesKey("last_item") // what the system offers to resume
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
+        val CUSTOM_SHELF = stringPreferencesKey("custom_shelf") // json ordered mixed entries
     }
 
     val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
@@ -150,6 +151,16 @@ class Store(private val context: Context) {
 
     val favoritesFlow: Flow<Set<String>> = context.dataStore.data.map {
         (it[K.FAVORITES] ?: "").split(',').filter { id -> id.isNotBlank() }.toSet()
+    }
+
+    val customShelfFlow: Flow<List<CustomShelfEntry>> = context.dataStore.data.map { prefs ->
+        val raw = prefs[K.CUSTOM_SHELF]
+        if (raw.isNullOrBlank()) emptyList()
+        else runCatching { Json.decodeFromString<List<CustomShelfEntry>>(raw) }.getOrDefault(emptyList())
+    }
+
+    suspend fun setCustomShelf(entries: List<CustomShelfEntry>) = context.dataStore.edit {
+        it[K.CUSTOM_SHELF] = Json.encodeToString(entries.distinctBy { entry -> "${entry.type}:${entry.id}" })
     }
 
     suspend fun toggleFavorite(itemId: String) {
@@ -236,6 +247,7 @@ class Store(private val context: Context) {
             "continue" to "Continue Listening",
             "favorites" to "Favorites",
             "downloaded" to "Downloaded",
+            "custom" to "Custom",
             "series" to "Series",
             "authors" to "Authors",
             "narrators" to "Narrators",
