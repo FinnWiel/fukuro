@@ -108,5 +108,18 @@ data class MediaProgress(
     val lastUpdate: Long = 0, // epoch ms; orders Continue Listening
 )
 
+/**
+ * A position kept on the device. The device is the source that always answers — the
+ * server only knows what it has been told, and offline it is told nothing — so every
+ * position is written here first and pushed up when there is a connection. [updatedAt]
+ * is what decides the winner against the server's own `lastUpdate`.
+ */
+@Serializable
+data class LocalProgress(
+    val pos: Double = 0.0,
+    val updatedAt: Long = 0L,
+    val finished: Boolean = false,
+)
+
 @Serializable
 data class MeResponse(val id: String = "", val username: String = "", val mediaProgress: List<MediaProgress> = emptyList())

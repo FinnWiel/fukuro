@@ -183,19 +183,22 @@ class PlayerService : MediaLibraryService() {
      */
     private fun publishNowPlaying(newBook: Boolean = false) {
         val id = currentItemId ?: return
+        // Snapshot the player here rather than inside the coroutine: this is called from the
+        // pause listener, which fires while the app is being torn down, and by the time a
+        // coroutine ran the player could be stopped and cleared — leaving the widget showing
+        // a blank title at position 0.
+        val meta = player.currentMediaItem?.mediaMetadata
+        val snapshot = NowPlaying(
+            itemId = id,
+            title = meta?.title?.toString().orEmpty(),
+            author = meta?.artist?.toString().orEmpty(),
+            isPlaying = player.isPlaying,
+            positionSec = bookPositionSec(),
+            durationSec = currentItemDuration,
+        )
+        if (snapshot.positionSec <= 0.0 && player.mediaItemCount == 0) return // nothing left to show
         scope.launch {
-            val meta = player.currentMediaItem?.mediaMetadata
-            WidgetData.write(
-                this@PlayerService,
-                NowPlaying(
-                    itemId = id,
-                    title = meta?.title?.toString().orEmpty(),
-                    author = meta?.artist?.toString().orEmpty(),
-                    isPlaying = player.isPlaying,
-                    positionSec = bookPositionSec(),
-                    durationSec = currentItemDuration,
-                )
-            )
+            WidgetData.write(this@PlayerService, snapshot)
             if (newBook) withContext(Dispatchers.IO) { cacheWidgetCover(id) }
             refreshWidgets(this@PlayerService)
         }
@@ -320,11 +323,37 @@ class PlayerService : MediaLibraryService() {
     private suspend fun syncProgress() {
         val id = currentItemId ?: return
         val pos = bookPositionSec()
+        // This runs from coroutines — the 15s tick, the pause listener — and by the time one
+        // of them gets its turn the player may already have been stopped and cleared, which
+        // reads back as position 0. Saving that would wipe the listener's place in the book,
+        // and a genuine 0 is nothing to resume from anyway.
+        if (pos <= 0.0 || player.mediaItemCount == 0) return
         store.setLocalProgress(id, pos) // always cache locally (offline resume)
         if (LocalLibrary.isLocal(id)) return // on-device book: nothing to sync
         try {
             api.updateProgress(id, pos, currentItemDuration)
-        } catch (_: Exception) { /* offline: ignore, next sync retries */ }
+        } catch (_: Exception) { /* offline: ignore, the app pushes it on reconnect */ }
+    }
+
+    /**
+     * Save the position for teardown — app swiped away, service destroyed.
+     *
+     * Both of those are about to stop and clear the player, and neither can wait on a
+     * coroutine: a position read after `clearMediaItems()` is 0, and a coroutine launched
+     * on the way out may never run at all. So the position is read here and now, and the
+     * local write blocks until it is on disk. The server push is best effort — if the
+     * process dies first, the app hands the position over on the next reconnect.
+     */
+    private fun saveProgressOnTeardown() {
+        val id = currentItemId ?: return
+        val pos = bookPositionSec()
+        if (pos <= 0.0) return // nothing worth recording, and never overwrite with a zero
+        store.setLocalProgressBlocking(id, pos)
+        if (LocalLibrary.isLocal(id)) return
+        val duration = currentItemDuration
+        ShelfApp.from(application).appScope.launch {
+            runCatching { api.updateProgress(id, pos, duration) }
+        }
     }
 
     /** Load a book: build the multi-track playlist. Prefers downloaded local files. */
@@ -534,7 +563,7 @@ class PlayerService : MediaLibraryService() {
                         ?: throw IllegalStateException("no book to resume")
                     // the locally cached position, written every 15s while playing and again
                     // on pause; the server is not worth a round trip on this deadline
-                    val saved = store.localProgress()[itemId] ?: 0.0
+                    val saved = store.localProgress()[itemId]?.pos ?: 0.0
                     val playlist = buildPlaylist(itemId, saved)
                     if (playlist.isEmpty()) throw IllegalStateException("nothing playable in $itemId")
                     val (idx, posMs) = locate(saved)
@@ -557,14 +586,24 @@ class PlayerService : MediaLibraryService() {
             if (id.startsWith(BOOK_PREFIX) && !id.contains('#')) {
                 val itemId = id.removePrefix(BOOK_PREFIX)
                 // resume position: prefer the position handed over by the app (no network),
-                // else ask the server (Android Auto path), else the local cache
+                // else the newer of what the device remembers and what the server was last
+                // told (the Android Auto path). Offline listening leaves the server behind,
+                // so trusting it blindly here would rewind the book.
                 val fromExtras = first?.mediaMetadata?.extras?.getDouble("startTimeSec", -1.0) ?: -1.0
+                val local = store.localProgress()[itemId]
                 val saved = when {
                     fromExtras >= 0 -> fromExtras
-                    LocalLibrary.isLocal(itemId) -> store.localProgress()[itemId]
-                    else -> try {
-                        api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId && !it.isFinished }?.currentTime
-                    } catch (_: Exception) { store.localProgress()[itemId] }
+                    LocalLibrary.isLocal(itemId) -> local?.pos
+                    else -> {
+                        val server = try {
+                            api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId && !it.isFinished }
+                        } catch (_: Exception) { null }
+                        when {
+                            server == null -> local?.pos
+                            local != null && local.updatedAt > server.lastUpdate -> local.pos
+                            else -> server.currentTime
+                        }
+                    }
                 }
                 val playlist = buildPlaylist(itemId, saved)
                 val (idx, posMs) = locate(saved ?: 0.0)
@@ -601,7 +640,7 @@ class PlayerService : MediaLibraryService() {
      * Backgrounding (home button / screen off) never triggers this, so playback continues there.
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
-        scope.launch { syncProgress() }
+        saveProgressOnTeardown() // before the player is stopped and cleared out from under it
         player.pause()
         player.stop()
         player.clearMediaItems()
@@ -613,7 +652,7 @@ class PlayerService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
-        scope.launch { syncProgress() }
+        saveProgressOnTeardown() // the player is about to be released; read it while it lives
         session?.release()
         player.release()
         super.onDestroy()

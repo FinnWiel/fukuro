@@ -25,7 +25,8 @@ data class UiState(
     val allItems: List<LibraryItem> = emptyList(),
     val series: List<AbsSeries> = emptyList(),
     val authors: List<AbsAuthor> = emptyList(),
-    val progress: Map<String, MediaProgress> = emptyMap(),
+    val serverProgress: Map<String, MediaProgress> = emptyMap(),
+    val localProgress: Map<String, LocalProgress> = emptyMap(),
     val downloadedIds: Set<String> = emptySet(),
     val favorites: Set<String> = emptySet(),
     val continueHidden: Set<String> = emptySet(),
@@ -51,6 +52,43 @@ data class UiState(
     val items: List<LibraryItem> by lazy {
         if (!offline) allItems else allItems.filter { isOnDevice(it.id) }
     }
+
+    /**
+     * Progress as the screens see it: the server's record and the device's, merged per book,
+     * newest write wins. The device always has an answer, which is what keeps offline
+     * listening on the shelf; the server takes over again once it has been told.
+     */
+    val progress: Map<String, MediaProgress> by lazy {
+        mergeProgress(serverProgress, localProgress, allItems)
+    }
+}
+
+/** @see UiState.progress */
+private fun mergeProgress(
+    server: Map<String, MediaProgress>,
+    local: Map<String, LocalProgress>,
+    items: List<LibraryItem>,
+): Map<String, MediaProgress> {
+    if (local.isEmpty()) return server
+    val durations = items.associate { it.id to it.media.duration }
+    val merged = server.toMutableMap()
+    for ((itemId, own) in local) {
+        val theirs = server[itemId]
+        if (theirs != null && theirs.lastUpdate >= own.updatedAt) continue // server is current
+        val duration = durations[itemId]?.takeIf { it > 0 } ?: theirs?.duration ?: 0.0
+        merged[itemId] = MediaProgress(
+            id = theirs?.id ?: "", // no server record yet; reset looks the id up when it needs one
+            libraryItemId = itemId,
+            duration = duration,
+            progress = if (duration > 0) (own.pos / duration).coerceIn(0.0, 1.0) else 0.0,
+            currentTime = own.pos,
+            // a position well short of the end means the book is being listened to again,
+            // whatever the finished flag was last set to
+            isFinished = own.finished && (duration <= 0.0 || own.pos >= duration * 0.99),
+            lastUpdate = own.updatedAt,
+        )
+    }
+    return merged
 }
 
 /** Upload page state. */
@@ -122,7 +160,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 allItems = ((cached?.items ?: emptyList()) + localItems).unique(),
                 series = cached?.series ?: emptyList(),
                 authors = cached?.authors ?: emptyList(),
-                progress = (cached?.progress ?: emptyList()).associateBy { it.libraryItemId },
+                serverProgress = (cached?.progress ?: emptyList()).associateBy { it.libraryItemId },
+                // localProgress arrives via its own collector below, which DataStore fills
+                // in straight away — no disk read on the startup path
                 downloadedIds = downloadedIds,
                 localCount = localItems.size,
             )
@@ -144,19 +184,27 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             store.coverSizeFlow.collect { s -> _state.value = _state.value.copy(coverSize = s) }
         }
+        // the player writes positions here as it goes, connected or not, so the shelves and
+        // progress bars follow playback without waiting on the server
+        viewModelScope.launch {
+            store.localProgressFlow.collect { p -> _state.value = _state.value.copy(localProgress = p) }
+        }
         // connection indicator + live progress: every 15s
         viewModelScope.launch {
             while (isActive) {
                 delay(15_000)
                 if (_state.value.loggedIn) {
+                    val wasOffline = !_state.value.serverOnline
                     val ok = api.ping()
                     // refresh just the progress map so list progress bars track live playback
                     val progress = if (ok) try {
                         api.me().mediaProgress.associateBy { it.libraryItemId }
-                    } catch (_: Exception) { _state.value.progress } else _state.value.progress
+                    } catch (_: Exception) { _state.value.serverProgress } else _state.value.serverProgress
                     _state.value = _state.value.copy(
-                        serverOnline = ok, serverChecked = true, progress = progress
+                        serverOnline = ok, serverChecked = true, serverProgress = progress
                     )
+                    // the connection just came back: hand over anything listened to without it
+                    if (ok && wasOffline) pushLocalProgress(progress)
                 }
             }
         }
@@ -223,11 +271,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 val progress = api.me().mediaProgress.associateBy { it.libraryItemId }
                 cache.write(CachedLibrary(items, series, authors, progress.values.toList()))
                 _state.value = _state.value.copy(
-                    allItems = (items + localItems).unique(), series = series, authors = authors, progress = progress,
+                    allItems = (items + localItems).unique(), series = series, authors = authors,
+                    serverProgress = progress,
                     loading = false, serverOnline = true, serverChecked = true, downloadedIds = downloaded,
                     localCount = localItems.size
                 )
                 prefetchContinue()
+                pushLocalProgress(progress)
             } catch (e: Exception) {
                 // keep whatever is already on screen (cache + local + downloads)
                 _state.value = _state.value.copy(
@@ -237,6 +287,27 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                     error = null
                 )
             }
+        }
+    }
+
+    /**
+     * Hands the server every position it hasn't heard yet — what was listened to while it
+     * was unreachable. Called whenever a refresh or a ping finds it back.
+     *
+     * Failures are ignored on purpose: the local record stays as it is, so the next
+     * reconnect tries again. Nothing is ever deleted here, which is what makes it safe to
+     * run on every reconnect.
+     */
+    private suspend fun pushLocalProgress(server: Map<String, MediaProgress>) {
+        val local = store.localProgress()
+        for ((itemId, own) in local) {
+            if (LocalLibrary.isLocal(itemId)) continue // on-device books have no server side
+            if (own.updatedAt <= 0L) continue // migrated from before positions were timestamped
+            val theirs = server[itemId]
+            if (theirs != null && theirs.lastUpdate >= own.updatedAt) continue
+            val duration = _state.value.allItems.firstOrNull { it.id == itemId }?.media?.duration
+                ?: theirs?.duration ?: 0.0
+            runCatching { api.updateProgress(itemId, own.pos, duration) }
         }
     }
 
@@ -288,23 +359,27 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(downloadedIds = downloads.downloadedIds().toSet())
     }
 
+    /** Marked finished on the device first, so it holds with no server and syncs after. */
     fun markFinished(itemId: String, finished: Boolean) = viewModelScope.launch {
-        try { api.markFinished(itemId, finished); refresh() } catch (_: Exception) {}
+        val duration = _state.value.allItems.firstOrNull { it.id == itemId }?.media?.duration ?: 0.0
+        store.setLocalProgress(itemId, if (finished) duration else 0.0, finished = finished)
+        try { api.markFinished(itemId, finished) } catch (_: Exception) {}
+        refresh()
     }
 
     fun resetProgress(itemId: String) = viewModelScope.launch {
+        // clear the device's record first: it is the one the screens read, and it is the
+        // only one there is when the server is away
+        store.setLocalProgress(itemId, 0.0, finished = false)
         // look up the progress record's own id; the item id is not accepted
-        val progressId = _state.value.progress[itemId]?.id
+        val progressId = _state.value.serverProgress[itemId]?.id
             ?: try { api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId }?.id } catch (_: Exception) { null }
         if (progressId.isNullOrBlank()) {
-            // nothing stored server-side; still clear the local resume position
-            store.setLocalProgress(itemId, 0.0)
             refresh()
             return@launch
         }
         try {
             api.resetProgress(progressId)
-            store.setLocalProgress(itemId, 0.0)
             refresh()
         } catch (e: Exception) {
             _state.value = _state.value.copy(error = "Could not reset progress: ${e.message?.take(120)}")
