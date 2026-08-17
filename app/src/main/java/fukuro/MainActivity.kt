@@ -164,11 +164,12 @@ fun AppNav(
     // added from the status chip on Home or from Settings
     val showChrome = route != "player" && route != "login" && !route.startsWith("book/")
 
-    fun playBook(itemId: String) {
+    fun playBook(itemId: String, startAtSec: Double? = null) {
         val c = controller ?: return
-        // hand the resume position to the service so it can start without extra network calls
+        // A chapter tap supplies an explicit start. Ordinary launches keep using the
+        // saved position so the main play button still behaves as Resume.
         val saved = state.progress[itemId]?.takeIf { !it.isFinished && it.progress > 0.001 }?.currentTime
-        val extras = Bundle().apply { putDouble("startTimeSec", saved ?: 0.0) }
+        val extras = Bundle().apply { putDouble("startTimeSec", startAtSec ?: saved ?: 0.0) }
         c.setMediaItem(
             MediaItem.Builder().setMediaId("${PlayerService.BOOK_PREFIX}$itemId")
                 .setMediaMetadata(MediaMetadata.Builder().setExtras(extras).build()).build()
@@ -343,14 +344,14 @@ fun AppNav(
         // ---- the book / now-playing sheet, drawn over everything ----
         AnimatedVisibility(
             visible = sheetItem != null,
-            enter = slideInVertically(tween(300)) { it },
-            exit = slideOutVertically(tween(250)) { it },
+            enter = slideInVertically(tween(220)) { it },
+            exit = slideOutVertically(tween(160)) { it },
         ) {
             PlayerScreen(
                 vm, controller,
                 itemId = sheetItem?.takeIf { it != SHEET_CURRENT },
                 onBack = { sheetItem = null },
-                onPlayBook = { b -> playBook(b) },
+                onPlayBook = { b, startAt -> playBook(b, startAt) },
                 onOpenBook = { b -> sheetItem = b },
                 onOpenSeries = { s -> sheetItem = null; nav.navigate("series/$s") },
                 onOpenAuthor = { name ->
@@ -426,13 +427,14 @@ private fun MiniPlayer(
     val author = currentItemId?.let { id ->
         state.items.firstOrNull { it.id == id }?.media?.metadata?.authorName
     } ?: ""
-    // background pulled from the cover art, desaturated so text stays readable
+    // Background pulled from the cover art. Prefer a strong, repeated colour rather
+    // than the raw average: averages turn unrelated cover colours into muddy browns.
     val ctx = LocalContext.current
     var coverColor by androidx.compose.runtime.remember { mutableStateOf<Color?>(null) }
-    LaunchedEffect(artwork) {
+    LaunchedEffect(artwork, currentItemId) {
         coverColor = null
-        val url = artwork ?: return@LaunchedEffect
-        coverColor = extractCoverColor(ctx, url)
+        val model = artwork ?: currentItemId?.let { vm.coverModel(it) } ?: return@LaunchedEffect
+        coverColor = extractCoverColor(ctx, model)
     }
     val fallback = MaterialTheme.colorScheme.surfaceVariant
     val barColor by animateColorAsState(coverColor ?: fallback, tween(400), label = "miniBg")
@@ -515,35 +517,60 @@ private fun MiniPlayer(
 }
 
 /**
- * Average colour of the whole cover: the image is scaled down and every pixel is
- * averaged, then lightly desaturated and darkened so white text stays legible.
+ * Spotify-like cover colour: quantize usable pixels, choose the most common vivid
+ * bucket, then tame its saturation/lightness. Near-black, near-white and grey pixels
+ * are ignored so borders, paper and typography do not create muddy mini-player bars.
  */
-private suspend fun extractCoverColor(context: android.content.Context, url: String): Color? =
+private suspend fun extractCoverColor(context: android.content.Context, model: Any): Color? =
     withContext(Dispatchers.IO) {
         try {
-            val req = ImageRequest.Builder(context).data(url).allowHardware(false).size(96).build()
+            val req = ImageRequest.Builder(context).data(model).allowHardware(false).size(96).build()
             val drawable = ImageLoader(context).execute(req).drawable ?: return@withContext null
             val source = (drawable as? BitmapDrawable)?.bitmap ?: return@withContext null
 
-            val w = 24
-            val h = 24
+            val w = 32
+            val h = 32
             val small = android.graphics.Bitmap.createScaledBitmap(source, w, h, true)
             val pixels = IntArray(w * h)
             small.getPixels(pixels, 0, w, 0, 0, w, h)
-            var r = 0L; var g = 0L; var b = 0L
+            // value = count, red total, green total, blue total
+            val buckets = mutableMapOf<Int, LongArray>()
             for (p in pixels) {
-                r += (p shr 16) and 0xFF
-                g += (p shr 8) and 0xFF
-                b += p and 0xFF
+                if ((p ushr 24) < 200) continue
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+                val hsl = FloatArray(3)
+                ColorUtils.RGBToHSL(r, g, b, hsl)
+                if (hsl[1] < 0.12f || hsl[2] < 0.08f || hsl[2] > 0.88f) continue
+                val key = ((r shr 5) shl 6) or ((g shr 5) shl 3) or (b shr 5)
+                val bucket = buckets.getOrPut(key) { LongArray(4) }
+                bucket[0]++
+                bucket[1] += r.toLong()
+                bucket[2] += g.toLong()
+                bucket[3] += b.toLong()
             }
-            val n = pixels.size
-            val avg = android.graphics.Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+
+            val chosen = buckets.values.maxByOrNull { bucket ->
+                val n = bucket[0].coerceAtLeast(1)
+                val hsl = FloatArray(3)
+                ColorUtils.RGBToHSL(
+                    (bucket[1] / n).toInt(), (bucket[2] / n).toInt(), (bucket[3] / n).toInt(), hsl
+                )
+                bucket[0] * (0.65 + hsl[1]) * (1.0 - kotlin.math.abs(hsl[2] - 0.45f))
+            } ?: return@withContext null
+            val n = chosen[0].coerceAtLeast(1)
+            val dominant = android.graphics.Color.rgb(
+                (chosen[1] / n).toInt(), (chosen[2] / n).toInt(), (chosen[3] / n).toInt()
+            )
 
             val hsl = FloatArray(3)
-            ColorUtils.colorToHSL(avg, hsl)
-            hsl[1] = hsl[1] * 0.85f                 // slight desaturation
-            hsl[2] = hsl[2].coerceIn(0.18f, 0.40f)  // dark enough for white text
-            Color(ColorUtils.HSLToColor(hsl))
+            ColorUtils.colorToHSL(dominant, hsl)
+            hsl[1] = hsl[1].coerceIn(0.30f, 0.62f)
+            hsl[2] = hsl[2].coerceIn(0.18f, 0.30f)
+            val tamed = ColorUtils.HSLToColor(hsl)
+            // A small neutral blend keeps every cover inside Fukuro's dark styling.
+            Color(ColorUtils.blendARGB(tamed, android.graphics.Color.rgb(22, 26, 24), 0.18f))
         } catch (_: Exception) {
             null
         }

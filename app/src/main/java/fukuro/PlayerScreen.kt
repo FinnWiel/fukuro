@@ -137,7 +137,7 @@ fun PlayerScreen(
     controller: MediaController?,
     itemId: String? = null,
     onBack: () -> Unit,
-    onPlayBook: (String) -> Unit = {},
+    onPlayBook: (String, Double?) -> Unit = { _, _ -> },
     onOpenBook: (String) -> Unit = {},
     onOpenSeries: (String) -> Unit = {},
     onOpenAuthor: (String) -> Unit = {},
@@ -234,7 +234,8 @@ fun PlayerScreen(
 
     // pull down to dismiss: only takes over once the content can't scroll up any further
     val scope = rememberCoroutineScope()
-    val dismissPx = with(LocalDensity.current) { 140.dp.toPx() }
+    val dismissPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val flingAssistPx = with(LocalDensity.current) { 24.dp.toPx() }
     // plain float state: updated synchronously during scroll. Using an Animatable here
     // meant launching a coroutine per scroll event, which made scrolling stutter.
     var dragPx by remember { mutableFloatStateOf(0f) }
@@ -252,17 +253,19 @@ fun PlayerScreen(
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 if (available.y > 0f && source == NestedScrollSource.UserInput) {
-                    dragPx += available.y * 0.5f
+                    // Follow the finger directly. The old half-speed movement made the
+                    // sheet feel heavy and forced an unnecessarily long gesture.
+                    dragPx += available.y
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (dragPx > dismissPx) {
+                if (dragPx > dismissPx || (dragPx > flingAssistPx && available.y > 900f)) {
                     onBack()
                 } else if (dragPx > 0f) {
-                    animate(dragPx, 0f, animationSpec = tween(200)) { v, _ -> dragPx = v }
+                    animate(dragPx, 0f, animationSpec = tween(130)) { v, _ -> dragPx = v }
                 }
                 return Velocity.Zero
             }
@@ -444,7 +447,7 @@ fun PlayerScreen(
                                 PlayPauseKnockout(
                                     isPlaying = isCurrent && isPlaying,
                                     onClick = {
-                                        if (!isCurrent) onPlayBook(displayId)
+                                        if (!isCurrent) onPlayBook(displayId, null)
                                         else if (isPlaying) controller?.pause() else controller?.play()
                                     }
                                 )
@@ -468,14 +471,6 @@ fun PlayerScreen(
                                     else TxtSecondary
                                 )
                             }
-                        }
-                        if (!isCurrent) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                if ((saved?.progress ?: 0.0) > 0.001 && saved?.isFinished != true) "Resume" else "Play",
-                                style = MaterialTheme.typography.labelLarge, color = TxtSecondary,
-                                modifier = Modifier.align(Alignment.CenterHorizontally)
-                            )
                         }
                         Spacer(Modifier.height(16.dp))
                     }
@@ -530,7 +525,10 @@ fun PlayerScreen(
                             val current = absolutePosSec >= ch.start && absolutePosSec < ch.end
                             Row(
                                 Modifier.fillMaxWidth()
-                                    .then(if (isCurrent) Modifier.clickable { seekAbsolute(ch.start) } else Modifier)
+                                    .clickable {
+                                        if (isCurrent) seekAbsolute(ch.start)
+                                        else onPlayBook(displayId, ch.start)
+                                    }
                                     .background(if (current) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent)
                                     .padding(horizontal = 12.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically

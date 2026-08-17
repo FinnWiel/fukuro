@@ -388,6 +388,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavorite(itemId: String) = viewModelScope.launch { store.toggleFavorite(itemId) }
 
+    /** A series heart represents every book in it and updates them atomically. */
+    fun toggleSeriesFavorite(itemIds: List<String>) = viewModelScope.launch {
+        val ids = itemIds.filter { it.isNotBlank() }.distinct()
+        val makeFavorite = ids.any { it !in _state.value.favorites }
+        store.setFavorites(ids, makeFavorite)
+    }
+
     /* ---------------- home screen shortcuts ---------------- */
 
     /** Pins a book to the launcher. The cover is baked into the icon at pin time. */
