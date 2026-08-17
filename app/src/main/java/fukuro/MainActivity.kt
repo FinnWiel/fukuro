@@ -502,15 +502,14 @@ private fun MiniPlayer(
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 6.dp)
                         .height(3.dp).clip(RoundedCornerShape(2.dp))
-                        .background(onBarDim.copy(alpha = 0.30f))
+                        .background(Color.White.copy(alpha = 0.28f))
                 ) {
                     Box(
                         Modifier.fillMaxWidth(progress).fillMaxHeight()
                             .clip(RoundedCornerShape(2.dp))
-                            .background(MaterialTheme.colorScheme.primary)
+                            .background(Color.White)
                     )
                 }
-                Spacer(Modifier.height(3.dp))
             }
         }
     }
