@@ -23,6 +23,14 @@ class ShelfApp : Application() {
      */
     val itemCache = java.util.concurrent.ConcurrentHashMap<String, LibraryItem>()
 
+    /**
+     * For work that must outlive whatever started it — a progress push fired off as the
+     * player service is being torn down, for instance. Lives as long as the process.
+     */
+    val appScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
+
     override fun onCreate() {
         super.onCreate()
         installCrashLog()

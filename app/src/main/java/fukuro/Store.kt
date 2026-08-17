@@ -12,6 +12,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "fukuro")
 
@@ -167,20 +170,56 @@ class Store(private val context: Context) {
     suspend fun setLastItem(itemId: String) = context.dataStore.edit { it[K.LAST_ITEM] = itemId }
     suspend fun lastItem(): String? = context.dataStore.data.first()[K.LAST_ITEM]
 
-    // --- local playback-position cache (used when the server is unreachable) ---
-    suspend fun localProgress(): Map<String, Double> = try {
-        val raw = context.dataStore.data.first()[K.LOCAL_PROGRESS] ?: "{}"
-        kotlinx.serialization.json.Json.decodeFromString(raw)
-    } catch (_: Exception) { emptyMap() }
+    /* --- positions kept on the device ---
+     *
+     * Every position lands here, connected or not, and is pushed to the server when there
+     * is one. Nothing else in the app is allowed to be the only record of where a book got
+     * to: a server that cannot be reached, or a process that is about to be killed, must
+     * not cost the listener their place.
+     */
 
-    suspend fun setLocalProgress(itemId: String, currentTimeSec: Double) {
-        val map = localProgress().toMutableMap()
-        map[itemId] = currentTimeSec
-        val enc = kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.serializer<Map<String, Double>>(), map
-        )
-        context.dataStore.edit { it[K.LOCAL_PROGRESS] = enc }
+    private val progressJson = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+
+    val localProgressFlow: Flow<Map<String, LocalProgress>> =
+        context.dataStore.data.map { decodeProgress(it[K.LOCAL_PROGRESS]) }
+
+    suspend fun localProgress(): Map<String, LocalProgress> =
+        decodeProgress(context.dataStore.data.first()[K.LOCAL_PROGRESS])
+
+    /** Reads both the current shape and the plain `{id: seconds}` written before 1.3.2. */
+    private fun decodeProgress(raw: String?): Map<String, LocalProgress> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        runCatching { return progressJson.decodeFromString<Map<String, LocalProgress>>(raw) }
+        runCatching {
+            return progressJson.decodeFromString<Map<String, Double>>(raw)
+                .mapValues { (_, sec) -> LocalProgress(pos = sec) }
+        }
+        return emptyMap()
     }
+
+    /**
+     * Read-modify-write inside a single [edit] so two saves landing together — the player's
+     * 15s tick and a teardown save, say — cannot drop one of the two.
+     */
+    suspend fun setLocalProgress(itemId: String, currentTimeSec: Double, finished: Boolean? = null) {
+        context.dataStore.edit { prefs ->
+            val map = decodeProgress(prefs[K.LOCAL_PROGRESS]).toMutableMap()
+            map[itemId] = LocalProgress(
+                pos = currentTimeSec,
+                updatedAt = System.currentTimeMillis(),
+                finished = finished ?: map[itemId]?.finished ?: false,
+            )
+            prefs[K.LOCAL_PROGRESS] = progressJson.encodeToString<Map<String, LocalProgress>>(map)
+        }
+    }
+
+    /**
+     * The same write, but it does not return until the position is on disk. Teardown paths
+     * have no coroutine guaranteed to outlive them, and a position saved after the process
+     * dies is a position lost.
+     */
+    fun setLocalProgressBlocking(itemId: String, currentTimeSec: Double) =
+        runBlocking { setLocalProgress(itemId, currentTimeSec) }
 
     companion object {
         const val DEFAULT_SECTIONS = "continue,favorites,downloaded,series,all"
