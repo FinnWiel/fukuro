@@ -469,26 +469,21 @@ private fun MiniPlayer(
                     Modifier.fillMaxWidth().clickable { onOpen() }
                         // same swipe as the full player: chapters, or books within a
                         // series when the setting asks for it
-                        .pointerInput(currentItemId, swipeAction) {
-                            var dx = 0f
-                            detectHorizontalDragGestures(
-                                onDragStart = { dx = 0f },
-                                onDragEnd = {
-                                    if (kotlin.math.abs(dx) > swipePx) {
-                                        val forward = dx < 0f
-                                        val id = currentItemId
-                                        val sibling = if (swipeAction == "book" && id != null)
-                                            vm.siblingInSeries(id, forward) else null
-                                        if (sibling != null) onPlayBook(sibling)
-                                        else controller?.sendCustomCommand(
-                                            SessionCommand(PlayerService.CMD_SKIP_CHAPTER, Bundle.EMPTY),
-                                            Bundle().apply { putInt("dir", if (forward) 1 else -1) }
-                                        )
-                                    }
-                                },
-                                onHorizontalDrag = { _, amount -> dx += amount }
-                            )
-                        }
+                        .swipeSlide(
+                            key = currentItemId to swipeAction,
+                            thresholdPx = swipePx,
+                            travelPx = swipePx * 1.2f,
+                            onCommit = { forward ->
+                                val id = currentItemId
+                                val sibling = if (swipeAction == "book" && id != null)
+                                    vm.siblingInSeries(id, forward) else null
+                                if (sibling != null) onPlayBook(sibling)
+                                else controller?.sendCustomCommand(
+                                    SessionCommand(PlayerService.CMD_SKIP_CHAPTER, Bundle.EMPTY),
+                                    Bundle().apply { putInt("dir", if (forward) 1 else -1) }
+                                )
+                            }
+                        )
                         .padding(start = 7.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

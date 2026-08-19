@@ -1,7 +1,10 @@
 package fukuro
 
 import android.os.Bundle
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.mutableFloatStateOf
@@ -291,14 +294,12 @@ fun PlayerScreen(
     Box(
         Modifier.fillMaxSize()
             .nestedScroll(dismissConnection)
-            .pointerInput(displayId, swipeAction) {
-                var dx = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { dx = 0f },
-                    onDragEnd = { if (abs(dx) > swipePx) onSwipe(dx < 0f) },
-                    onHorizontalDrag = { _, amount -> dx += amount }
-                )
-            }
+            .swipeSlide(
+                key = displayId to swipeAction,
+                thresholdPx = swipePx,
+                travelPx = swipePx * 1.6f,
+                onCommit = { forward -> onSwipe(forward) }
+            )
             .offset { IntOffset(0, dragPx.roundToInt()) }
             .clip(
                 RoundedCornerShape(
@@ -920,4 +921,71 @@ private fun fmtSec(sec: Double): String {
     val s = sec.toLong()
     val h = s / 3600; val m = (s % 3600) / 60
     return if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
+/**
+ * Sideways swipe with the content following the finger.
+ *
+ * Without movement a swipe was invisible: the chapter changed and nothing said so. The
+ * content now tracks the drag, and on release past [thresholdPx] it slides the rest of
+ * the way out, dims, swaps, and returns from the opposite edge — so the change reads as
+ * travel in the direction you pushed. A short drag springs back and does nothing.
+ *
+ * [travelPx] is how far the content may move; the dimming carries the rest, which keeps
+ * the full player from dragging a wide empty band across the screen.
+ */
+@Composable
+fun Modifier.swipeSlide(
+    key: Any?,
+    thresholdPx: Float,
+    travelPx: Float,
+    minAlpha: Float = 0.25f,
+    onCommit: (forward: Boolean) -> Unit,
+): Modifier {
+    // Plain float state, written synchronously while dragging. An Animatable here would
+    // launch a coroutine per pointer event, which is what made the dismiss drag stutter.
+    var dx by remember(key) { mutableFloatStateOf(0f) }
+    var fade by remember(key) { mutableFloatStateOf(1f) }
+    val scope = rememberCoroutineScope()
+
+    fun springBack() {
+        scope.launch {
+            animate(
+                dx, 0f,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow)
+            ) { v, _ -> dx = v }
+        }
+    }
+
+    return this
+        .graphicsLayer { translationX = dx; alpha = fade }
+        .pointerInput(key) {
+            detectHorizontalDragGestures(
+                onDragCancel = { springBack() },
+                onDragEnd = {
+                    if (abs(dx) < thresholdPx) {
+                        springBack()
+                    } else {
+                        val forward = dx < 0f
+                        val out = if (forward) -travelPx else travelPx
+                        scope.launch {
+                            launch { animate(fade, minAlpha, animationSpec = tween(120)) { v, _ -> fade = v } }
+                            animate(dx, out, animationSpec = tween(120)) { v, _ -> dx = v }
+                            // swap while the content is out of the way
+                            onCommit(forward)
+                            dx = -out
+                            launch { animate(minAlpha, 1f, animationSpec = tween(200)) { v, _ -> fade = v } }
+                            animate(
+                                dx, 0f,
+                                animationSpec = tween(240, easing = FastOutSlowInEasing)
+                            ) { v, _ -> dx = v }
+                        }
+                    }
+                },
+                // a little resistance, and never further than the slide itself travels
+                onHorizontalDrag = { _, amount ->
+                    dx = (dx + amount * 0.7f).coerceIn(-travelPx, travelPx)
+                }
+            )
+        }
 }
