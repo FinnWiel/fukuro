@@ -366,6 +366,17 @@ fun PlayerScreen(
                                 if (author.isNotBlank()) {
                                     Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
                                 }
+                                // where you are, not just which book: the chapter list
+                                // below is collapsed most of the time
+                                chapters.firstOrNull { absolutePosSec >= it.start && absolutePosSec < it.end }
+                                    ?.title?.takeIf { it.isNotBlank() }
+                                    ?.let { chapterNow ->
+                                        Text(
+                                            chapterNow, style = MaterialTheme.typography.bodySmall,
+                                            color = TxtSecondary, maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 if (saved?.isFinished == true) {
                                     Text("Finished ✓", style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.primary)

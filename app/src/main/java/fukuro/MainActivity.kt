@@ -63,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.text.style.TextOverflow
@@ -310,17 +312,23 @@ fun AppNav(
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
-                                // From a detail page (series, author, narrator) no tab is
-                                // selected, and popping to a route that may not be on the
-                                // back stack did nothing. Popping to the graph's start
-                                // destination by id always resolves, from any depth.
                                 if (route != tab.route) {
-                                    nav.navigate(tab.route) {
-                                        popUpTo(nav.graph.findStartDestination().id) {
-                                            saveState = true
+                                    // Pop straight back to the tab if it is on the stack -
+                                    // which is the case from a series, author or narrator
+                                    // page. navigate() with popUpTo/restoreState was the
+                                    // documented route and did not move from those pages;
+                                    // popBackStack states the intent directly and reports
+                                    // whether it worked, so the fallback only runs when the
+                                    // tab genuinely isn't behind us.
+                                    val popped = nav.popBackStack(tab.route, inclusive = false)
+                                    if (!popped) {
+                                        nav.navigate(tab.route) {
+                                            popUpTo(nav.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
                                         }
-                                        launchSingleTop = true
-                                        restoreState = true
                                     }
                                 }
                             },
@@ -497,10 +505,14 @@ private fun MiniPlayer(
                         // on-device books have no artwork uri from the session
                         model = artwork ?: currentItemId?.let { vm.coverModel(it) },
                         contentDescription = title,
-                        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(6.dp))
+                        // drawn above the text, so a swipe passes behind it
+                        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(6.dp)).zIndex(1f)
                     )
                     Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f).swipeSlideVisual(slide)) {
+                    // clipped to its own slot so the sliding text stays inside the bar
+                    // instead of running out over the cover and the buttons
+                    Box(Modifier.weight(1f).clipToBounds()) {
+                    Column(Modifier.fillMaxWidth().swipeSlideVisual(slide)) {
                         Text(
                             title, style = MaterialTheme.typography.bodyMedium, color = onBar,
                             maxLines = 1, softWrap = false,
@@ -518,6 +530,7 @@ private fun MiniPlayer(
                             maxLines = 1, softWrap = false,
                             modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
                         )
+                    }
                     }
                     currentItemId?.let { id ->
                         val fav = id in state.favorites
