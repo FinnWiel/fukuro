@@ -396,6 +396,8 @@ private fun MiniPlayer(
     var artwork by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
     var hasMedia by androidx.compose.runtime.remember { mutableStateOf(false) }
     var livePos by androidx.compose.runtime.remember { mutableFloatStateOf(0f) }
+    // the chapter comes from the service, which owns the chapter list
+    var chapter by androidx.compose.runtime.remember { mutableStateOf("") }
 
     // lightweight 1s poll of the shared controller
     LaunchedEffect(controller) {
@@ -419,6 +421,7 @@ private fun MiniPlayer(
                         if (b.getDouble("winLenSec", 0.0) > 0) {
                             livePos = b.getDouble("frac", 0.0).toFloat().coerceIn(0f, 1f)
                         }
+                        chapter = b.getString("chapter").orEmpty()
                     } catch (_: Exception) {}
                 }, java.util.concurrent.Executor { it.run() })
             }
@@ -501,8 +504,11 @@ private fun MiniPlayer(
                             // scrolls itself when the title is too long, like Spotify
                             modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
                         )
-                        if (author.isNotBlank()) Text(
-                            author, style = MaterialTheme.typography.bodySmall,
+                        // the chapter is the more useful of the two here: the book title
+                        // is already on the line above, and the author does not change
+                        val second = chapter.ifBlank { author }
+                        if (second.isNotBlank()) Text(
+                            second, style = MaterialTheme.typography.bodySmall,
                             color = onBarDim,
                             maxLines = 1, overflow = TextOverflow.Ellipsis
                         )

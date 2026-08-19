@@ -545,6 +545,8 @@ class PlayerService : MediaLibraryService() {
                             "frac",
                             if (winLen > 0) ((pos - winStart) / winLen).coerceIn(0.0, 1.0) else 0.0
                         )
+                        // the mini player has no chapter list of its own; the service does
+                        putString("chapter", chapterAt(pos)?.title?.takeIf { it.isNotBlank() } ?: "")
                     }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, out))
                 }

@@ -282,6 +282,7 @@ fun PlayerScreen(
     // nothing to move between. The scrubber owns its own horizontal gestures, so it
     // keeps working - children see pointer events first.
     val swipePx = with(LocalDensity.current) { 64.dp.toPx() }
+    val slide = rememberSwipeSlide(displayId to swipeAction)
     fun onSwipe(forward: Boolean) {
         val sibling = if (swipeAction == "book") vm.siblingInSeries(displayId, forward) else null
         if (sibling != null) onPlayBook(sibling, null)
@@ -294,7 +295,9 @@ fun PlayerScreen(
     Box(
         Modifier.fillMaxSize()
             .nestedScroll(dismissConnection)
-            .swipeSlide(
+            // the gesture covers the whole page; only the cover below actually travels
+            .swipeSlideInput(
+                state = slide,
                 key = displayId to swipeAction,
                 thresholdPx = swipePx,
                 travelPx = swipePx * 1.6f,
@@ -352,6 +355,8 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(1f)
                                 .clip(RoundedCornerShape(14.dp))
                                 .align(Alignment.CenterHorizontally)
+                                // only the artwork moves with a swipe
+                                .swipeSlideVisual(slide)
                         )
                         Spacer(Modifier.height(24.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -934,6 +939,80 @@ private fun fmtSec(sec: Double): String {
  * [travelPx] is how far the content may move; the dimming carries the rest, which keeps
  * the full player from dragging a wide empty band across the screen.
  */
+class SwipeSlide internal constructor() {
+    // Plain float state, written synchronously while dragging. An Animatable here would
+    // launch a coroutine per pointer event, which is what made the dismiss drag stutter.
+    internal var dx by mutableFloatStateOf(0f)
+    internal var fade by mutableFloatStateOf(1f)
+}
+
+@Composable
+fun rememberSwipeSlide(key: Any?): SwipeSlide = remember(key) { SwipeSlide() }
+
+/**
+ * Moves whatever it is attached to. Kept apart from [swipeSlideInput] so the gesture can
+ * cover a whole page while only one piece of it - the artwork - actually travels.
+ */
+fun Modifier.swipeSlideVisual(state: SwipeSlide): Modifier =
+    graphicsLayer { translationX = state.dx; alpha = state.fade }
+
+/** Picks up the gesture. Attach to the area that should respond to a swipe. */
+@Composable
+fun Modifier.swipeSlideInput(
+    state: SwipeSlide,
+    key: Any?,
+    thresholdPx: Float,
+    travelPx: Float,
+    minAlpha: Float = 0.25f,
+    onCommit: (forward: Boolean) -> Unit,
+): Modifier {
+    val scope = rememberCoroutineScope()
+
+    fun springBack() {
+        scope.launch {
+            animate(
+                state.dx, 0f,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow)
+            ) { v, _ -> state.dx = v }
+        }
+    }
+
+    return this.pointerInput(key) {
+        detectHorizontalDragGestures(
+            onDragCancel = { springBack() },
+            onDragEnd = {
+                if (abs(state.dx) < thresholdPx) {
+                    springBack()
+                } else {
+                    val forward = state.dx < 0f
+                    val out = if (forward) -travelPx else travelPx
+                    scope.launch {
+                        launch {
+                            animate(state.fade, minAlpha, animationSpec = tween(120)) { v, _ -> state.fade = v }
+                        }
+                        animate(state.dx, out, animationSpec = tween(120)) { v, _ -> state.dx = v }
+                        // swap while the content is out of the way
+                        onCommit(forward)
+                        state.dx = -out
+                        launch {
+                            animate(minAlpha, 1f, animationSpec = tween(200)) { v, _ -> state.fade = v }
+                        }
+                        animate(
+                            state.dx, 0f,
+                            animationSpec = tween(240, easing = FastOutSlowInEasing)
+                        ) { v, _ -> state.dx = v }
+                    }
+                }
+            },
+            // a little resistance, and never further than the slide itself travels
+            onHorizontalDrag = { _, amount ->
+                state.dx = (state.dx + amount * 0.7f).coerceIn(-travelPx, travelPx)
+            }
+        )
+    }
+}
+
+/** Gesture and movement on the same element - what the mini player wants. */
 @Composable
 fun Modifier.swipeSlide(
     key: Any?,
@@ -942,50 +1021,8 @@ fun Modifier.swipeSlide(
     minAlpha: Float = 0.25f,
     onCommit: (forward: Boolean) -> Unit,
 ): Modifier {
-    // Plain float state, written synchronously while dragging. An Animatable here would
-    // launch a coroutine per pointer event, which is what made the dismiss drag stutter.
-    var dx by remember(key) { mutableFloatStateOf(0f) }
-    var fade by remember(key) { mutableFloatStateOf(1f) }
-    val scope = rememberCoroutineScope()
-
-    fun springBack() {
-        scope.launch {
-            animate(
-                dx, 0f,
-                animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow)
-            ) { v, _ -> dx = v }
-        }
-    }
-
+    val state = rememberSwipeSlide(key)
     return this
-        .graphicsLayer { translationX = dx; alpha = fade }
-        .pointerInput(key) {
-            detectHorizontalDragGestures(
-                onDragCancel = { springBack() },
-                onDragEnd = {
-                    if (abs(dx) < thresholdPx) {
-                        springBack()
-                    } else {
-                        val forward = dx < 0f
-                        val out = if (forward) -travelPx else travelPx
-                        scope.launch {
-                            launch { animate(fade, minAlpha, animationSpec = tween(120)) { v, _ -> fade = v } }
-                            animate(dx, out, animationSpec = tween(120)) { v, _ -> dx = v }
-                            // swap while the content is out of the way
-                            onCommit(forward)
-                            dx = -out
-                            launch { animate(minAlpha, 1f, animationSpec = tween(200)) { v, _ -> fade = v } }
-                            animate(
-                                dx, 0f,
-                                animationSpec = tween(240, easing = FastOutSlowInEasing)
-                            ) { v, _ -> dx = v }
-                        }
-                    }
-                },
-                // a little resistance, and never further than the slide itself travels
-                onHorizontalDrag = { _, amount ->
-                    dx = (dx + amount * 0.7f).coerceIn(-travelPx, travelPx)
-                }
-            )
-        }
+        .swipeSlideVisual(state)
+        .swipeSlideInput(state, key, thresholdPx, travelPx, minAlpha, onCommit)
 }
