@@ -1298,14 +1298,12 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
                         Spacer(Modifier.width(12.dp))
                     }
                     else -> {
-                        IconButton(onClick = { vm.toggleSeriesFavorite(allIds) }) {
-                            Icon(
-                                if (allFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                if (allFavorite) "Remove series from favorites" else "Add full series to favorites",
-                                tint = if (allFavorite) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                        FavoriteHeart(
+                            favorite = allFavorite,
+                            onToggle = { vm.toggleSeriesFavorite(allIds) },
+                            tint = if (allFavorite) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface
+                        )
                         IconButton(onClick = { vm.pinSeriesShortcut(seriesId) }) {
                             Icon(Icons.Rounded.AddToHomeScreen, "Add series to home screen")
                         }

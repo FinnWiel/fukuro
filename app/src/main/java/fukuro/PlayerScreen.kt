@@ -1,6 +1,7 @@
 package fukuro
 
 import android.os.Bundle
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
@@ -106,6 +107,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.media3.session.MediaController
@@ -383,13 +385,11 @@ fun PlayerScreen(
                                 }
                             }
                             val fav = displayId in state.favorites
-                            IconButton(onClick = { vm.toggleFavorite(displayId) }) {
-                                Icon(
-                                    if (fav) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                    if (fav) "Remove favorite" else "Add favorite",
-                                    tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
-                                )
-                            }
+                            FavoriteHeart(
+                                favorite = fav,
+                                onToggle = { vm.toggleFavorite(displayId) },
+                                tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
+                            )
                             DownloadIconButton(vm, displayId)
                         }
                         if (sleepRemaining > 0) {
@@ -1023,3 +1023,45 @@ fun Modifier.swipeSlideInput(
     }
 }
 
+
+/**
+ * The favourite heart, with a pop when it fills.
+ *
+ * Driven by the state rather than the tap, so a book favourited from the options sheet
+ * also pops in the players. Filling gets a loose, bouncy spring; emptying gets a smaller,
+ * tighter one - taking something away shouldn't celebrate.
+ */
+@Composable
+fun FavoriteHeart(
+    favorite: Boolean,
+    onToggle: () -> Unit,
+    tint: Color,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 24.dp,
+    filled: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.Favorite,
+    outlined: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.FavoriteBorder,
+) {
+    val scale = remember { Animatable(1f) }
+    var settled by remember { mutableStateOf(false) }
+
+    LaunchedEffect(favorite) {
+        if (!settled) { settled = true; return@LaunchedEffect } // don't pop on first draw
+        scale.snapTo(if (favorite) 0.6f else 0.85f)
+        scale.animateTo(
+            1f,
+            spring(
+                dampingRatio = if (favorite) 0.32f else 0.55f,
+                stiffness = Spring.StiffnessMedium
+            )
+        )
+    }
+
+    IconButton(onClick = onToggle, modifier = modifier) {
+        Icon(
+            if (favorite) filled else outlined,
+            if (favorite) "Remove favorite" else "Add favorite",
+            Modifier.size(iconSize).graphicsLayer { scaleX = scale.value; scaleY = scale.value },
+            tint = tint
+        )
+    }
+}

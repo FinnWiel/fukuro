@@ -534,14 +534,14 @@ private fun MiniPlayer(
                     }
                     currentItemId?.let { id ->
                         val fav = id in state.favorites
-                        IconButton(onClick = { vm.toggleFavorite(id) }, modifier = Modifier.size(44.dp)) {
-                            Icon(
-                                if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                if (fav) "Remove favorite" else "Add favorite",
-                                Modifier.size(24.dp),
-                                tint = if (fav) MaterialTheme.colorScheme.primary else onBarDim
-                            )
-                        }
+                        FavoriteHeart(
+                            favorite = fav,
+                            onToggle = { vm.toggleFavorite(id) },
+                            tint = if (fav) MaterialTheme.colorScheme.primary else onBarDim,
+                            modifier = Modifier.size(44.dp),
+                            filled = Icons.Filled.Favorite,
+                            outlined = Icons.Filled.FavoriteBorder
+                        )
                     }
                     IconButton(
                         onClick = { if (isPlaying) controller?.pause() else controller?.play() },
