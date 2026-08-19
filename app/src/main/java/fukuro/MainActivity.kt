@@ -398,6 +398,8 @@ private fun MiniPlayer(
     var livePos by androidx.compose.runtime.remember { mutableFloatStateOf(0f) }
     // the chapter comes from the service, which owns the chapter list
     var chapter by androidx.compose.runtime.remember { mutableStateOf("") }
+    // the cover stays put; only the text travels with a swipe
+    val slide = rememberSwipeSlide(currentItemId to swipeAction)
 
     // lightweight 1s poll of the shared controller
     LaunchedEffect(controller) {
@@ -472,7 +474,8 @@ private fun MiniPlayer(
                     Modifier.fillMaxWidth().clickable { onOpen() }
                         // same swipe as the full player: chapters, or books within a
                         // series when the setting asks for it
-                        .swipeSlide(
+                        .swipeSlideInput(
+                            state = slide,
                             key = currentItemId to swipeAction,
                             thresholdPx = swipePx,
                             travelPx = swipePx * 1.2f,
@@ -497,20 +500,23 @@ private fun MiniPlayer(
                         modifier = Modifier.size(46.dp).clip(RoundedCornerShape(6.dp))
                     )
                     Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f).swipeSlideVisual(slide)) {
                         Text(
                             title, style = MaterialTheme.typography.bodyMedium, color = onBar,
                             maxLines = 1, softWrap = false,
                             // scrolls itself when the title is too long, like Spotify
                             modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
                         )
-                        // the chapter is the more useful of the two here: the book title
-                        // is already on the line above, and the author does not change
-                        val second = chapter.ifBlank { author }
+                        // chapter and author share the second line; either half can be
+                        // missing (a book without chapters, or without an author)
+                        val second = listOf(chapter, author)
+                            .filter { it.isNotBlank() }
+                            .joinToString("  ·  ")
                         if (second.isNotBlank()) Text(
                             second, style = MaterialTheme.typography.bodySmall,
                             color = onBarDim,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                            maxLines = 1, softWrap = false,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
                         )
                     }
                     currentItemId?.let { id ->

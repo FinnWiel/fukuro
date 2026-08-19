@@ -1012,17 +1012,3 @@ fun Modifier.swipeSlideInput(
     }
 }
 
-/** Gesture and movement on the same element - what the mini player wants. */
-@Composable
-fun Modifier.swipeSlide(
-    key: Any?,
-    thresholdPx: Float,
-    travelPx: Float,
-    minAlpha: Float = 0.25f,
-    onCommit: (forward: Boolean) -> Unit,
-): Modifier {
-    val state = rememberSwipeSlide(key)
-    return this
-        .swipeSlideVisual(state)
-        .swipeSlideInput(state, key, thresholdPx, travelPx, minAlpha, onCommit)
-}
