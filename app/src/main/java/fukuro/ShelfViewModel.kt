@@ -229,6 +229,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         viewModelScope.launch {
+            // Details go stale too - a book can gain or lose files on the server - so a
+            // refresh drops them; prefetchContinue re-warms the top of the shelf after.
+            shelf.itemCache.clear()
             // disk work, off the main thread — see the note in init
             val (downloaded, localItems) = withContext(Dispatchers.IO) {
                 downloads.downloadedIds().toSet() to local.items()
@@ -483,6 +486,26 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissUpdate() { _update.value = _update.value.copy(dismissed = true) }
 
+    /**
+     * The neighbouring book in the same series, or null when there isn't one - which is
+     * what makes a swipe fall back to chapters for a standalone book.
+     */
+    fun siblingInSeries(itemId: String, forward: Boolean): String? {
+        val items = _state.value.items
+        val here = items.firstOrNull { it.id == itemId } ?: return null
+        val raw = here.media.metadata.seriesName?.takeIf { it.isNotBlank() } ?: return null
+        val name = raw.substringBeforeLast('#').trim()
+        val seq = raw.substringAfterLast('#').trim().toDoubleOrNull() ?: return null
+        val siblings = items.mapNotNull { other ->
+            val s = other.media.metadata.seriesName ?: return@mapNotNull null
+            if (s.substringBeforeLast('#').trim() != name) return@mapNotNull null
+            val n = s.substringAfterLast('#').trim().toDoubleOrNull() ?: return@mapNotNull null
+            n to other.id
+        }
+        return if (forward) siblings.filter { it.first > seq }.minByOrNull { it.first }?.second
+        else siblings.filter { it.first < seq }.maxByOrNull { it.first }?.second
+    }
+
     fun hideFromContinue(itemId: String) = viewModelScope.launch { store.hideFromContinue(itemId) }
     fun unhideFromContinue(itemId: String) = viewModelScope.launch { store.unhideFromContinue(itemId) }
 
@@ -506,7 +529,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         queue.forEachIndexed { index, item ->
             if (LocalLibrary.isLocal(item.id) || downloads.isDownloaded(item.id)) return@forEachIndexed
             runCatching {
-                val full = shelf.itemCache[item.id] ?: api.item(item.id).also { shelf.itemCache[item.id] = it }
+                val full = shelf.itemCache[item.id]?.takeIf { it.media.audioFiles.isNotEmpty() }
+                    ?: api.item(item.id).also {
+                        if (it.media.audioFiles.isNotEmpty()) shelf.itemCache[item.id] = it
+                    }
                 // only warm the audio connection for the book most likely to be played
                 if (index == 0) full.media.audioFiles.firstOrNull()?.let { api.warmUp(item.id, it.ino) }
             }

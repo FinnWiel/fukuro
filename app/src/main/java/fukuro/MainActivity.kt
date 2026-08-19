@@ -63,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
@@ -78,6 +80,7 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.navigation.NavHostController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -293,6 +296,7 @@ fun AppNav(
                 MiniPlayer(
                     vm, controller,
                     onHasMedia = { miniPlayerVisible = it },
+                    onPlayBook = { id -> playBook(id) },
                     onOpen = { sheetItem = SHEET_CURRENT }
                 )
                 NavigationBar(
@@ -306,10 +310,18 @@ fun AppNav(
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
-                                nav.navigate(tab.route) {
-                                    popUpTo("home") { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                // From a detail page (series, author, narrator) no tab is
+                                // selected, and popping to a route that may not be on the
+                                // back stack did nothing. Popping to the graph's start
+                                // destination by id always resolves, from any depth.
+                                if (route != tab.route) {
+                                    nav.navigate(tab.route) {
+                                        popUpTo(nav.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
                             },
                             icon = {
@@ -372,9 +384,12 @@ private fun MiniPlayer(
     vm: ShelfViewModel,
     controller: MediaController?,
     onHasMedia: (Boolean) -> Unit = {},
+    onPlayBook: (String) -> Unit = {},
     onOpen: () -> Unit,
 ) {
     val state by vm.state.collectAsState()
+    val swipeAction by vm.store.swipeActionFlow.collectAsState(initial = "chapter")
+    val swipePx = with(androidx.compose.ui.platform.LocalDensity.current) { 64.dp.toPx() }
     var metaTitle by androidx.compose.runtime.remember { mutableStateOf("") }
     var currentItemId by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
     var isPlaying by androidx.compose.runtime.remember { mutableStateOf(false) }
@@ -452,6 +467,28 @@ private fun MiniPlayer(
             Column {
                 Row(
                     Modifier.fillMaxWidth().clickable { onOpen() }
+                        // same swipe as the full player: chapters, or books within a
+                        // series when the setting asks for it
+                        .pointerInput(currentItemId, swipeAction) {
+                            var dx = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { dx = 0f },
+                                onDragEnd = {
+                                    if (kotlin.math.abs(dx) > swipePx) {
+                                        val forward = dx < 0f
+                                        val id = currentItemId
+                                        val sibling = if (swipeAction == "book" && id != null)
+                                            vm.siblingInSeries(id, forward) else null
+                                        if (sibling != null) onPlayBook(sibling)
+                                        else controller?.sendCustomCommand(
+                                            SessionCommand(PlayerService.CMD_SKIP_CHAPTER, Bundle.EMPTY),
+                                            Bundle().apply { putInt("dir", if (forward) 1 else -1) }
+                                        )
+                                    }
+                                },
+                                onHorizontalDrag = { _, amount -> dx += amount }
+                            )
+                        }
                         .padding(start = 7.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

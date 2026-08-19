@@ -41,6 +41,7 @@ class PlayerService : MediaLibraryService() {
         const val CMD_SEEK_FWD_30 = "SEEK_FWD_30"
         const val CMD_BOOK_POSITION = "BOOK_POSITION"
         const val CMD_SEEK_ABS = "SEEK_ABS" // arg: posSec within the whole book
+        const val CMD_SKIP_CHAPTER = "SKIP_CHAPTER" // arg: dir (+1 next, -1 previous)
         /**
          * How long onPlaybackResumption may take. Android's foreground-service window is
          * ~5s from the moment it starts us; staying under that is what keeps a slow or
@@ -71,6 +72,7 @@ class PlayerService : MediaLibraryService() {
     private var trackOffsets: List<Double> = emptyList() // cumulative start offset of each track
     private var currentChapters: List<Chapter> = emptyList()
     private var widgetCoverId: String? = null // which book's cover the widgets are holding
+    private var finishedItemId: String? = null // last book we already marked finished
 
     private suspend fun fetchItem(itemId: String): LibraryItem {
         // books from the on-device folder never touch the network
@@ -78,11 +80,14 @@ class PlayerService : MediaLibraryService() {
             ShelfApp.from(application).local.items().firstOrNull { it.id == itemId }?.let { return it }
         }
         if (downloads.isDownloaded(itemId)) downloads.localItem(itemId)?.let { return it } // local first: instant
-        // prefetched by the app for Continue Listening books
+        // Prefetched by the app for Continue Listening books.
+        // An entry with no audio is worse than no entry: it builds an empty playlist, and
+        // since this cache never expired it would keep doing so forever. That happens when
+        // a book is fetched while the server still lists it without its files.
         val shared = ShelfApp.from(application).itemCache
-        shared[itemId]?.let { return it }
+        shared[itemId]?.takeIf { it.media.audioFiles.isNotEmpty() }?.let { return it }
         val item = api.item(itemId)
-        shared[itemId] = item
+        if (item.media.audioFiles.isNotEmpty()) shared[itemId] = item else shared.remove(itemId)
         return item
     }
 
@@ -166,6 +171,10 @@ class PlayerService : MediaLibraryService() {
             }
         }
         player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) onBookFinished()
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) scope.launch { syncProgress() }
                 publishNowPlaying()
@@ -229,6 +238,54 @@ class PlayerService : MediaLibraryService() {
         }
     }
 
+    /**
+     * Reaching the end of the last track is the only moment we can be sure a book was
+     * finished. Without this the server never learned, so the book stayed in Continue
+     * Listening and reopening it started from nothing.
+     */
+    private fun onBookFinished() {
+        val id = currentItemId ?: return
+        if (id == finishedItemId) return // ENDED can fire more than once
+        finishedItemId = id
+        scope.launch {
+            store.setLocalProgress(id, currentItemDuration)
+            if (!LocalLibrary.isLocal(id)) {
+                runCatching { api.updateProgress(id, currentItemDuration, currentItemDuration) }
+                runCatching { api.markFinished(id, true) }
+            }
+            publishNowPlaying()
+            // Opt-in only: rolling into the next book unasked is worse than stopping.
+            if (store.autoNextBlocking()) {
+                val next = nextInSeries(id)
+                if (next != null) {
+                    val playlist = buildPlaylist(next, 0.0)
+                    player.setMediaItems(playlist, 0, 0L)
+                    player.prepare()
+                    player.play()
+                }
+            }
+        }
+    }
+
+    /**
+     * The following book by series sequence, or null when there isn't one. Series come
+     * back from the server as "Name #3", so the number is parsed off the end.
+     */
+    private suspend fun nextInSeries(itemId: String): String? {
+        val item = runCatching { fetchItem(itemId) }.getOrNull() ?: return null
+        val raw = item.media.metadata.seriesName?.takeIf { it.isNotBlank() } ?: return null
+        val name = raw.substringBeforeLast('#').trim()
+        val seq = raw.substringAfterLast('#').trim().toDoubleOrNull() ?: return null
+        val libId = runCatching { api.libraries().firstOrNull()?.id }.getOrNull() ?: return null
+        val all = runCatching { api.libraryItems(libId) }.getOrNull() ?: return null
+        return all.mapNotNull { other ->
+            val s = other.media.metadata.seriesName ?: return@mapNotNull null
+            if (s.substringBeforeLast('#').trim() != name) return@mapNotNull null
+            val n = s.substringAfterLast('#').trim().toDoubleOrNull() ?: return@mapNotNull null
+            if (n > seq) n to other.id else null
+        }.minByOrNull { it.first }?.second
+    }
+
     /** Absolute position within the whole book (all tracks), in seconds. */
     private fun bookPositionSec(): Double {
         val idx = player.currentMediaItemIndex
@@ -265,6 +322,27 @@ class PlayerService : MediaLibraryService() {
                 player.currentMediaItemIndex, item.buildUpon().setMediaMetadata(meta).build()
             )
         } catch (_: Exception) { /* nothing loaded / racing a transition */ }
+    }
+
+    /**
+     * Chapter to chapter. Going back lands at the start of the current chapter first,
+     * the way every music player treats "previous"; only a second press leaves it.
+     * With no chapter list a swipe runs to the ends of the book instead.
+     */
+    private fun skipChapter(dir: Int) {
+        val pos = bookPositionSec()
+        if (currentChapters.isEmpty()) {
+            seekBookTo(if (dir > 0) currentItemDuration else 0.0)
+            return
+        }
+        val idx = currentChapters.indexOf(chapterAt(pos)).coerceAtLeast(0)
+        val target = if (dir > 0) {
+            currentChapters.getOrNull(idx + 1)?.start ?: currentItemDuration
+        } else {
+            val cur = currentChapters[idx]
+            if (pos - cur.start > 3.0) cur.start else currentChapters.getOrNull(idx - 1)?.start ?: 0.0
+        }
+        seekBookTo(target)
     }
 
     /** Seek by absolute book position, whatever track that lands in. */
@@ -363,10 +441,13 @@ class PlayerService : MediaLibraryService() {
             downloads.localItem(itemId) ?: throw e
         }
         currentItemId = itemId
+        if (finishedItemId != itemId) finishedItemId = null // a fresh load can finish again
         scope.launch { store.setLastItem(itemId) } // what onPlaybackResumption answers with
         currentItemDuration = item.media.duration
         currentChapters = item.media.chapters.filter { it.end > it.start }
         val files = item.media.audioFiles.sortedBy { it.index }
+        // nothing to play: fail out loud instead of starting a player with no tracks
+        if (files.isEmpty()) error("No audio files on the server for $itemId")
         var acc = 0.0
         val offsets = ArrayList<Double>(files.size)
         for (f in files) { offsets.add(acc); acc += f.duration }
@@ -420,6 +501,7 @@ class PlayerService : MediaLibraryService() {
                 .add(SessionCommand(CMD_SEEK_FWD_30, Bundle.EMPTY))
                 .add(SessionCommand(CMD_BOOK_POSITION, Bundle.EMPTY))
                 .add(SessionCommand(CMD_SEEK_ABS, Bundle.EMPTY))
+                .add(SessionCommand(CMD_SKIP_CHAPTER, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.accept(cmds, base.availablePlayerCommands)
         }
@@ -468,6 +550,10 @@ class PlayerService : MediaLibraryService() {
                 }
                 CMD_SEEK_ABS -> {
                     seekBookTo(args.getDouble("posSec", 0.0))
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                CMD_SKIP_CHAPTER -> {
+                    skipChapter(args.getInt("dir", 1))
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 CMD_SEEK_BACK_10 -> {

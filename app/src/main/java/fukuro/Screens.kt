@@ -659,6 +659,16 @@ fun HomeScreen(
                             item { BookRow(vm, favs, state, onOpenBook) }
                         }
                     }
+                    "completed" -> {
+                        // most recently finished first, so the shelf reflects what you just ended
+                        val done = state.items
+                            .filter { state.progress[it.id]?.isFinished == true }
+                            .sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L }
+                        if (done.isNotEmpty()) {
+                            item { SectionHeader("Completed") }
+                            item { BookRow(vm, done, state, onOpenBook) }
+                        }
+                    }
                     "downloaded" -> {
                         val downloaded = state.items.filter { it.id in state.downloadedIds }
                         if (downloaded.isNotEmpty()) {

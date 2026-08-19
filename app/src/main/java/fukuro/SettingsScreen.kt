@@ -225,6 +225,8 @@ fun SettingsScreen(
     val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
     val skipForward by vm.store.skipForwardFlow.collectAsState(initial = 30)
     val trackScope by vm.store.trackScopeFlow.collectAsState(initial = "book")
+    val swipeAction by vm.store.swipeActionFlow.collectAsState(initial = "chapter")
+    val autoNext by vm.store.autoNextFlow.collectAsState(initial = false)
     var showPicker by remember { mutableStateOf(false) }
     val state by vm.state.collectAsState()
     val localFolder by vm.store.localFolderFlow.collectAsState(initial = "")
@@ -415,6 +417,30 @@ fun SettingsScreen(
                         label = { Text(label) }
                     )
                 }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text("Swiping sideways on a player", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("chapter" to "Chapters", "book" to "Books in series").forEach { (key, label) ->
+                    FilterChip(
+                        selected = swipeAction == key,
+                        onClick = { scope.launch { vm.store.setSwipeAction(key) } },
+                        label = { Text(label) }
+                    )
+                }
+            }
+            Text(
+                "A book that isn't part of a series always swipes between chapters.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = autoNext, onCheckedChange = { on -> scope.launch { vm.store.setAutoNext(on) } })
+                Text("Start the next book in the series when one finishes", Modifier.weight(1f))
             }
 
             Spacer(Modifier.height(12.dp))

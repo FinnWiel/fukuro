@@ -146,6 +146,7 @@ fun PlayerScreen(
     val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
     val skipFwd by vm.store.skipForwardFlow.collectAsState(initial = 30)
     val trackScope by vm.store.trackScopeFlow.collectAsState(initial = "book")
+    val swipeAction by vm.store.swipeActionFlow.collectAsState(initial = "chapter")
     var playingId by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<LibraryItem?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -273,9 +274,31 @@ fun PlayerScreen(
     }
 
     // corners round off as the sheet is pulled away from the top of the screen
+    // Sideways swipe: chapter to chapter, or book to book inside a series when the
+    // setting says so. A standalone book always falls back to chapters, since there is
+    // nothing to move between. The scrubber owns its own horizontal gestures, so it
+    // keeps working - children see pointer events first.
+    val swipePx = with(LocalDensity.current) { 64.dp.toPx() }
+    fun onSwipe(forward: Boolean) {
+        val sibling = if (swipeAction == "book") vm.siblingInSeries(displayId, forward) else null
+        if (sibling != null) onPlayBook(sibling, null)
+        else controller?.sendCustomCommand(
+            SessionCommand(PlayerService.CMD_SKIP_CHAPTER, Bundle.EMPTY),
+            Bundle().apply { putInt("dir", if (forward) 1 else -1) }
+        )
+    }
+
     Box(
         Modifier.fillMaxSize()
             .nestedScroll(dismissConnection)
+            .pointerInput(displayId, swipeAction) {
+                var dx = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dx = 0f },
+                    onDragEnd = { if (abs(dx) > swipePx) onSwipe(dx < 0f) },
+                    onHorizontalDrag = { _, amount -> dx += amount }
+                )
+            }
             .offset { IntOffset(0, dragPx.roundToInt()) }
             .clip(
                 RoundedCornerShape(

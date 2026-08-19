@@ -33,6 +33,7 @@ class Store(private val context: Context) {
     @Volatile private var mSkipBack: Int = 10
     @Volatile private var mSkipForward: Int = 30
     @Volatile private var mTrackScope: String = "book"
+    @Volatile private var mAutoNext: Boolean = false
 
     private val mirrorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -46,6 +47,7 @@ class Store(private val context: Context) {
                 mSkipBack = p[K.SKIP_BACK]?.toIntOrNull() ?: 10
                 mSkipForward = p[K.SKIP_FORWARD]?.toIntOrNull() ?: 30
                 mTrackScope = p[K.TRACK_SCOPE] ?: "book"
+                mAutoNext = p[K.AUTO_NEXT] ?: false
             }
         }
     }
@@ -68,6 +70,8 @@ class Store(private val context: Context) {
         val TRACK_SCOPE = stringPreferencesKey("track_scope")      // "book" | "chapter"
         val CONTINUE_HIDDEN = stringPreferencesKey("continue_hidden") // csv of ids kept out of the shelf
         val AUTO_UPDATE = booleanPreferencesKey("auto_update_check")
+        val AUTO_NEXT = booleanPreferencesKey("auto_next_in_series") // off: finishing stops
+        val SWIPE_ACTION = stringPreferencesKey("swipe_action")      // "chapter" | "book"
         val UPDATE_LAST_CHECK = stringPreferencesKey("update_last_check") // epoch ms
         val API_KEY = stringPreferencesKey("abs_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
@@ -88,6 +92,15 @@ class Store(private val context: Context) {
     val localFolderFlow: Flow<String> = context.dataStore.data.map { it[K.LOCAL_FOLDER] ?: "" }
     val trackScopeFlow: Flow<String> = context.dataStore.data.map { it[K.TRACK_SCOPE] ?: "book" }
     val autoUpdateFlow: Flow<Boolean> = context.dataStore.data.map { it[K.AUTO_UPDATE] ?: true }
+
+    /** Finishing a book stops by default; this opts in to rolling into the next one. */
+    val autoNextFlow: Flow<Boolean> = context.dataStore.data.map { it[K.AUTO_NEXT] ?: false }
+    suspend fun setAutoNext(v: Boolean) = context.dataStore.edit { it[K.AUTO_NEXT] = v }
+    fun autoNextBlocking(): Boolean = mAutoNext
+
+    /** What a sideways swipe on either player does: "chapter" or "book". */
+    val swipeActionFlow: Flow<String> = context.dataStore.data.map { it[K.SWIPE_ACTION] ?: "chapter" }
+    suspend fun setSwipeAction(v: String) = context.dataStore.edit { it[K.SWIPE_ACTION] = v }
 
     suspend fun setAutoUpdate(v: Boolean) = context.dataStore.edit { it[K.AUTO_UPDATE] = v }
     suspend fun lastUpdateCheck(): Long =
@@ -246,6 +259,7 @@ class Store(private val context: Context) {
         val SECTION_LABELS = mapOf(
             "continue" to "Continue Listening",
             "favorites" to "Favorites",
+            "completed" to "Completed",
             "downloaded" to "Downloaded",
             "custom" to "Custom",
             "series" to "Series",
