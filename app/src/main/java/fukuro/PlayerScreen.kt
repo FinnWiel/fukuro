@@ -106,6 +106,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -368,17 +369,6 @@ fun PlayerScreen(
                                 if (author.isNotBlank()) {
                                     Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
                                 }
-                                // where you are, not just which book: the chapter list
-                                // below is collapsed most of the time
-                                chapters.firstOrNull { absolutePosSec >= it.start && absolutePosSec < it.end }
-                                    ?.title?.takeIf { it.isNotBlank() }
-                                    ?.let { chapterNow ->
-                                        Text(
-                                            chapterNow, style = MaterialTheme.typography.bodySmall,
-                                            color = TxtSecondary, maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
                                 if (saved?.isFinished == true) {
                                     Text("Finished ✓", style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.primary)
@@ -419,6 +409,21 @@ fun PlayerScreen(
                         val shownSec = (dragSec?.toDouble() ?: (absolutePosSec - spanStart))
                             .coerceIn(0.0, spanLen)
                         val frac = (shownSec / spanLen).toFloat().coerceIn(0f, 1f)
+
+                        // The chapter belongs with the position, not the title: this sits
+                        // directly above the track it describes, and the collapsed chapter
+                        // list below is the only other place it appears.
+                        currentChapter?.title?.takeIf { it.isNotBlank() }?.let { chapterNow ->
+                            Text(
+                                chapterNow,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TxtSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                            )
+                        }
 
                         Scrubber(
                             fraction = frac,
