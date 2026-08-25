@@ -87,6 +87,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -548,6 +550,77 @@ fun coverGridColumns(size: Int) = COVER_GRID_COLUMNS[size.coerceIn(0, 4)]
 
 /* ---------------- Home ---------------- */
 
+private data class HomeContent(
+    val inProgress: List<LibraryItem> = emptyList(),
+    val series: List<AbsSeries> = emptyList(),
+    val favorites: List<LibraryItem> = emptyList(),
+    val completed: List<LibraryItem> = emptyList(),
+    val downloaded: List<LibraryItem> = emptyList(),
+    val custom: List<CustomShelfEntry> = emptyList(),
+    val authors: List<Pair<AbsAuthor, Int>> = emptyList(),
+    val narrators: List<Pair<String, Int>> = emptyList(),
+    val allBooks: List<LibraryItem> = emptyList(),
+)
+
+private fun buildHomeContent(
+    state: UiState,
+    enabledSections: Set<String>,
+    customShelf: List<CustomShelfEntry>,
+): HomeContent {
+    val items = state.items
+    val inProgress = if ("continue" in enabledSections) items.filter { item ->
+        val p = state.progress[item.id]
+        p != null && !p.isFinished && p.progress > 0.001 && item.id !in state.continueHidden
+    }.sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L } else emptyList()
+
+    val visibleSeries = if ("series" in enabledSections) state.series.map { series ->
+        if (state.offline) series.copy(books = series.books.filter { state.isOnDevice(it.id) }) else series
+    }.filter { it.books.isNotEmpty() } else emptyList()
+
+    val favorites = if ("favorites" in enabledSections) {
+        items.filter { it.id in state.favorites }
+    } else emptyList()
+    val completed = if ("completed" in enabledSections) items
+        .filter { state.progress[it.id]?.isFinished == true }
+        .sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L } else emptyList()
+    val downloaded = if ("downloaded" in enabledSections) {
+        items.filter { it.id in state.downloadedIds }
+    } else emptyList()
+
+    val custom = if ("custom" in enabledSections) customShelf.filter { entry ->
+        when (entry.type) {
+            "book" -> items.any { it.id == entry.id }
+            "series" -> state.series.firstOrNull { it.id == entry.id }
+                ?.books?.any { !state.offline || state.isOnDevice(it.id) } == true
+            "author" -> items.any { it.hasAuthor(entry.id) }
+            "narrator" -> items.any { it.hasNarrator(entry.id) }
+            else -> false
+        }
+    } else emptyList()
+
+    val authors = if ("authors" in enabledSections) {
+        val source = state.authors.ifEmpty {
+            items.flatMap { authorsOf(it) }.groupingBy { it }.eachCount()
+                .map { (name, count) -> AbsAuthor(id = "", name = name, numBooks = count) }
+                .sortedBy { it.name.lowercase() }
+        }.filter { author -> !state.offline || items.any { it.hasAuthor(author.name) } }
+        source.map { author -> author to items.count { it.hasAuthor(author.name) } }
+    } else emptyList()
+
+    val narrators = if ("narrators" in enabledSections) items.flatMap { narratorsOf(it) }
+        .groupingBy { it }.eachCount().toList().sortedBy { it.first.lowercase() }
+    else emptyList()
+
+    val allBooks = if ("all" in enabledSections) items.sortedBy {
+        it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title
+    } else emptyList()
+
+    return HomeContent(
+        inProgress, visibleSeries, favorites, completed, downloaded,
+        custom, authors, narrators, allBooks,
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -561,6 +634,21 @@ fun HomeScreen(
     val state by vm.state.collectAsState()
     val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
     val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
+    val sections = sectionsCsv.split(',').filter { it.isNotBlank() }
+    // Shelf construction includes grouping and sorting the full library. Keep that work
+    // away from the main thread so returning to Home can draw its first frame immediately.
+    var homeContent by remember { mutableStateOf(HomeContent()) }
+    LaunchedEffect(
+        state.allItems, state.series, state.authors,
+        state.serverProgress, state.localProgress,
+        state.downloadedIds, state.favorites, state.continueHidden,
+        state.serverChecked, state.serverOnline,
+        sectionsCsv, customShelf,
+    ) {
+        homeContent = withContext(Dispatchers.Default) {
+            buildHomeContent(state, sections.toSet(), customShelf)
+        }
+    }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -614,12 +702,11 @@ fun HomeScreen(
         ) {
         LazyColumn(Modifier.fillMaxSize()) {
             item { UpdateBanner(vm) }
-            val sections = sectionsCsv.split(',').filter { it.isNotBlank() }
             sections.forEach { section ->
                 when (section) {
                     "continue" -> {
                         // most recently listened first; dismissed books are left out
-                        val inProgress = vm.continueListening()
+                        val inProgress = homeContent.inProgress
                         if (inProgress.isNotEmpty()) {
                             item { SectionHeader("Continue Listening") }
                             item { BookRow(vm, inProgress, state, onOpenBook) }
@@ -628,11 +715,7 @@ fun HomeScreen(
                     "series" -> {
                         // offline a series shrinks to the part of it that's on the device,
                         // and drops out entirely when none of it is
-                        val withBooks = state.series
-                            .map { s ->
-                                if (state.offline) s.copy(books = s.books.filter { state.isOnDevice(it.id) }) else s
-                            }
-                            .filter { it.books.isNotEmpty() }
+                        val withBooks = homeContent.series
                         if (withBooks.isNotEmpty()) {
                             item { SectionHeader("Series") }
                             item {
@@ -653,7 +736,7 @@ fun HomeScreen(
                         }
                     }
                     "favorites" -> {
-                        val favs = state.items.filter { it.id in state.favorites }
+                        val favs = homeContent.favorites
                         if (favs.isNotEmpty()) {
                             item { SectionHeader("Favorites") }
                             item { BookRow(vm, favs, state, onOpenBook) }
@@ -661,32 +744,21 @@ fun HomeScreen(
                     }
                     "completed" -> {
                         // most recently finished first, so the shelf reflects what you just ended
-                        val done = state.items
-                            .filter { state.progress[it.id]?.isFinished == true }
-                            .sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L }
+                        val done = homeContent.completed
                         if (done.isNotEmpty()) {
                             item { SectionHeader("Completed") }
                             item { BookRow(vm, done, state, onOpenBook) }
                         }
                     }
                     "downloaded" -> {
-                        val downloaded = state.items.filter { it.id in state.downloadedIds }
+                        val downloaded = homeContent.downloaded
                         if (downloaded.isNotEmpty()) {
                             item { SectionHeader("Downloaded") }
                             item { BookRow(vm, downloaded, state, onOpenBook) }
                         }
                     }
                     "custom" -> {
-                        val visible = customShelf.filter { entry ->
-                            when (entry.type) {
-                                "book" -> state.items.any { it.id == entry.id }
-                                "series" -> state.series.firstOrNull { it.id == entry.id }
-                                    ?.books?.any { !state.offline || state.isOnDevice(it.id) } == true
-                                "author" -> state.items.any { it.hasAuthor(entry.id) }
-                                "narrator" -> state.items.any { it.hasNarrator(entry.id) }
-                                else -> false
-                            }
-                        }
+                        val visible = homeContent.custom
                         if (visible.isNotEmpty()) {
                             item { SectionHeader("Custom") }
                             item {
@@ -705,21 +777,12 @@ fun HomeScreen(
                     "authors" -> {
                         // prefer the server's author list (it carries portraits); fall back to
                         // grouping books by author name when the endpoint isn't available
-                        val authors = state.authors.ifEmpty {
-                            // split co-authors so each gets their own card
-                            state.items.flatMap { authorsOf(it) }
-                                .groupingBy { it }.eachCount()
-                                .map { (name, count) -> AbsAuthor(id = "", name = name, numBooks = count) }
-                                .sortedBy { it.name.lowercase() }
-                        }
-                            // offline, an author whose books are all on the server is a dead end
-                            .filter { a -> !state.offline || state.items.any { it.hasAuthor(a.name) } }
+                        val authors = homeContent.authors
                         if (authors.isNotEmpty()) {
                             item { SectionHeader("Authors") }
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                                    items(authors, key = { it.id.ifBlank { it.name } }) { author ->
-                                        val books = state.items.count { it.hasAuthor(author.name) }
+                                    items(authors, key = { it.first.id.ifBlank { it.first.name } }) { (author, books) ->
                                         CollectionCard(
                                             covers = listOf(author.imagePath?.let { vm.api.authorImageUrl(author.id) }),
                                             title = author.name,
@@ -736,9 +799,7 @@ fun HomeScreen(
                         }
                     }
                     "narrators" -> {
-                        val narrators = state.items.flatMap { narratorsOf(it) }
-                            .groupingBy { it }.eachCount()
-                            .toList().sortedBy { it.first.lowercase() }
+                        val narrators = homeContent.narrators
                         if (narrators.isNotEmpty()) {
                             item { SectionHeader("Narrators") }
                             item {
@@ -761,7 +822,7 @@ fun HomeScreen(
                     }
                     "all" -> {
                         item { SectionHeader("All Books") }
-                        item { BookRow(vm, state.items.sortedBy { it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title }, state, onOpenBook) }
+                        item { BookRow(vm, homeContent.allBooks, state, onOpenBook) }
                     }
                 }
             }
@@ -837,6 +898,44 @@ private fun UpdateBanner(vm: ShelfViewModel) {
 
 /* ---------------- Library (full grid + search) ---------------- */
 
+private fun orderedLibraryItems(
+    state: UiState,
+    query: String,
+    sortBy: String,
+    filterBy: String,
+    descending: Boolean,
+    favoritesTop: Boolean,
+): List<LibraryItem> {
+    val searched = if (query.isBlank()) state.items else state.items.filter {
+        (it.media.metadata.title ?: "").contains(query, ignoreCase = true) ||
+            (it.media.metadata.authorName ?: "").contains(query, ignoreCase = true) ||
+            (it.media.metadata.narratorName ?: "").contains(query, ignoreCase = true) ||
+            (it.media.metadata.seriesName ?: "").contains(query, ignoreCase = true)
+    }
+    val filtered = searched.filter { item ->
+        val p = state.progress[item.id]
+        when (filterBy) {
+            "reading" -> p != null && !p.isFinished && p.progress > 0.001
+            "unstarted" -> p == null || (p.progress <= 0.001 && !p.isFinished)
+            "finished" -> p?.isFinished == true
+            "downloaded" -> item.id in state.downloadedIds
+            "favorites" -> item.id in state.favorites
+            else -> true
+        }
+    }
+    val ordered = when (sortBy) {
+        "author" -> filtered.sortedBy { it.media.metadata.authorName?.lowercase() ?: "￿" }
+        "narrator" -> filtered.sortedBy { it.media.metadata.narratorName?.lowercase() ?: "￿" }
+        "duration" -> filtered.sortedBy { it.media.duration }
+        "added" -> filtered.sortedByDescending { it.addedAt }
+        "progress" -> filtered.sortedByDescending { state.progress[it.id]?.progress ?: 0.0 }
+        else -> filtered.sortedBy {
+            (it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title ?: "").lowercase()
+        }
+    }.let { if (descending) it.reversed() else it }
+    return if (favoritesTop) ordered.sortedByDescending { it.id in state.favorites } else ordered
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(
@@ -856,34 +955,22 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
 
-    val searched = if (query.isBlank()) state.items else state.items.filter {
-        (it.media.metadata.title ?: "").contains(query, ignoreCase = true) ||
-            (it.media.metadata.authorName ?: "").contains(query, ignoreCase = true) ||
-            (it.media.metadata.narratorName ?: "").contains(query, ignoreCase = true) ||
-            (it.media.metadata.seriesName ?: "").contains(query, ignoreCase = true)
-    }
-    val filtered = searched.filter { item ->
-        val p = state.progress[item.id]
-        when (filterBy) {
-            "reading" -> p != null && !p.isFinished && p.progress > 0.001
-            "unstarted" -> p == null || (p.progress <= 0.001 && !p.isFinished)
-            "finished" -> p?.isFinished == true
-            "downloaded" -> item.id in state.downloadedIds
-            "favorites" -> item.id in state.favorites
-            else -> true
+    // Filtering and sorting can touch thousands of metadata fields. Running it during
+    // composition blocks the tab animation, so calculate it on a worker thread.
+    var sorted by remember { mutableStateOf<List<LibraryItem>>(emptyList()) }
+    val progressAffectsResults = filterBy == "completed" || filterBy == "inprogress" || sortBy == "progress"
+    val favoritesAffectResults = filterBy == "favorites" || favoritesTop
+    LaunchedEffect(
+        state.allItems, state.downloadedIds, state.serverChecked, state.serverOnline,
+        if (progressAffectsResults) state.serverProgress else null,
+        if (progressAffectsResults) state.localProgress else null,
+        if (favoritesAffectResults) state.favorites else null,
+        query, sortBy, filterBy, descending, favoritesTop,
+    ) {
+        sorted = withContext(Dispatchers.Default) {
+            orderedLibraryItems(state, query, sortBy, filterBy, descending, favoritesTop)
         }
     }
-    val base = when (sortBy) {
-        "author" -> filtered.sortedBy { it.media.metadata.authorName?.lowercase() ?: "￿" }
-        "narrator" -> filtered.sortedBy { it.media.metadata.narratorName?.lowercase() ?: "￿" } // no narrator -> last
-        "duration" -> filtered.sortedBy { it.media.duration }
-        "added" -> filtered.sortedByDescending { it.addedAt }
-        "progress" -> filtered.sortedByDescending { state.progress[it.id]?.progress ?: 0.0 }
-        else -> filtered.sortedBy { (it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title ?: "").lowercase() }
-    }
-    val ordered = if (descending) base.reversed() else base
-    // favourites float to the top when the setting is on
-    val sorted = if (favoritesTop) ordered.sortedByDescending { it.id in state.favorites } else ordered
 
     val activeFilters = (if (filterBy != "all") 1 else 0) + (if (sortBy != "title") 1 else 0)
 
@@ -1202,10 +1289,16 @@ fun BookGridCell(vm: ShelfViewModel, book: LibraryItem, state: UiState, onOpenBo
     }
 }
 
-/** Grid page for one series. */
+/** Overview page for one series. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) -> Unit, onBack: () -> Unit) {
+fun SeriesScreen(
+    vm: ShelfViewModel,
+    seriesId: String,
+    playingBookId: String? = null,
+    onOpenBook: (String) -> Unit,
+    onBack: () -> Unit,
+) {
     val state by vm.state.collectAsState()
     val dlStates by vm.downloadStates.collectAsState()
     val series = state.series.firstOrNull { it.id == seriesId } ?: return
@@ -1285,54 +1378,25 @@ fun SeriesGridScreen(vm: ShelfViewModel, seriesId: String, onOpenBook: (String) 
         )
     }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(series.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = {
-                when {
-                    busy -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("$downloadedCount/${ids.size}", style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.width(12.dp))
-                    }
-                    else -> {
-                        FavoriteHeart(
-                            favorite = allFavorite,
-                            onToggle = { vm.toggleSeriesFavorite(allIds) },
-                            tint = if (allFavorite) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface
-                        )
-                        IconButton(onClick = { vm.pinSeriesShortcut(seriesId) }) {
-                            Icon(Icons.Rounded.AddToHomeScreen, "Add series to home screen")
-                        }
-                        if (downloadedCount < ids.size) {
-                            IconButton(onClick = { vm.downloadAll(ids) }) {
-                                Icon(Icons.Rounded.Download, "Download whole series")
-                            }
-                        }
-                        if (downloadedCount > 0) {
-                            IconButton(onClick = {
-                                selectedForRemoval = downloadedIds.toSet()
-                                showRemoveDownloads = true
-                            }) {
-                                Icon(Icons.Rounded.Delete, "Delete downloaded books in series")
-                            }
-                        }
-                    }
-                }
-            }
-        )
-    }) { pad ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(coverGridColumns(state.coverSize)),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 140.dp),
-            modifier = Modifier.fillMaxSize().padding(pad)
-        ) {
-            items(books, key = { it.id }) { book -> BookGridCell(vm, book, state, onOpenBook) }
-        }
-    }
+    SeriesOverviewScreen(
+        series = series,
+        books = books,
+        progress = state.progress,
+        playingBookId = playingBookId,
+        coverModel = vm::coverModel,
+        allFavorite = allFavorite,
+        busy = busy,
+        downloadedCount = downloadedCount,
+        onBack = onBack,
+        onOpenBook = onOpenBook,
+        onToggleFavorite = { vm.toggleSeriesFavorite(allIds) },
+        onPin = { vm.pinSeriesShortcut(seriesId) },
+        onDownloadAll = { vm.downloadAll(ids) },
+        onRemoveDownloads = {
+            selectedForRemoval = downloadedIds.toSet()
+            showRemoveDownloads = true
+        },
+    )
 }
 
 /** Grid page for one narrator. */
