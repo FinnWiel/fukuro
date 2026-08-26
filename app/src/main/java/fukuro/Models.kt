@@ -104,6 +104,7 @@ data class LibraryItem(
     val libraryId: String = "",
     val relPath: String = "",
     val addedAt: Long = 0,
+    val tags: List<String> = emptyList(),
     val media: Media = Media(),
 )
 

@@ -83,6 +83,7 @@ class Store(private val context: Context) {
         val SWIPE_ACTION = stringPreferencesKey("swipe_action")      // "chapter" | "book"
         val UPDATE_LAST_CHECK = stringPreferencesKey("update_last_check") // epoch ms
         val API_KEY = stringPreferencesKey("abs_api_key")
+        val GOOGLE_BOOKS_KEY = stringPreferencesKey("google_books_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
         val LAST_ITEM = stringPreferencesKey("last_item") // what the system offers to resume
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
@@ -156,6 +157,7 @@ class Store(private val context: Context) {
     fun skipForwardBlocking(): Int = mSkipForward
     fun downloadDirBlocking(): String = mDownloadDir
     val apiKeyFlow: Flow<String> = context.dataStore.data.map { it[K.API_KEY] ?: "" }
+    val googleBooksKeyFlow: Flow<String> = context.dataStore.data.map { it[K.GOOGLE_BOOKS_KEY] ?: "" }
     /*
      * Home shelves. Nothing saved yet means one of two things: a fresh install,
      * which gets the designed defaults, or an existing one that only ever knew the
@@ -205,6 +207,8 @@ class Store(private val context: Context) {
     suspend fun setSkipForward(v: Int) = context.dataStore.edit { it[K.SKIP_FORWARD] = v.toString() }
     suspend fun setApiKey(v: String) = context.dataStore.edit { it[K.API_KEY] = v }
     suspend fun apiKey(): String? = context.dataStore.data.first()[K.API_KEY]
+    suspend fun setGoogleBooksKey(v: String) = context.dataStore.edit { it[K.GOOGLE_BOOKS_KEY] = v }
+    suspend fun googleBooksKey(): String = context.dataStore.data.first()[K.GOOGLE_BOOKS_KEY] ?: ""
     suspend fun playbackSpeed(): Float = context.dataStore.data.first()[K.SPEED]?.toFloatOrNull() ?: 1.0f
     suspend fun setPlaybackSpeed(v: Float) = context.dataStore.edit { it[K.SPEED] = v.toString() }
 

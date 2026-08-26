@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -75,6 +76,7 @@ fun HomeScreen(
     onOpenNarrator: (String) -> Unit = {},
     onOpenSeries: (String) -> Unit = {},
     onOpenAuthor: (String) -> Unit = {},
+    onOpenRecommendation: (BookRecommendation) -> Unit = {},
     onPlayBook: (String) -> Unit = {},
     playingBookId: String? = null,
     isPlaying: Boolean = false,
@@ -95,6 +97,7 @@ fun HomeScreen(
         state.serverProgress, state.localProgress,
         state.downloadedIds, state.favorites, state.continueHidden,
         state.serverChecked, state.serverOnline,
+        state.recommendations, state.recommendationsLoading, state.recommendationsError,
         shelves, customShelf, filter,
     ) {
         resolved = withContext(Dispatchers.Default) {
@@ -104,10 +107,23 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(shelves, state.allItems.size) {
+        if (shelves.any { it.enabled && it.source == ShelfSource.Recommendations } &&
+            state.allItems.isNotEmpty()
+        ) {
+            vm.refreshRecommendations()
+        }
+    }
+
     Scaffold(containerColor = c.background) { pad ->
         PullToRefreshBox(
             isRefreshing = state.loading,
-            onRefresh = { vm.refresh() },
+            onRefresh = {
+                vm.refresh()
+                if (shelves.any { it.enabled && it.source == ShelfSource.Recommendations }) {
+                    vm.refreshRecommendations(force = true)
+                }
+            },
             modifier = Modifier.fillMaxSize().padding(top = pad.calculateTopPadding()),
         ) {
             LazyColumn(
@@ -124,7 +140,14 @@ fun HomeScreen(
                 resolved.forEach { (shelf, items) ->
                     // the hero carries its own label as an overline, so it gets no title
                     if (effectiveLayout(shelf, items) != ShelfLayout.HERO) {
-                        item(key = "title-${shelf.id}") { ShelfTitle(shelf.title) }
+                        item(key = "title-${shelf.id}") {
+                            if (items is ShelfItems.Recommendations) {
+                                RecommendationShelfTitle(
+                                    shelf.title,
+                                    state.recommendationsLoading,
+                                ) { vm.refreshRecommendations(force = true) }
+                            } else ShelfTitle(shelf.title)
+                        }
                     }
                     shelfBody(
                         shelf = shelf,
@@ -134,6 +157,7 @@ fun HomeScreen(
                         onOpenBook = onOpenBook,
                         onOpenSeries = onOpenSeries,
                         onOpenAuthor = onOpenAuthor,
+                        onOpenRecommendation = onOpenRecommendation,
                         onPlayBook = onPlayBook,
                         playingBookId = playingBookId,
                         isPlaying = isPlaying,
@@ -142,6 +166,36 @@ fun HomeScreen(
                 }
 
                 if (resolved.isEmpty()) item(key = "empty") { HomeEmptyState(state) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecommendationShelfTitle(
+    title: String,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(
+            start = Fukuro.dims.screenPadding,
+            end = Fukuro.dims.screenPadding - 8.dp,
+            top = Fukuro.dims.shelfTitleTop,
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = Fukuro.type.shelfTitle,
+            color = Fukuro.colors.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        if (refreshing) {
+            CircularProgressIndicator(Modifier.padding(10.dp).size(20.dp), strokeWidth = 2.dp)
+        } else {
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Rounded.Refresh, "Refresh recommendations")
             }
         }
     }
@@ -244,6 +298,7 @@ private fun LazyListScope.shelfBody(
     onOpenBook: (String) -> Unit,
     onOpenSeries: (String) -> Unit,
     onOpenAuthor: (String) -> Unit,
+    onOpenRecommendation: (BookRecommendation) -> Unit,
     onOpenNarrator: (String) -> Unit,
     onPlayBook: (String) -> Unit,
     playingBookId: String?,
@@ -306,6 +361,38 @@ private fun LazyListScope.shelfBody(
                         last = index == content.books.lastIndex,
                     )
                 }
+            }
+        }
+
+        is ShelfItems.Recommendations -> item(key = "row-${shelf.id}") {
+            when {
+                content.books.isNotEmpty() -> LazyRow(
+                    contentPadding = PaddingValues(horizontal = Fukuro.dims.screenPadding),
+                    horizontalArrangement = Arrangement.spacedBy(Fukuro.dims.carouselGap),
+                ) {
+                    items(content.books, key = { "${it.provider}:${it.id}" }) { book ->
+                        CarouselCell(
+                            title = book.title,
+                            meta = book.authors.firstOrNull() ?: book.reason,
+                            cover = book.coverUrl,
+                            progress = 0f,
+                            finished = false,
+                            coverSize = state.coverSize,
+                            onClick = { onOpenRecommendation(book) },
+                        )
+                    }
+                }
+                state.recommendationsLoading -> CircularProgressIndicator(
+                    modifier = Modifier.padding(horizontal = Fukuro.dims.screenPadding).size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = Fukuro.colors.accent,
+                )
+                else -> Text(
+                    state.recommendationsError ?: "No matches yet",
+                    style = Fukuro.type.body,
+                    color = Fukuro.colors.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = Fukuro.dims.screenPadding),
+                )
             }
         }
 

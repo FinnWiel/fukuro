@@ -260,9 +260,11 @@ fun SettingsScreen(
             vm.setLocalFolder(uri.toString())
         }
     }
+    val storedGoogleBooksKey by vm.store.googleBooksKeyFlow.collectAsState(initial = "")
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
+    var googleBooksKeyText by remember(storedGoogleBooksKey) { mutableStateOf(storedGoogleBooksKey) }
     if (showPicker) {
         AccentPickerDialog(
             initial = accentColorOf(accent),
@@ -510,6 +512,28 @@ fun SettingsScreen(
 
             item(key = "account-and-updates") {
                 Column {
+            SectionTitle("Recommendations")
+            Spacer(Modifier.height(4.dp))
+            SectionCaption(
+                "Open Library works automatically. Add a Google Books API key to improve covers, descriptions, categories, and matching."
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                googleBooksKeyText,
+                { googleBooksKeyText = it },
+                singleLine = true,
+                label = { Text("Google Books API key (optional)") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            SettingsButton(onClick = {
+                scope.launch {
+                    vm.store.setGoogleBooksKey(googleBooksKeyText.trim())
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Save and refresh") }
+
             Spacer(Modifier.height(24.dp))
             HorizontalDivider(color = Fukuro.colors.outline)
             Spacer(Modifier.height(16.dp))

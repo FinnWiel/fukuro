@@ -58,6 +58,9 @@ sealed interface ShelfSource {
     @Serializable @SerialName("finished")
     data object Finished : ShelfSource
 
+    @Serializable @SerialName("recommendations")
+    data object Recommendations : ShelfSource
+
     /** Every series, as rows with segmented progress. */
     @Serializable @SerialName("all_series")
     data object AllSeries : ShelfSource
@@ -124,6 +127,7 @@ fun sourceLabel(source: ShelfSource): String = when (source) {
     ShelfSource.Favorites -> "Favorites"
     ShelfSource.Downloaded -> "Downloaded"
     ShelfSource.Finished -> "Finished"
+    ShelfSource.Recommendations -> "Recommendations"
     ShelfSource.AllSeries -> "All series"
     ShelfSource.AllBooks -> "All books"
     ShelfSource.Authors -> "Authors"
@@ -143,6 +147,7 @@ val SIMPLE_SHELF_SOURCES: List<ShelfSource> = listOf(
     ShelfSource.Favorites,
     ShelfSource.Downloaded,
     ShelfSource.Finished,
+    ShelfSource.Recommendations,
     ShelfSource.AllSeries,
     ShelfSource.AllBooks,
     ShelfSource.Authors,
@@ -161,6 +166,7 @@ private fun heroShelf() =
 val DEFAULT_SHELVES: List<Shelf> = listOf(
     heroShelf(),
     Shelf("default-continue", "Jump back in", ShelfSource.ContinueReading, ShelfLayout.CAROUSEL, sort = ShelfSort.RECENT),
+    Shelf("default-recommendations", "Recommended for you", ShelfSource.Recommendations, ShelfLayout.CAROUSEL),
     Shelf("default-series", "Your series", ShelfSource.AllSeries, ShelfLayout.ROWS, sort = ShelfSort.RECENT),
     Shelf("default-recent", "Recently added", ShelfSource.RecentlyAdded, ShelfLayout.CAROUSEL, sort = ShelfSort.ADDED),
 )
@@ -171,6 +177,7 @@ private val SECTION_SOURCES: Map<String, Pair<String, ShelfSource>> = mapOf(
     "favorites" to ("Favorites" to ShelfSource.Favorites),
     "completed" to ("Completed" to ShelfSource.Finished),
     "downloaded" to ("Downloaded" to ShelfSource.Downloaded),
+    "recommendations" to ("Recommended for you" to ShelfSource.Recommendations),
     "custom" to ("Custom" to ShelfSource.CustomList),
     "series" to ("Your series" to ShelfSource.AllSeries),
     "authors" to ("Authors" to ShelfSource.Authors),
@@ -215,6 +222,7 @@ enum class HomeFilter(val label: String) {
 /** What one shelf resolved to. Rendering picks the layout; this picks the content. */
 sealed interface ShelfItems {
     data class Books(val books: List<LibraryItem>) : ShelfItems
+    data class Recommendations(val books: List<BookRecommendation>) : ShelfItems
     data class SeriesGroups(val series: List<AbsSeries>) : ShelfItems
     data class AuthorCards(val authors: List<Pair<AbsAuthor, Int>>) : ShelfItems
     data class NarratorCards(val narrators: List<Pair<String, Int>>) : ShelfItems
@@ -224,6 +232,7 @@ sealed interface ShelfItems {
     val count: Int
         get() = when (this) {
             is Books -> books.size
+            is Recommendations -> books.size
             is SeriesGroups -> series.size
             is AuthorCards -> authors.size
             is NarratorCards -> narrators.size
@@ -329,6 +338,14 @@ fun resolveShelf(
         ShelfSource.Downloaded -> books(items.filter { state.isOnDevice(it.id) })
 
         ShelfSource.Finished -> books(items.filter { state.progress[it.id]?.isFinished == true })
+
+        ShelfSource.Recommendations -> {
+            if (filter != HomeFilter.ALL) return ShelfItems.Empty
+            val limited = shelf.maxItems?.let {
+                state.recommendations.take(it.coerceAtLeast(1))
+            } ?: state.recommendations
+            ShelfItems.Recommendations(limited)
+        }
 
         ShelfSource.AllBooks -> books(items)
 
