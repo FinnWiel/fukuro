@@ -169,6 +169,30 @@ fun AppNav(
     // added from the status chip on Home or from Settings
     val showChrome = route != "player" && route != "login" && !route.startsWith("book/")
 
+    fun bookId(item: MediaItem?): String? = item?.mediaId
+        ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
+        ?.removePrefix(PlayerService.BOOK_PREFIX)
+        ?.substringBefore('#')
+
+    var playingBookId by androidx.compose.runtime.remember(controller) {
+        mutableStateOf(bookId(controller?.currentMediaItem))
+    }
+    androidx.compose.runtime.DisposableEffect(controller) {
+        val activeController = controller
+        if (activeController == null) {
+            onDispose { }
+        } else {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    playingBookId = bookId(mediaItem)
+                }
+            }
+            activeController.addListener(listener)
+            playingBookId = bookId(activeController.currentMediaItem)
+            onDispose { activeController.removeListener(listener) }
+        }
+    }
+
     fun playBook(itemId: String, startAtSec: Double? = null) {
         val c = controller ?: return
         // A chapter tap supplies an explicit start. Ordinary launches keep using the
@@ -181,6 +205,7 @@ fun AppNav(
         )
         c.prepare()
         c.play()
+        playingBookId = itemId
         // listening to it again means it belongs back on the Continue shelf
         vm.unhideFromContinue(itemId)
         // already on the book page — it switches to playing mode by itself
@@ -220,7 +245,6 @@ fun AppNav(
     }
     // screens shift their bottom spacing depending on whether the mini player is up
     var miniPlayerVisible by androidx.compose.runtime.remember { mutableStateOf(false) }
-    androidx.activity.compose.BackHandler(enabled = sheetItem != null) { sheetItem = null }
 
     // Overlay layout: content fills the screen and scrolls BEHIND the translucent chrome,
     // Spotify-style. Screens add their own bottom spacing to clear the bars.
@@ -250,7 +274,13 @@ fun AppNav(
                 }
                 composable("series/{id}") { entry ->
                     val id = entry.arguments?.getString("id") ?: return@composable
-                    SeriesGridScreen(vm, id, onOpenBook = { b -> sheetItem = b }, onBack = { nav.popBackStack() })
+                    SeriesScreen(
+                        vm,
+                        id,
+                        playingBookId = playingBookId,
+                        onOpenBook = { b -> sheetItem = b },
+                        onBack = { nav.popBackStack() },
+                    )
                 }
                 composable("author/{name}") { entry ->
                     val name = entry.arguments?.getString("name") ?: return@composable
@@ -379,6 +409,13 @@ fun AppNav(
                     nav.navigate("author/${android.net.Uri.encode(name)}")
                 },
             )
+        }
+
+        // Compose gives the most recently composed enabled BackHandler priority.
+        // Keeping this after NavHost makes the first system Back dismiss the full
+        // player into the mini player without popping the series underneath it.
+        androidx.activity.compose.BackHandler(enabled = sheetItem != null) {
+            sheetItem = null
         }
     }
 }

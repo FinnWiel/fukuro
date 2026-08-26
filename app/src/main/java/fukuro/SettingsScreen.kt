@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,10 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -274,15 +273,24 @@ fun SettingsScreen(
         )
     }
 
+    if (showPicker) {
+        AccentPickerDialog(
+            initial = accentColorOf(accent),
+            onDismiss = { showPicker = false },
+            onPick = { hex -> scope.launch { vm.store.setAccent(hex) }; showPicker = false }
+        )
+    }
+
     Scaffold(topBar = {
         // no back arrow: Settings is a bottom-nav tab, not a pushed screen
         TopAppBar(title = { Text("Settings") })
     }) { pad ->
-        Column(
-            Modifier.fillMaxSize().padding(pad).padding(16.dp)
-                .verticalScroll(rememberScrollState())
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(pad),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 140.dp),
         ) {
-
+            item(key = "appearance") {
+                Column {
             Text("Appearance", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -352,7 +360,11 @@ fun SettingsScreen(
                     )
                 }
             }
+                }
+            }
 
+            item(key = "shelves") {
+                Column {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
@@ -400,7 +412,11 @@ fun SettingsScreen(
                     }
                 }
             }
+                }
+            }
 
+            item(key = "player") {
+                Column {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
@@ -480,7 +496,11 @@ fun SettingsScreen(
                     )
                 }
             }
+                }
+            }
 
+            item(key = "local-library") {
+                Column {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
@@ -512,7 +532,11 @@ fun SettingsScreen(
                     }
                 }
             }
+                }
+            }
 
+            item(key = "server") {
+                Column {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
@@ -534,7 +558,11 @@ fun SettingsScreen(
                 OutlinedButton(onClick = { scope.launch { vm.store.setApiKey(apiKeyText.trim()) } }) { Text("Save key") }
                 Button(onClick = onOpenUpload) { Text("Upload a book") }
             }
+                }
+            }
 
+            item(key = "account-and-updates") {
+                Column {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
@@ -555,14 +583,6 @@ fun SettingsScreen(
             Text("${username ?: "?"} @ ${server ?: "?"}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = { vm.logout(); onLoggedOut() }) { Text("Log out") }
-
-            if (showPicker) {
-                AccentPickerDialog(
-                    initial = accentColorOf(accent),
-                    onDismiss = { showPicker = false },
-                    onPick = { hex -> scope.launch { vm.store.setAccent(hex) }; showPicker = false }
-                )
-            }
 
             Spacer(Modifier.height(24.dp))
             Text(
@@ -592,7 +612,8 @@ fun SettingsScreen(
                     OutlinedButton(onClick = { crashFile.delete(); crashText = null }) { Text("Clear") }
                 }
             }
-            Spacer(Modifier.height(140.dp)) // clear the floating chrome
+                }
+            }
         }
     }
 }
