@@ -38,6 +38,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Development builds update the long-lived Fukuro Test install, never the
+            // published nl.codefin.fukuro app.
+            applicationIdSuffix = ".glassdev"
+            versionNameSuffix = "-series-test"
+            resValue("string", "app_name", "Fukuro Test")
+        }
         release {
             isMinifyEnabled = false
         }

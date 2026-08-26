@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "fukuro")
@@ -78,6 +79,8 @@ class Store(private val context: Context) {
         val LAST_ITEM = stringPreferencesKey("last_item") // what the system offers to resume
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
         val CUSTOM_SHELF = stringPreferencesKey("custom_shelf") // json ordered mixed entries
+        val LISTENING_DAYS = stringPreferencesKey("listening_days") // json {yyyy-MM-dd: seconds}
+        val LISTENING_SESSIONS = stringPreferencesKey("listening_sessions") // most recent local sessions
     }
 
     val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
@@ -174,6 +177,66 @@ class Store(private val context: Context) {
 
     suspend fun setCustomShelf(entries: List<CustomShelfEntry>) = context.dataStore.edit {
         it[K.CUSTOM_SHELF] = Json.encodeToString(entries.distinctBy { entry -> "${entry.type}:${entry.id}" })
+    }
+
+    val listeningDaysFlow: Flow<Map<String, Double>> = context.dataStore.data.map { prefs ->
+        prefs[K.LISTENING_DAYS]?.let {
+            runCatching { Json.decodeFromString<Map<String, Double>>(it) }.getOrDefault(emptyMap())
+        } ?: emptyMap()
+    }
+
+    val listeningSessionsFlow: Flow<List<LocalListeningSession>> = context.dataStore.data.map { prefs ->
+        prefs[K.LISTENING_SESSIONS]?.let {
+            runCatching { Json.decodeFromString<List<LocalListeningSession>>(it) }.getOrDefault(emptyList())
+        } ?: emptyList()
+    }
+
+    /** Adds real elapsed playback time to a day and to one resumable local session. */
+    suspend fun recordListening(
+        sessionId: String,
+        itemId: String,
+        title: String,
+        author: String,
+        startedAt: Long,
+        seconds: Double,
+    ) {
+        if (seconds <= 0.0) return
+        val now = System.currentTimeMillis()
+        val day = java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.systemDefault())
+            .toLocalDate().toString()
+        context.dataStore.edit { prefs ->
+            val days = prefs[K.LISTENING_DAYS]?.let {
+                runCatching { Json.decodeFromString<Map<String, Double>>(it) }.getOrDefault(emptyMap())
+            }.orEmpty().toMutableMap()
+            days[day] = (days[day] ?: 0.0) + seconds
+            prefs[K.LISTENING_DAYS] = Json.encodeToString(days)
+
+            val sessions = prefs[K.LISTENING_SESSIONS]?.let {
+                runCatching { Json.decodeFromString<List<LocalListeningSession>>(it) }.getOrDefault(emptyList())
+            }.orEmpty().toMutableList()
+            val index = sessions.indexOfFirst { it.id == sessionId }
+            val old = sessions.getOrNull(index)
+            val updated = LocalListeningSession(
+                id = sessionId, itemId = itemId, title = title, author = author,
+                startedAt = startedAt, updatedAt = now,
+                timeListening = (old?.timeListening ?: 0.0) + seconds,
+            )
+            if (index >= 0) sessions[index] = updated else sessions.add(0, updated)
+            prefs[K.LISTENING_SESSIONS] = Json.encodeToString(
+                sessions.sortedByDescending { it.updatedAt }.take(200)
+            )
+        }
+    }
+
+    fun recordListeningBlocking(
+        sessionId: String,
+        itemId: String,
+        title: String,
+        author: String,
+        startedAt: Long,
+        seconds: Double,
+    ) = runBlocking {
+        recordListening(sessionId, itemId, title, author, startedAt, seconds)
     }
 
     suspend fun toggleFavorite(itemId: String) {

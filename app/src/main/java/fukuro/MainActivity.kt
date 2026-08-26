@@ -38,9 +38,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.LibraryBooks
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -163,6 +165,7 @@ fun AppNav(
     val tabs = listOf(
         Tab("home", "Home", Icons.Rounded.Home, Icons.Outlined.Home),
         Tab("library", "Library", Icons.Rounded.LibraryBooks, Icons.Outlined.LibraryBooks),
+        Tab("stats", "Stats", Icons.Rounded.BarChart, Icons.Outlined.BarChart),
         Tab("settings", "Settings", Icons.Rounded.Settings, Icons.Outlined.Settings),
     )
     // the app always opens straight into the library; the server is optional and is
@@ -247,6 +250,9 @@ fun AppNav(
                         onOpenBook = { id -> sheetItem = id },
                         miniPlayerVisible = miniPlayerVisible
                     )
+                }
+                composable("stats") {
+                    StatsScreen(vm, onOpenBook = { id -> sheetItem = id })
                 }
                 composable("series/{id}") { entry ->
                     val id = entry.arguments?.getString("id") ?: return@composable

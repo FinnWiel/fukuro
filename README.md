@@ -17,6 +17,10 @@ A personal Android client for [Audiobookshelf](https://www.audiobookshelf.org/),
 - **Customizable home screen** — toggle & reorder: Continue Listening, Favorites, Downloaded, Series, Authors, All Books
 - **Theming** — light / dark / system, eight accent colors (default: Fukuro orange) or Material You
 - **Server connection indicator** — green/red dot in the top bar
+- **Listening statistics** — period summaries and charts, listening habits, completed-book
+  highlights, five meaningful recent sessions, and a shareable year-in-review card
+- **Local listening history** — Fukuro records elapsed playback time on-device and combines it
+  with Audiobookshelf history, including offline and on-device books
 
 ## Project layout
 
@@ -40,6 +44,7 @@ app/src/main/
     ShelfViewModel.kt     UI state
     Screens.kt            login, home, library, series, author, book
     PlayerScreen.kt       full player
+    StatsScreen.kt        listening charts, habits, recent sessions, year in review
     SettingsScreen.kt     settings
     UploadScreen.kt       upload a book
     Theme.kt              color schemes / dark mode
@@ -57,6 +62,9 @@ gradle assembleDebug
 APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Prebuilt APKs are attached to each
 [release](../../releases) — download one on the phone and open it to install.
 
+Debug builds use the `nl.codefin.fukuro.glassdev` application ID and the name **Fukuro Test**,
+so they update the test installation without replacing the published app.
+
 ## First run
 
 1. Open the app and enter your Audiobookshelf server URL (e.g. `http://192.168.x.x:13378`).
@@ -66,6 +74,6 @@ APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Prebuilt APKs are atta
 
 ## Notes
 
-- Debug-signed: fine for personal sideloading; new builds install over old ones and keep your data.
+- Debug-signed: fine for personal sideloading; new builds update **Fukuro Test** and keep its data.
 - Android Auto with sideloaded apps: in the Android Auto app, enable *Developer settings → Unknown sources*.
 - Favorites are stored on the device (Audiobookshelf has no favorites concept), so they don't appear in the web UI.

@@ -89,6 +89,7 @@ data class Metadata(
     val narratorName: String? = null,
     val description: String? = null,
     val publishedYear: String? = null,
+    val genres: List<String> = emptyList(),
 )
 
 @Serializable
@@ -131,3 +132,58 @@ data class LocalProgress(
 
 @Serializable
 data class MeResponse(val id: String = "", val username: String = "", val mediaProgress: List<MediaProgress> = emptyList())
+
+/** Aggregate returned by Audiobookshelf's /api/me/listening-stats endpoint. Times are seconds. */
+@Serializable
+data class ListeningStats(
+    val totalTime: Double = 0.0,
+    val items: Map<String, ListeningItemStat> = emptyMap(),
+    val days: Map<String, Double> = emptyMap(),
+    val dayOfWeek: Map<String, Double> = emptyMap(),
+    val today: Double = 0.0,
+    val recentSessions: List<ListeningSession> = emptyList(),
+)
+
+@Serializable
+data class ListeningItemStat(
+    val id: String = "",
+    val timeListening: Double = 0.0,
+    val mediaMetadata: ListeningMetadata = ListeningMetadata(),
+)
+
+@Serializable
+data class ListeningMetadata(
+    val title: String? = null,
+    val author: String? = null,
+    val authorName: String? = null,
+)
+
+@Serializable
+data class ListeningSession(
+    val id: String = "",
+    val libraryItemId: String = "",
+    val displayTitle: String = "",
+    val displayAuthor: String = "",
+    val timeListening: Double = 0.0,
+    val date: String = "",
+    val startedAt: Long = 0L,
+    val updatedAt: Long = 0L,
+)
+
+@Serializable
+data class ListeningSessionsResponse(
+    val total: Int = 0,
+    val sessions: List<ListeningSession> = emptyList(),
+)
+
+/** A session measured by Fukuro itself; needed because raw-file playback does not create an ABS session. */
+@Serializable
+data class LocalListeningSession(
+    val id: String,
+    val itemId: String,
+    val title: String,
+    val author: String = "",
+    val startedAt: Long,
+    val updatedAt: Long,
+    val timeListening: Double,
+)

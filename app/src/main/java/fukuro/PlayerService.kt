@@ -74,6 +74,15 @@ class PlayerService : MediaLibraryService() {
     private var widgetCoverId: String? = null // which book's cover the widgets are holding
     private var finishedItemId: String? = null // last book we already marked finished
 
+    // Fukuro streams raw audio files, so ABS does not create a playback-session record for
+    // it. Measure real elapsed play time locally (speed-independent) for the Stats tab.
+    private var listenSessionId: String? = null
+    private var listenItemId: String? = null
+    private var listenTitle: String = ""
+    private var listenAuthor: String = ""
+    private var listenStartedAt: Long = 0L
+    private var lastListenTick: Long = 0L
+
     private suspend fun fetchItem(itemId: String): LibraryItem {
         // books from the on-device folder never touch the network
         if (LocalLibrary.isLocal(itemId)) {
@@ -145,6 +154,7 @@ class PlayerService : MediaLibraryService() {
             while (isActive) {
                 delay(15_000)
                 if (player.isPlaying) {
+                    flushListening()
                     syncProgress()
                     publishNowPlaying() // moves the widget progress bar along
                 }
@@ -176,7 +186,8 @@ class PlayerService : MediaLibraryService() {
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) scope.launch { syncProgress() }
+                if (isPlaying) startListeningSession()
+                else scope.launch { flushListening(); syncProgress() }
                 publishNowPlaying()
             }
 
@@ -413,6 +424,48 @@ class PlayerService : MediaLibraryService() {
         } catch (_: Exception) { /* offline: ignore, the app pushes it on reconnect */ }
     }
 
+    private fun startListeningSession() {
+        val id = currentItemId ?: return
+        val now = System.currentTimeMillis()
+        if (listenSessionId == null || listenItemId != id) {
+            listenSessionId = "local_${now}_$id"
+            listenItemId = id
+            listenStartedAt = now
+            val meta = player.currentMediaItem?.mediaMetadata
+            listenTitle = meta?.title?.toString().orEmpty()
+            listenAuthor = meta?.artist?.toString().orEmpty()
+        }
+        lastListenTick = now
+    }
+
+    /** Persist the time since the previous tick, ignoring long gaps caused by a suspended process. */
+    private suspend fun flushListening() {
+        val sessionId = listenSessionId ?: return
+        val itemId = listenItemId ?: return
+        val now = System.currentTimeMillis()
+        val elapsed = ((now - lastListenTick).coerceAtLeast(0L) / 1000.0).coerceAtMost(30.0)
+        lastListenTick = now
+        if (elapsed > 0.0) store.recordListening(
+            sessionId, itemId, listenTitle, listenAuthor, listenStartedAt, elapsed
+        )
+        if (!player.isPlaying) {
+            listenSessionId = null
+            listenItemId = null
+        }
+    }
+
+    private fun flushListeningOnTeardown() {
+        val sessionId = listenSessionId ?: return
+        val itemId = listenItemId ?: return
+        val now = System.currentTimeMillis()
+        val elapsed = ((now - lastListenTick).coerceAtLeast(0L) / 1000.0).coerceAtMost(30.0)
+        if (elapsed > 0.0) store.recordListeningBlocking(
+            sessionId, itemId, listenTitle, listenAuthor, listenStartedAt, elapsed
+        )
+        listenSessionId = null
+        listenItemId = null
+    }
+
     /**
      * Save the position for teardown — app swiped away, service destroyed.
      *
@@ -440,6 +493,7 @@ class PlayerService : MediaLibraryService() {
         val item = try { fetchItem(itemId) } catch (e: Exception) {
             downloads.localItem(itemId) ?: throw e
         }
+        if (listenItemId != null && listenItemId != itemId) flushListening()
         currentItemId = itemId
         if (finishedItemId != itemId) finishedItemId = null // a fresh load can finish again
         scope.launch { store.setLastItem(itemId) } // what onPlaybackResumption answers with
@@ -728,6 +782,7 @@ class PlayerService : MediaLibraryService() {
      * Backgrounding (home button / screen off) never triggers this, so playback continues there.
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
+        flushListeningOnTeardown()
         saveProgressOnTeardown() // before the player is stopped and cleared out from under it
         player.pause()
         player.stop()
@@ -740,6 +795,7 @@ class PlayerService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        flushListeningOnTeardown()
         saveProgressOnTeardown() // the player is about to be released; read it while it lives
         session?.release()
         player.release()
