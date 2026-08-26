@@ -204,7 +204,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                         serverOnline = ok, serverChecked = true, serverProgress = progress
                     )
                     // the connection just came back: hand over anything listened to without it
-                    if (ok && wasOffline) pushLocalProgress(progress)
+                    if (ok && wasOffline) {
+                        pushLocalProgress(progress)
+                        runCatching { api.syncListeningSessions() }
+                    }
                 }
             }
         }
@@ -281,6 +284,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 prefetchContinue()
                 pushLocalProgress(progress)
+                runCatching { api.syncListeningSessions() }
             } catch (e: Exception) {
                 // keep whatever is already on screen (cache + local + downloads)
                 _state.value = _state.value.copy(

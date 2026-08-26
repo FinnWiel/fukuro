@@ -57,6 +57,7 @@ data class ItemsResponse(val results: List<LibraryItem>, val total: Int = 0)
 @Serializable
 data class LibraryItem(
     val id: String,
+    val libraryId: String = "",
     val relPath: String = "",
     val addedAt: Long = 0,
     val media: Media = Media(),
@@ -186,4 +187,19 @@ data class LocalListeningSession(
     val startedAt: Long,
     val updatedAt: Long,
     val timeListening: Double,
+    val syncedTimeListening: Double = 0.0,
+    val libraryId: String = "",
+    val duration: Double = 0.0,
+    val startTime: Double = 0.0,
+    val currentTime: Double = 0.0,
 )
+
+@Serializable
+data class SyncLocalSessionResult(
+    val id: String = "",
+    val success: Boolean = false,
+    val error: String? = null,
+)
+
+@Serializable
+data class SyncLocalSessionsResponse(val results: List<SyncLocalSessionResult> = emptyList())

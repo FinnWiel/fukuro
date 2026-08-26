@@ -73,6 +73,7 @@ private enum class StatsPeriod(val label: String) {
 }
 
 private data class DisplaySession(
+    val id: String,
     val itemId: String,
     val title: String,
     val author: String,
@@ -117,6 +118,7 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
     val sessions = remember(serverSessions, localSessions, state.allItems) {
         val remote = serverSessions.map {
             DisplaySession(
+                id = it.id,
                 itemId = it.libraryItemId,
                 title = it.displayTitle.ifBlank {
                     state.allItems.firstOrNull { item -> item.id == it.libraryItemId }
@@ -129,9 +131,9 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
             )
         }
         val local = localSessions.map {
-            DisplaySession(it.itemId, it.title, it.author, it.timeListening, it.startedAt, it.updatedAt)
+            DisplaySession(it.id, it.itemId, it.title, it.author, it.timeListening, it.startedAt, it.updatedAt)
         }
-        (remote + local).sortedByDescending { it.updatedAt }
+        (remote + local).distinctBy { it.id }.sortedByDescending { it.updatedAt }
     }
 
     var period by remember { mutableStateOf(StatsPeriod.WEEK) }

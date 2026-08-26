@@ -16,6 +16,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import java.time.Instant
+import java.time.ZoneId
+import java.util.UUID
 
 private val Context.dataStore by preferencesDataStore(name = "fukuro")
 
@@ -200,6 +203,10 @@ class Store(private val context: Context) {
         author: String,
         startedAt: Long,
         seconds: Double,
+        libraryId: String,
+        duration: Double,
+        startTime: Double,
+        currentTime: Double,
     ) {
         if (seconds <= 0.0) return
         val now = System.currentTimeMillis()
@@ -221,6 +228,11 @@ class Store(private val context: Context) {
                 id = sessionId, itemId = itemId, title = title, author = author,
                 startedAt = startedAt, updatedAt = now,
                 timeListening = (old?.timeListening ?: 0.0) + seconds,
+                syncedTimeListening = old?.syncedTimeListening ?: 0.0,
+                libraryId = libraryId.ifBlank { old?.libraryId.orEmpty() },
+                duration = duration.takeIf { it > 0.0 } ?: old?.duration ?: 0.0,
+                startTime = old?.startTime ?: startTime,
+                currentTime = currentTime,
             )
             if (index >= 0) sessions[index] = updated else sessions.add(0, updated)
             prefs[K.LISTENING_SESSIONS] = Json.encodeToString(
@@ -236,8 +248,62 @@ class Store(private val context: Context) {
         author: String,
         startedAt: Long,
         seconds: Double,
+        libraryId: String,
+        duration: Double,
+        startTime: Double,
+        currentTime: Double,
     ) = runBlocking {
-        recordListening(sessionId, itemId, title, author, startedAt, seconds)
+        recordListening(
+            sessionId, itemId, title, author, startedAt, seconds,
+            libraryId, duration, startTime, currentTime,
+        )
+    }
+
+    /**
+     * Gives old pre-sync sessions UUIDs once, then returns the persistent queue. Stable IDs
+     * make Audiobookshelf's local-session upsert safe to retry after a lost response.
+     */
+    suspend fun listeningSessionsForSync(): List<LocalListeningSession> {
+        var result = emptyList<LocalListeningSession>()
+        context.dataStore.edit { prefs ->
+            val sessions = prefs[K.LISTENING_SESSIONS]?.let {
+                runCatching { Json.decodeFromString<List<LocalListeningSession>>(it) }.getOrDefault(emptyList())
+            }.orEmpty().map { session ->
+                val validUuid = runCatching { UUID.fromString(session.id) }.isSuccess
+                if (validUuid) session else session.copy(id = UUID.randomUUID().toString())
+            }
+            prefs[K.LISTENING_SESSIONS] = Json.encodeToString(sessions)
+            result = sessions
+        }
+        return result
+    }
+
+    /** Marks exactly the amount acknowledged by ABS and removes it from the local-only totals. */
+    suspend fun markListeningSessionsSynced(acknowledged: Map<String, Double>) {
+        if (acknowledged.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            val sessions = prefs[K.LISTENING_SESSIONS]?.let {
+                runCatching { Json.decodeFromString<List<LocalListeningSession>>(it) }.getOrDefault(emptyList())
+            }.orEmpty()
+            val days = prefs[K.LISTENING_DAYS]?.let {
+                runCatching { Json.decodeFromString<Map<String, Double>>(it) }.getOrDefault(emptyMap())
+            }.orEmpty().toMutableMap()
+            val updated = sessions.map { session ->
+                val acknowledgedTime = acknowledged[session.id] ?: return@map session
+                val newSynced = maxOf(session.syncedTimeListening, acknowledgedTime)
+                    .coerceAtMost(session.timeListening)
+                val delta = (newSynced - session.syncedTimeListening).coerceAtLeast(0.0)
+                if (delta > 0.0) {
+                    val day = Instant.ofEpochMilli(session.startedAt).atZone(ZoneId.systemDefault())
+                        .toLocalDate().toString()
+                    days[day] = ((days[day] ?: 0.0) - delta).coerceAtLeast(0.0)
+                    if (days[day] == 0.0) days.remove(day)
+                }
+                session.copy(syncedTimeListening = newSynced)
+            }
+            prefs[K.LISTENING_SESSIONS] = Json.encodeToString(updated)
+            prefs[K.LISTENING_DAYS] = Json.encodeToString(days)
+        }
     }
 
     suspend fun toggleFavorite(itemId: String) {

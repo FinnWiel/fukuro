@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
@@ -15,6 +17,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Minimal Audiobookshelf REST client.
@@ -137,6 +141,89 @@ class AbsApi(private val store: Store) {
         json.decodeFromString<ListeningSessionsResponse>(
             raw("GET", "/api/me/listening-sessions?itemsPerPage=$limit&page=0")
         ).sessions
+
+    /**
+     * Pushes Fukuro's durable local-session queue into ABS. The endpoint upserts by UUID,
+     * so sending the full cumulative session is retry-safe and historical sessions only
+     * contribute the difference once.
+     */
+    suspend fun syncListeningSessions() {
+        val pending = store.listeningSessionsForSync().filter {
+            !LocalLibrary.isLocal(it.itemId) && it.timeListening > it.syncedTimeListening + 0.01
+        }
+        if (pending.isEmpty()) return
+
+        val userId = me().id
+        val needsLookup = pending.any { it.libraryId.isBlank() || it.duration <= 0.0 }
+        val itemLookup: Map<String, Pair<String, LibraryItem>> = if (needsLookup) {
+            libraries().flatMap { library ->
+                libraryItems(library.id).map { item -> item.id to (library.id to item) }
+            }.toMap()
+        } else emptyMap()
+
+        val localProgress = store.localProgress()
+        // Keep each request comfortably below ABS/Express's JSON body limit. Historical
+        // queues can contain 200 sessions, while the official clients also batch them.
+        pending.chunked(25).forEach { batch ->
+            val sent = mutableMapOf<String, Double>()
+            val sessions = buildJsonArray {
+              batch.forEach sessionLoop@ { session ->
+                val found = itemLookup[session.itemId]
+                val libraryId = session.libraryId.ifBlank { found?.first.orEmpty() }
+                if (libraryId.isBlank()) return@sessionLoop
+                val item = found?.second
+                val duration = session.duration.takeIf { it > 0.0 } ?: item?.media?.duration ?: 0.0
+                val title = session.title.ifBlank { item?.media?.metadata?.title.orEmpty() }
+                val author = session.author.ifBlank { item?.media?.metadata?.authorName.orEmpty() }
+                val currentTime = session.currentTime.takeIf { it > 0.0 }
+                    ?: localProgress[session.itemId]?.pos ?: 0.0
+                val startTime = session.startTime.takeIf { it > 0.0 }
+                    ?: (currentTime - session.timeListening).coerceAtLeast(0.0)
+                val started = Instant.ofEpochMilli(session.startedAt).atZone(ZoneId.systemDefault())
+                add(buildJsonObject {
+                    put("id", session.id)
+                    put("userId", userId)
+                    put("libraryId", libraryId)
+                    put("libraryItemId", session.itemId)
+                    put("mediaType", "book")
+                    putJsonObject("mediaMetadata") {
+                        put("title", title)
+                        put("author", author)
+                    }
+                    putJsonArray("chapters") {}
+                    put("displayTitle", title)
+                    put("displayAuthor", author)
+                    put("coverPath", "")
+                    put("duration", duration)
+                    put("playMethod", 3)
+                    put("mediaPlayer", "Fukuro")
+                    putJsonObject("deviceInfo") {
+                        put("deviceId", "fukuro-android")
+                        put("clientName", "Fukuro")
+                        put("clientVersion", BuildConfig.VERSION_NAME)
+                    }
+                    put("date", started.toLocalDate().toString())
+                    put("dayOfWeek", started.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() })
+                    put("timeListening", session.timeListening)
+                    put("startTime", startTime)
+                    put("currentTime", currentTime)
+                    put("startedAt", session.startedAt)
+                    put("updatedAt", session.updatedAt)
+                })
+                sent[session.id] = session.timeListening
+              }
+            }
+            if (sent.isEmpty()) return@forEach
+            val body = buildJsonObject { put("sessions", sessions) }.toString()
+            val response = json.decodeFromString<SyncLocalSessionsResponse>(
+                raw("POST", "/api/session/local-all", body)
+            )
+            val acknowledged = response.results.filter { it.success }.mapNotNull { result ->
+                sent[result.id]?.let { result.id to it }
+            }.toMap()
+            store.markListeningSessionsSynced(acknowledged)
+        }
+    }
 
     suspend fun updateProgress(itemId: String, currentTime: Double, duration: Double) {
         val progress = if (duration > 0) currentTime / duration else 0.0

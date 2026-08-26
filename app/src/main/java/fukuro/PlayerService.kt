@@ -30,6 +30,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.util.UUID
 
 @UnstableApi
 class PlayerService : MediaLibraryService() {
@@ -82,6 +83,9 @@ class PlayerService : MediaLibraryService() {
     private var listenAuthor: String = ""
     private var listenStartedAt: Long = 0L
     private var lastListenTick: Long = 0L
+    private var listenLibraryId: String = ""
+    private var listenDuration: Double = 0.0
+    private var listenStartTime: Double = 0.0
 
     private suspend fun fetchItem(itemId: String): LibraryItem {
         // books from the on-device folder never touch the network
@@ -430,9 +434,11 @@ class PlayerService : MediaLibraryService() {
         val id = currentItemId ?: return
         val now = System.currentTimeMillis()
         if (listenSessionId == null || listenItemId != id) {
-            listenSessionId = "local_${now}_$id"
+            listenSessionId = UUID.randomUUID().toString()
             listenItemId = id
             listenStartedAt = now
+            listenDuration = currentItemDuration
+            listenStartTime = bookPositionSec()
             val meta = player.currentMediaItem?.mediaMetadata
             listenTitle = meta?.title?.toString().orEmpty()
             listenAuthor = meta?.artist?.toString().orEmpty()
@@ -447,9 +453,13 @@ class PlayerService : MediaLibraryService() {
         val now = System.currentTimeMillis()
         val elapsed = ((now - lastListenTick).coerceAtLeast(0L) / 1000.0).coerceAtMost(30.0)
         lastListenTick = now
-        if (elapsed > 0.0) store.recordListening(
-            sessionId, itemId, listenTitle, listenAuthor, listenStartedAt, elapsed
-        )
+        if (elapsed > 0.0) {
+            store.recordListening(
+                sessionId, itemId, listenTitle, listenAuthor, listenStartedAt, elapsed,
+                listenLibraryId, listenDuration, listenStartTime, bookPositionSec(),
+            )
+            if (!LocalLibrary.isLocal(itemId)) runCatching { api.syncListeningSessions() }
+        }
         if (!player.isPlaying) {
             listenSessionId = null
             listenItemId = null
@@ -462,7 +472,8 @@ class PlayerService : MediaLibraryService() {
         val now = System.currentTimeMillis()
         val elapsed = ((now - lastListenTick).coerceAtLeast(0L) / 1000.0).coerceAtMost(30.0)
         if (elapsed > 0.0) store.recordListeningBlocking(
-            sessionId, itemId, listenTitle, listenAuthor, listenStartedAt, elapsed
+            sessionId, itemId, listenTitle, listenAuthor, listenStartedAt, elapsed,
+            listenLibraryId, listenDuration, listenStartTime, bookPositionSec(),
         )
         listenSessionId = null
         listenItemId = null
@@ -500,6 +511,7 @@ class PlayerService : MediaLibraryService() {
         if (finishedItemId != itemId) finishedItemId = null // a fresh load can finish again
         scope.launch { store.setLastItem(itemId) } // what onPlaybackResumption answers with
         currentItemDuration = item.media.duration
+        listenLibraryId = item.libraryId
         currentChapters = item.media.chapters.filter { it.end > it.start }
         val files = item.media.audioFiles.sortedBy { it.index }
         // nothing to play: fail out loud instead of starting a player with no tracks
