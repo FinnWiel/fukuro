@@ -427,7 +427,8 @@ fun SettingsScreen(
                 }
             }
             Text(
-                "Both modes use the chapter as the main seek bar and add total-book progress.",
+                "Both modes use the chapter as the main seek bar and add total-book progress. " +
+                    "On the cover it takes the shape set under \"How progress shows on covers\".",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

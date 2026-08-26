@@ -1153,19 +1153,32 @@ private fun CoverProgressOverlay(
     }
 }
 
-/** Small circular progress ring overlaid on a cover's bottom-right corner. */
+/**
+ * Small circular progress ring overlaid on a cover's bottom-right corner.
+ *
+ * The player's cover uses it too, at a size that suits artwork filling most of the
+ * screen — hence the parameters. The defaults are the grid's own proportions, so a
+ * plain call still draws exactly what the shelves have always drawn.
+ */
 @Composable
-private fun CoverProgressRing(progress: Float, boxScope: androidx.compose.foundation.layout.BoxScope) {
+fun CoverProgressRing(
+    progress: Float,
+    boxScope: androidx.compose.foundation.layout.BoxScope,
+    size: androidx.compose.ui.unit.Dp = 26.dp,
+    padding: androidx.compose.ui.unit.Dp = 6.dp,
+) {
     with(boxScope) {
         Box(
-            Modifier.align(Alignment.BottomEnd).padding(6.dp).size(26.dp)
+            Modifier.align(Alignment.BottomEnd).padding(padding).size(size)
                 .clip(CircleShape).background(Color(0xB3000000)),
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator(
                 progress = { progress },
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 3.dp,
+                // 18dp inside 26dp, 3dp stroke: kept as ratios so a bigger ring stays
+                // the same drawing rather than a thin hoop
+                modifier = Modifier.size(size * (18f / 26f)),
+                strokeWidth = size * (3f / 26f),
                 trackColor = Color(0x8CFFFFFF),
                 gapSize = 0.dp
             )

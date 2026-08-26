@@ -372,13 +372,26 @@ fun PlayerScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                             if (showCoverBookProgress) {
-                                LinearProgressIndicator(
-                                    progress = { bookFraction },
-                                    modifier = Modifier.fillMaxWidth().height(5.dp)
-                                        .align(Alignment.BottomCenter),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = Color(0x66000000),
-                                )
+                                // book progress on the cover follows the same choice the
+                                // shelves do, so one setting governs every cover in the app
+                                if (state.progressStyle == "circle") {
+                                    CoverProgressRing(
+                                        progress = bookFraction,
+                                        boxScope = this,
+                                        // artwork here fills the screen, where the shelves'
+                                        // 26dp ring would read as a speck
+                                        size = 48.dp,
+                                        padding = 10.dp,
+                                    )
+                                } else {
+                                    LinearProgressIndicator(
+                                        progress = { bookFraction },
+                                        modifier = Modifier.fillMaxWidth().height(5.dp)
+                                            .align(Alignment.BottomCenter),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = Color(0x66000000),
+                                    )
+                                }
                             }
                         }
                         if (showCoverBookProgress) {
