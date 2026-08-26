@@ -72,12 +72,14 @@ class RecommendationService(
         val old = runCatching {
             json.decodeFromString<RecommendationCache>(cacheFile.readText())
         }.getOrNull()
+        val owned = OwnedIndex.from(library)
+        val oldBooks = old?.books.orEmpty().filterNot { owned.contains(it) }
         if (!force && old != null && System.currentTimeMillis() - old.fetchedAt < CACHE_MS) {
-            return@withContext old.books
+            return@withContext oldBooks
         }
 
         val profile = PreferenceProfile.build(library, favorites, progress)
-        if (profile.authors.isEmpty() && profile.topics.isEmpty()) return@withContext old?.books.orEmpty()
+        if (profile.authors.isEmpty() && profile.topics.isEmpty()) return@withContext oldBooks
 
         val candidates = mutableListOf<Candidate>()
         profile.authors.keys.take(2).forEach { candidates += openLibrary("author", it) }
@@ -89,10 +91,8 @@ class RecommendationService(
             profile.topics.keys.take(2).forEach { candidates += googleBooks("subject", it, googleKey) }
         }
 
-        val owned = library.map { bookKey(it.media.metadata.title.orEmpty(), authorsOf(it).firstOrNull()) }.toSet()
-        val ownedTitles = library.map { normalized(it.media.metadata.title.orEmpty()) }.filter(String::isNotEmpty).toSet()
         val ranked = candidates
-            .filter { normalized(it.title) !in ownedTitles && bookKey(it.title, it.authors.firstOrNull()) !in owned }
+            .filterNot { owned.contains(it) }
             .groupBy { bookKey(it.title, it.authors.firstOrNull()) }
             .mapNotNull { (_, sameBook) -> merge(sameBook, profile) }
             .sortedByDescending { it.score }
@@ -103,7 +103,7 @@ class RecommendationService(
                 cacheFile.writeText(json.encodeToString(RecommendationCache(System.currentTimeMillis(), ranked)))
             }
             ranked
-        } else old?.books.orEmpty()
+        } else oldBooks
     }
 
     /** Adds the longer synopsis and complete subject list when a recommendation is opened. */
@@ -311,6 +311,43 @@ class RecommendationService(
         val googleBooksId: String? = null,
     )
 
+    private data class OwnedBook(
+        val title: String,
+        val authors: Set<String>,
+        val isbn: String?,
+    )
+
+    private class OwnedIndex(private val books: List<OwnedBook>) {
+        fun contains(candidate: Candidate) = contains(candidate.title, candidate.authors, candidate.isbn)
+        fun contains(book: BookRecommendation) = contains(book.title, book.authors, book.isbn)
+
+        private fun contains(rawTitle: String, rawAuthors: List<String>, rawIsbn: String?): Boolean {
+            val title = comparableTitle(rawTitle)
+            val authors = rawAuthors.map(::normalized).filter(String::isNotEmpty).toSet()
+            val isbn = normalizedIsbn(rawIsbn)
+            return books.any { owned ->
+                if (isbn != null && owned.isbn != null && isbn == owned.isbn) return@any true
+                if (title.isEmpty() || owned.title.isEmpty()) return@any false
+                if (title == owned.title) return@any true
+
+                // Accommodate punctuation, articles and tiny edition-title differences,
+                // but only use fuzzy matching when at least one author also agrees.
+                val sameAuthor = authors.isNotEmpty() && owned.authors.any { it in authors }
+                sameAuthor && titleSimilarity(title, owned.title) >= 0.82
+            }
+        }
+
+        companion object {
+            fun from(library: List<LibraryItem>) = OwnedIndex(library.map { book ->
+                OwnedBook(
+                    title = comparableTitle(book.media.metadata.title.orEmpty()),
+                    authors = authorsOf(book).map(::normalized).filter(String::isNotEmpty).toSet(),
+                    isbn = normalizedIsbn(book.media.metadata.isbn),
+                )
+            })
+        }
+    }
+
     private data class PreferenceProfile(
         val authors: Map<String, Double>,
         val topics: Map<String, Double>,
@@ -394,6 +431,22 @@ class RecommendationService(
 
         private fun bookKey(title: String, author: String?) =
             normalized(title).replace(Regex("^(the|a|an) "), "") + "|" + normalized(author.orEmpty())
+
+        private fun comparableTitle(value: String): String = normalized(
+            value.substringBefore(':').substringBefore(" — ").substringBefore(" – ")
+        ).replace(Regex("^(the|a|an) "), "")
+
+        private fun normalizedIsbn(value: String?): String? = value
+            ?.filter(Char::isLetterOrDigit)
+            ?.uppercase(Locale.ROOT)
+            ?.takeIf { it.length in 10..13 }
+
+        private fun titleSimilarity(left: String, right: String): Double {
+            val a = left.split(' ').filter(String::isNotBlank).toSet()
+            val b = right.split(' ').filter(String::isNotBlank).toSet()
+            if (a.isEmpty() || b.isEmpty()) return 0.0
+            return a.intersect(b).size.toDouble() / a.union(b).size
+        }
 
         private fun topicMatches(left: String, right: String): Boolean {
             val a = normalized(left)
