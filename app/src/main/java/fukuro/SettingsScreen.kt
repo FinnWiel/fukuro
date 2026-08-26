@@ -407,10 +407,18 @@ fun SettingsScreen(
 
             Text("Player", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            Text("What the progress bar measures", style = MaterialTheme.typography.bodySmall)
+            Text("Player progress bars", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("book" to "Whole book", "chapter" to "Current chapter").forEach { (key, label) ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf(
+                    "book" to "Whole book",
+                    "chapter" to "Current chapter",
+                    "chapter_cover" to "Both · cover",
+                    "chapter_stacked" to "Both · stacked",
+                ).forEach { (key, label) ->
                     FilterChip(
                         selected = trackScope == key,
                         onClick = { scope.launch { vm.store.setTrackScope(key) } },
@@ -418,6 +426,11 @@ fun SettingsScreen(
                     )
                 }
             }
+            Text(
+                "Both modes use the chapter as the main seek bar and add total-book progress.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Spacer(Modifier.height(12.dp))
             Text("Swiping sideways on a player", style = MaterialTheme.typography.bodySmall)
