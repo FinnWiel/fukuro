@@ -130,6 +130,14 @@ class AbsApi(private val store: Store) {
 
     suspend fun me(): MeResponse = json.decodeFromString(raw("GET", "/api/me"))
 
+    suspend fun listeningStats(): ListeningStats =
+        json.decodeFromString(raw("GET", "/api/me/listening-stats"))
+
+    suspend fun listeningSessions(limit: Int = 100): List<ListeningSession> =
+        json.decodeFromString<ListeningSessionsResponse>(
+            raw("GET", "/api/me/listening-sessions?itemsPerPage=$limit&page=0")
+        ).sessions
+
     suspend fun updateProgress(itemId: String, currentTime: Double, duration: Double) {
         val progress = if (duration > 0) currentTime / duration else 0.0
         val body = buildJsonObject {

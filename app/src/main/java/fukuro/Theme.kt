@@ -6,6 +6,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 /**
  * Selectable accent colors. Key -> (name, color).
@@ -38,23 +39,26 @@ fun accentColorOf(pref: String): Color {
 /*
  * Every slot is derived from the accent so nothing falls back to Material's
  * baseline purple/blue: buttons, chips, checkboxes, switches and sliders all
- * take the accent, and anything sitting on top of it is white.
+ * take the accent, and foreground text is chosen for contrast with that accent.
  */
+
+/** Black or white, chosen from the actual colour rather than assuming every accent is dark. */
+private fun textOn(accent: Color): Color = if (accent.luminance() > 0.42f) Color.Black else Color.White
 
 private fun darkFor(accent: Color) = darkColorScheme(
     primary = accent,
-    onPrimary = Color.White,
+    onPrimary = textOn(accent),
     primaryContainer = accent,
-    onPrimaryContainer = Color.White,
+    onPrimaryContainer = textOn(accent),
     inversePrimary = accent,
     secondary = accent,
-    onSecondary = Color.White,
+    onSecondary = textOn(accent),
     secondaryContainer = accent,
-    onSecondaryContainer = Color.White,
+    onSecondaryContainer = textOn(accent),
     tertiary = accent,
-    onTertiary = Color.White,
+    onTertiary = textOn(accent),
     tertiaryContainer = accent,
-    onTertiaryContainer = Color.White,
+    onTertiaryContainer = textOn(accent),
     background = Color(0xFF101312),
     onBackground = Color(0xFFEDEDED),
     surface = Color(0xFF181C1A),
@@ -69,18 +73,18 @@ private fun darkFor(accent: Color) = darkColorScheme(
 /** True black for OLED screens: pixels are actually off, not dark grey. */
 private fun blackFor(accent: Color) = darkColorScheme(
     primary = accent,
-    onPrimary = Color.White,
+    onPrimary = textOn(accent),
     primaryContainer = accent,
-    onPrimaryContainer = Color.White,
+    onPrimaryContainer = textOn(accent),
     inversePrimary = accent,
     secondary = accent,
-    onSecondary = Color.White,
+    onSecondary = textOn(accent),
     secondaryContainer = accent,
-    onSecondaryContainer = Color.White,
+    onSecondaryContainer = textOn(accent),
     tertiary = accent,
-    onTertiary = Color.White,
+    onTertiary = textOn(accent),
     tertiaryContainer = accent,
-    onTertiaryContainer = Color.White,
+    onTertiaryContainer = textOn(accent),
     background = Color.Black,
     onBackground = Color(0xFFEDEDED),
     surface = Color.Black,
@@ -94,18 +98,18 @@ private fun blackFor(accent: Color) = darkColorScheme(
 
 private fun lightFor(accent: Color) = lightColorScheme(
     primary = accent,
-    onPrimary = Color.White,
+    onPrimary = textOn(accent),
     primaryContainer = accent,
-    onPrimaryContainer = Color.White,
+    onPrimaryContainer = textOn(accent),
     inversePrimary = accent,
     secondary = accent,
-    onSecondary = Color.White,
+    onSecondary = textOn(accent),
     secondaryContainer = accent,
-    onSecondaryContainer = Color.White,
+    onSecondaryContainer = textOn(accent),
     tertiary = accent,
-    onTertiary = Color.White,
+    onTertiary = textOn(accent),
     tertiaryContainer = accent,
-    onTertiaryContainer = Color.White,
+    onTertiaryContainer = textOn(accent),
     background = Color(0xFFF8FAF9),
     onBackground = Color(0xFF141816),
     surface = Color(0xFFFFFFFF),
