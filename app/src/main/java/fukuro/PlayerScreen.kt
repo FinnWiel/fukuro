@@ -12,7 +12,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
@@ -288,8 +289,8 @@ fun PlayerScreen(
     // corners round off as the sheet is pulled away from the top of the screen
     // Sideways swipe: chapter to chapter, or book to book inside a series when the
     // setting says so. A standalone book always falls back to chapters, since there is
-    // nothing to move between. The scrubber owns its own horizontal gestures, so it
-    // keeps working - children see pointer events first.
+    // nothing to move between. The detector is attached to the cover below: putting it
+    // on this full-page Box made it compete with both scrubbers and pull-to-dismiss.
     val swipePx = with(LocalDensity.current) { 64.dp.toPx() }
     val slide = rememberSwipeSlide(displayId to swipeAction)
     fun onSwipe(forward: Boolean) {
@@ -304,14 +305,6 @@ fun PlayerScreen(
     Box(
         Modifier.fillMaxSize()
             .nestedScroll(dismissConnection)
-            // the gesture covers the whole page; only the cover below actually travels
-            .swipeSlideInput(
-                state = slide,
-                key = displayId to swipeAction,
-                thresholdPx = swipePx,
-                travelPx = swipePx * 1.6f,
-                onCommit = { forward -> onSwipe(forward) }
-            )
             .offset { IntOffset(0, dragPx.roundToInt()) }
             .clip(
                 RoundedCornerShape(
@@ -361,9 +354,18 @@ fun PlayerScreen(
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Box(
                             modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(1f)
+                                // Chapter/book navigation belongs to the artwork only.
+                                // Keeping this before the visual transform also gives the
+                                // cover a stable hit area while it follows the finger.
+                                .swipeSlideInput(
+                                    state = slide,
+                                    key = displayId to swipeAction,
+                                    thresholdPx = swipePx,
+                                    travelPx = swipePx * 1.6f,
+                                    onCommit = { forward -> onSwipe(forward) }
+                                )
                                 .clip(RoundedCornerShape(14.dp))
                                 .align(Alignment.CenterHorizontally)
-                                // only the artwork moves with a swipe
                                 .swipeSlideVisual(slide)
                         ) {
                             CoverImage(
@@ -867,24 +869,30 @@ private fun Scrubber(
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .then(
                 if (!enabled) Modifier else Modifier.pointerInput(Unit) {
-                    detectTapGestures { pos -> onScrubEnd((pos.x / size.width).coerceIn(0f, 1f)) }
-                }
-            )
-            .then(
-                if (!enabled) Modifier else Modifier.pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { pos ->
-                            val f = (pos.x / size.width).coerceIn(0f, 1f)
-                            localFrac = f; onScrub(f)
-                        },
-                        onHorizontalDrag = { change, delta ->
+                    // Claim a touch as soon as it starts on the track. Waiting for the
+                    // horizontal touch slop let a slightly diagonal scrub become the
+                    // parent's downward dismiss gesture instead.
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+
+                        fun update(x: Float) {
+                            val f = (x / size.width).coerceIn(0f, 1f)
+                            localFrac = f
+                            onScrub(f)
+                        }
+
+                        update(down.position.x)
+                        var change = down
+                        while (change.pressed) {
+                            val event = awaitPointerEvent()
+                            change = event.changes.firstOrNull { it.id == down.id } ?: break
                             change.consume()
-                            val f = ((localFrac ?: fraction) + delta / size.width).coerceIn(0f, 1f)
-                            localFrac = f; onScrub(f)
-                        },
-                        onDragEnd = { localFrac?.let { onScrubEnd(it) }; localFrac = null },
-                        onDragCancel = { localFrac = null },
-                    )
+                            update(change.position.x)
+                        }
+                        localFrac?.let(onScrubEnd)
+                        localFrac = null
+                    }
                 }
             ),
         contentAlignment = Alignment.CenterStart // keeps the dot centred on the line
