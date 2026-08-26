@@ -57,6 +57,25 @@ gradle assembleDebug
 APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Prebuilt APKs are attached to each
 [release](../../releases) — download one on the phone and open it to install.
 
+## Publishing a release
+
+Pushing a version tag such as `v1.10.7` automatically builds a signed release APK, creates the
+matching GitHub Release, and attaches the APK and its SHA-256 checksum. Before tagging the first
+release, add these repository Actions secrets under **Settings → Secrets and variables → Actions**:
+
+- `ANDROID_KEYSTORE_BASE64` — the release keystore encoded as Base64
+- `ANDROID_KEYSTORE_PASSWORD` — the keystore password
+- `ANDROID_KEY_ALIAS` — the signing key alias
+- `ANDROID_KEY_PASSWORD` — the signing key password
+
+Keep the keystore and its passwords backed up. All future APKs must use the same signing key in
+order to install as updates. To encode a keystore in PowerShell, run:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("fukuro-release.jks")) |
+    Set-Clipboard
+```
+
 ## First run
 
 1. Open the app and enter your Audiobookshelf server URL (e.g. `http://192.168.x.x:13378`).

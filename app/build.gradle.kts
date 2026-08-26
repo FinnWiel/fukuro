@@ -37,9 +37,21 @@ android {
         buildConfigField("String", "UPDATE_REPO", "\"FinnWiel/fukuro\"")
     }
 
+    signingConfigs {
+        create("release") {
+            providers.environmentVariable("FUKURO_KEYSTORE_FILE").orNull?.let {
+                storeFile = file(it)
+            }
+            storePassword = providers.environmentVariable("FUKURO_KEYSTORE_PASSWORD").orNull
+            keyAlias = providers.environmentVariable("FUKURO_KEY_ALIAS").orNull
+            keyPassword = providers.environmentVariable("FUKURO_KEY_PASSWORD").orNull
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
