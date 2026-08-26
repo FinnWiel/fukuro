@@ -12,7 +12,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      FUKURO_KEYSTORE_FILE: ${{ runner.temp }}/fukuro-release.jks
+      FUKURO_KEYSTORE_FILE: /tmp/fukuro-release.jks
       FUKURO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       FUKURO_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       FUKURO_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
