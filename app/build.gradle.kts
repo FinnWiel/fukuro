@@ -66,7 +66,7 @@ android {
             // Development builds update the long-lived Fukuro Test install, never the
             // published nl.codefin.fukuro app.
             applicationIdSuffix = ".glassdev"
-            versionNameSuffix = "-series-test"
+            versionNameSuffix = "-recommendations-test"
             resValue("string", "app_name", "Fukuro Test")
         }
         release {
