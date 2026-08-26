@@ -350,7 +350,10 @@ class RecommendationService(
                 // Accommodate punctuation, articles and tiny edition-title differences,
                 // but only use fuzzy matching when at least one author also agrees.
                 val sameAuthor = authors.isNotEmpty() && owned.authors.any { it in authors }
-                sameAuthor && titleSimilarity(title, owned.title) >= 0.82
+                sameAuthor && (
+                    title.replace(" ", "") == owned.title.replace(" ", "") ||
+                        titleSimilarity(title, owned.title) >= 0.82
+                    )
             }
         }
 
