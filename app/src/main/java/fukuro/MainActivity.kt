@@ -222,7 +222,8 @@ fun AppNav(
     )
     // the app always opens straight into the library; the server is optional and is
     // added from the status chip on Home or from Settings
-    val showChrome = route != "player" && route != "login" && !route.startsWith("book/")
+    val showChrome = route != "player" && route != "login" && route != "recommendation" &&
+        !route.startsWith("book/")
 
     fun bookId(item: MediaItem?): String? = playingBookId(item)
 
@@ -254,6 +255,9 @@ fun AppNav(
 
     // book sheet: null = closed, SHEET_CURRENT = whatever is playing, else an item id
     var sheetItem by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+    var selectedRecommendation by androidx.compose.runtime.remember {
+        mutableStateOf<BookRecommendation?>(null)
+    }
 
     fun playBook(itemId: String, startAtSec: Double? = null) {
         val c = controller ?: return
@@ -336,7 +340,21 @@ fun AppNav(
                         },
                         playingBookId = playingBookId,
                         isPlaying = controllerIsPlaying,
-                        miniPlayerVisible = miniPlayerVisible)
+                        miniPlayerVisible = miniPlayerVisible,
+                        onOpenRecommendation = { book ->
+                            selectedRecommendation = book
+                            nav.navigate("recommendation")
+                        },
+                    )
+                }
+                composable("recommendation") {
+                    selectedRecommendation?.let { book ->
+                        RecommendationDetailScreen(
+                            vm = vm,
+                            recommendation = book,
+                            onBack = { nav.popBackStack() },
+                        )
+                    } ?: LaunchedEffect(Unit) { nav.popBackStack() }
                 }
                 composable("library") {
                     LibraryScreen(

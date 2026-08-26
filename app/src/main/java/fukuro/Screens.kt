@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -72,6 +73,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -90,6 +92,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -568,6 +571,121 @@ val COVER_SIZE_LABELS = listOf("XS", "S", "M", "L", "XL")
 private val COVER_GRID_COLUMNS = listOf(5, 4, 3, 2, 1)
 
 fun coverGridColumns(size: Int) = COVER_GRID_COLUMNS[size.coerceIn(0, 4)]
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun RecommendationDetailScreen(
+    vm: ShelfViewModel,
+    recommendation: BookRecommendation,
+    onBack: () -> Unit,
+) {
+    var book by remember(recommendation) { mutableStateOf(recommendation) }
+    var loading by remember(recommendation) { mutableStateOf(true) }
+    val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(recommendation) {
+        book = runCatching { vm.recommendationDetails(recommendation) }.getOrDefault(recommendation)
+        loading = false
+    }
+
+    Scaffold(
+        containerColor = Fukuro.colors.background,
+        topBar = { FlatTopBar("Recommendation", onBack) },
+    ) { pad ->
+        Column(
+            Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())
+                .padding(horizontal = Fukuro.dims.screenPadding, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CoverImage(
+                model = book.coverUrl,
+                contentDescription = book.title,
+                modifier = Modifier.size(196.dp).clip(RoundedCornerShape(Fukuro.dims.coverRadius)),
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(book.title, style = Fukuro.type.pageTitle, color = Fukuro.colors.onBackground)
+            if (book.authors.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    book.authors.joinToString(", "),
+                    style = Fukuro.type.body,
+                    color = Fukuro.colors.onSurfaceVariant,
+                )
+            }
+            val facts = listOfNotNull(
+                book.publishedYear?.toString(),
+                book.isbn?.let { "ISBN $it" },
+                book.asin?.let { "ASIN $it" },
+            )
+            if (facts.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    facts.joinToString(" · "),
+                    style = Fukuro.type.captionMeta,
+                    color = Fukuro.colors.tertiaryText,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Surface(shape = RoundedCornerShape(12.dp), color = Fukuro.colors.surface) {
+                Text(
+                    book.reason,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    style = Fukuro.type.body,
+                    color = Fukuro.colors.onBackground,
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionTitle("Synopsis", Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            when {
+                loading -> CircularProgressIndicator(Modifier.size(28.dp))
+                book.description.isNullOrBlank() -> SectionCaption(
+                    "No synopsis is available from ${book.provider}.",
+                    Modifier.fillMaxWidth(),
+                )
+                else -> Text(
+                    android.text.Html.fromHtml(
+                        book.description.orEmpty(), android.text.Html.FROM_HTML_MODE_COMPACT,
+                    ).toString(),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = Fukuro.type.body,
+                    color = Fukuro.colors.onBackground,
+                )
+            }
+
+            if (book.subjects.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
+                SectionTitle("Tags", Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    book.subjects.forEach { subject ->
+                        Surface(shape = RoundedCornerShape(50), color = Fukuro.colors.surface) {
+                            Text(
+                                subject,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                style = Fukuro.type.chip,
+                                color = Fukuro.colors.onBackground,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionCaption("Metadata from ${book.provider}")
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { uriHandler.openUri(book.detailUrl) }) {
+                Text("View source")
+            }
+            Spacer(Modifier.height(140.dp))
+        }
+    }
+}
 
 /* ---------------- Library (full grid + search) ---------------- */
 

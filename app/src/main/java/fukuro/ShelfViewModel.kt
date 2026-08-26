@@ -194,6 +194,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    suspend fun recommendationDetails(book: BookRecommendation): BookRecommendation =
+        recommendationService.details(book)
+
     /**
      * Cover for any book. On-device books use the file scanned out of their folder and
      * downloaded books the cover saved next to their audio — the server URL is only the

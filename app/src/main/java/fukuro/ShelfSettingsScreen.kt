@@ -565,7 +565,7 @@ private fun ShelfPreview(
 ) {
     val c = Fukuro.colors
     // Previews are capped at a few items: this is a sample, not the shelf itself.
-    val sample = remember(shelf, state.allItems, state.series, customShelf) {
+    val sample = remember(shelf, state.allItems, state.series, state.recommendations, customShelf) {
         resolveShelf(shelf.copy(maxItems = (shelf.maxItems ?: 4).coerceAtMost(4)),
             state, customShelf, HomeFilter.ALL)
     }
@@ -629,6 +629,23 @@ private fun ShelfPreview(
                         }
                     }
 
+                is ShelfItems.Recommendations -> LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Fukuro.dims.carouselGap),
+                ) {
+                    items(sample.books, key = { "${it.provider}:${it.id}" }) { book ->
+                        CarouselCell(
+                            title = book.title,
+                            meta = book.authors.firstOrNull(),
+                            cover = book.coverUrl,
+                            progress = 0f,
+                            finished = false,
+                            coverSize = state.coverSize,
+                            onClick = {},
+                        )
+                    }
+                }
+
                 is ShelfItems.SeriesGroups -> Column(
                     Modifier.padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(Fukuro.dims.rowGap),
@@ -652,6 +669,7 @@ private fun ShelfPreview(
                         is ShelfItems.AuthorCards -> "${sample.authors.size} author cards"
                         is ShelfItems.NarratorCards -> "${sample.narrators.size} narrator cards"
                         is ShelfItems.CustomEntries -> "${sample.entries.size} hand-picked items"
+                        is ShelfItems.Recommendations -> "${sample.books.size} recommendations"
                         else -> "Nothing to show yet — this shelf is hidden on Home until it has something in it."
                     },
                     style = Fukuro.type.body,

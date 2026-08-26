@@ -8,6 +8,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,6 +34,8 @@ data class BookRecommendation(
     val provider: String,
     val reason: String,
     val score: Double = 0.0,
+    val openLibraryKey: String? = null,
+    val googleBooksId: String? = null,
 )
 
 @Serializable
@@ -49,6 +55,7 @@ class RecommendationService(
 ) {
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val cacheFile = File(context.filesDir, "recommendations.json")
+    private val detailsFile = File(context.filesDir, "recommendation_details.json")
 
     suspend fun cached(): List<BookRecommendation> = withContext(Dispatchers.IO) {
         runCatching {
@@ -99,6 +106,45 @@ class RecommendationService(
         } else old?.books.orEmpty()
     }
 
+    /** Adds the longer synopsis and complete subject list when a recommendation is opened. */
+    suspend fun details(book: BookRecommendation): BookRecommendation = withContext(Dispatchers.IO) {
+        val cache = runCatching {
+            json.decodeFromString<DetailsCache>(detailsFile.readText()).books
+        }.getOrDefault(emptyMap())
+        val cacheKey = "${book.provider}:${book.id}"
+        cache[cacheKey]?.let { return@withContext it }
+
+        var enriched = book
+        val openLibraryKey = book.openLibraryKey ?: book.id.takeIf { it.startsWith("/works/") }
+        openLibraryKey?.let { key ->
+            openLibraryWork(key)?.let { work ->
+                enriched = enriched.copy(
+                    description = enriched.description ?: descriptionText(work.description),
+                    subjects = (enriched.subjects + work.subjects).distinctBy(::normalized).take(40),
+                )
+            }
+        }
+        if (enriched.description.isNullOrBlank()) {
+            val googleKey = store.googleBooksKey().trim()
+            val googleBooksId = book.googleBooksId
+                ?: book.id.takeIf { "Google Books" in book.provider && !it.startsWith("/") }
+            if (googleKey.isNotEmpty()) googleBooksId?.let { id ->
+                googleVolume(id, googleKey)?.let { info ->
+                    enriched = enriched.copy(
+                        description = info.description,
+                        subjects = (enriched.subjects + info.categories).distinctBy(::normalized).take(40),
+                    )
+                }
+            }
+        }
+        if (enriched != book) {
+            runCatching {
+                detailsFile.writeText(json.encodeToString(DetailsCache(cache + (cacheKey to enriched))))
+            }
+        }
+        enriched
+    }
+
     private fun openLibrary(field: String, value: String): List<Candidate> {
         val url = "https://openlibrary.org/search.json".toHttpUrl().newBuilder()
             .addQueryParameter(field, value)
@@ -124,6 +170,7 @@ class RecommendationService(
                         provider = "Open Library",
                         rating = doc.rating,
                         ratingsCount = doc.ratingsCount,
+                        openLibraryKey = doc.key,
                     )
                 }
             }
@@ -158,6 +205,7 @@ class RecommendationService(
                         provider = "Google Books",
                         rating = info.rating,
                         ratingsCount = info.ratingsCount,
+                        googleBooksId = item.id,
                     )
                 }
             }
@@ -195,7 +243,39 @@ class RecommendationService(
             provider = providers,
             reason = reason,
             score = candidates.maxOf { candidateScore(it, profile) },
+            openLibraryKey = openLibrary?.openLibraryKey,
+            googleBooksId = google?.googleBooksId,
         )
+    }
+
+    private fun openLibraryWork(key: String): OlWork? {
+        val req = Request.Builder().url("https://openlibrary.org$key.json")
+            .header("User-Agent", "Fukuro Android/${BuildConfig.VERSION_NAME}")
+            .get().build()
+        return runCatching {
+            http.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) null
+                else json.decodeFromString<OlWork>(response.body?.string().orEmpty())
+            }
+        }.getOrNull()
+    }
+
+    private fun googleVolume(id: String, apiKey: String): GoogleInfo? {
+        val url = "https://www.googleapis.com/books/v1/volumes/$id".toHttpUrl().newBuilder()
+            .addQueryParameter("key", apiKey).build()
+        val req = Request.Builder().url(url).get().build()
+        return runCatching {
+            http.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) null
+                else json.decodeFromString<GoogleItem>(response.body?.string().orEmpty()).info
+            }
+        }.getOrNull()
+    }
+
+    private fun descriptionText(value: JsonElement?): String? = when (value) {
+        is JsonPrimitive -> value.contentOrNull
+        is JsonObject -> (value["value"] as? JsonPrimitive)?.contentOrNull
+        else -> null
     }
 
     private fun candidateScore(candidate: Candidate, profile: PreferenceProfile): Double {
@@ -227,6 +307,8 @@ class RecommendationService(
         val provider: String,
         val rating: Double? = null,
         val ratingsCount: Int? = null,
+        val openLibraryKey: String? = null,
+        val googleBooksId: String? = null,
     )
 
     private data class PreferenceProfile(
@@ -262,6 +344,13 @@ class RecommendationService(
     }
 
     @Serializable private data class OlSearch(val docs: List<OlDoc> = emptyList())
+    @Serializable private data class OlWork(
+        val description: JsonElement? = null,
+        val subjects: List<String> = emptyList(),
+    )
+    @Serializable private data class DetailsCache(
+        val books: Map<String, BookRecommendation> = emptyMap(),
+    )
     @Serializable private data class OlDoc(
         val key: String = "",
         val title: String = "",
