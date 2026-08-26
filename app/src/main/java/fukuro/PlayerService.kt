@@ -159,7 +159,9 @@ class PlayerService : MediaLibraryService() {
             while (isActive) {
                 delay(1000)
                 if (currentChapters.isEmpty()) continue
-                val perChapter = store.trackScopeBlocking() == "chapter"
+                // Both dual-progress layouts keep the controller/notification scoped to
+                // the chapter; their second bar is book progress drawn by the app.
+                val perChapter = store.trackScopeBlocking() != "book"
                 val idx = if (perChapter) {
                     currentChapters.indexOf(chapterAt(bookPositionSec()))
                 } else -1
@@ -302,7 +304,7 @@ class PlayerService : MediaLibraryService() {
      */
     private fun scopeWindow(): Pair<Double, Double> {
         val bookLen = currentItemDuration
-        if (store.trackScopeBlocking() != "chapter" || currentChapters.isEmpty()) return 0.0 to bookLen
+        if (store.trackScopeBlocking() == "book" || currentChapters.isEmpty()) return 0.0 to bookLen
         val ch = chapterAt(bookPositionSec()) ?: return 0.0 to bookLen
         return ch.start to (ch.end - ch.start)
     }

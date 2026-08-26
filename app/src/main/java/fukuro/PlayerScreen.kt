@@ -229,6 +229,12 @@ fun PlayerScreen(
         if (isCurrent) livePosSec ?: saved?.currentTime ?: 0.0
         else saved?.currentTime ?: 0.0
     val chapters = detail?.media?.chapters ?: emptyList()
+    val totalBookSec = (if (bookDuration > 0) bookDuration else liveDurSec).coerceAtLeast(1.0)
+    val bookFraction = (absolutePosSec / totalBookSec).toFloat().coerceIn(0f, 1f)
+    val currentChapter = chapters.firstOrNull {
+        absolutePosSec >= it.start && absolutePosSec < it.end
+    }
+    val showCoverBookProgress = trackScope == "chapter_cover" && currentChapter != null
 
     fun seekAbsolute(sec: Double) {
         // the service owns the track layout; hand it book seconds and let it land the seek
@@ -353,14 +359,57 @@ fun PlayerScreen(
             LazyColumn(Modifier.fillMaxSize().padding(pad)) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        CoverImage(
-                            model = coverUrl, contentDescription = title,
+                        Box(
                             modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(1f)
                                 .clip(RoundedCornerShape(14.dp))
                                 .align(Alignment.CenterHorizontally)
                                 // only the artwork moves with a swipe
                                 .swipeSlideVisual(slide)
-                        )
+                        ) {
+                            CoverImage(
+                                model = coverUrl,
+                                contentDescription = title,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            if (showCoverBookProgress) {
+                                // book progress on the cover follows the same choice the
+                                // shelves do, so one setting governs every cover in the app
+                                if (state.progressStyle == "circle") {
+                                    CoverProgressRing(
+                                        progress = bookFraction,
+                                        boxScope = this,
+                                        // artwork here fills the screen, where the shelves'
+                                        // 26dp ring would read as a speck
+                                        size = 48.dp,
+                                        padding = 10.dp,
+                                    )
+                                } else {
+                                    LinearProgressIndicator(
+                                        progress = { bookFraction },
+                                        modifier = Modifier.fillMaxWidth().height(5.dp)
+                                            .align(Alignment.BottomCenter),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = Color(0x66000000),
+                                    )
+                                }
+                            }
+                        }
+                        if (showCoverBookProgress) {
+                            Row(
+                                Modifier.fillMaxWidth(0.94f).align(Alignment.CenterHorizontally)
+                                    .padding(top = 5.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(fmtMs((absolutePosSec * 1000).toLong()),
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                Text(
+                                    "${chapters.indexOf(currentChapter) + 1} / ${chapters.size}",
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary,
+                                )
+                                Text("-${fmtMs(((totalBookSec - absolutePosSec).coerceAtLeast(0.0) * 1000).toLong())}",
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                            }
+                        }
                         Spacer(Modifier.height(24.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -392,16 +441,11 @@ fun PlayerScreen(
                         // The scrubber spans either the whole book or just the current
                         // chapter, per the Settings choice. Positions stay absolute
                         // underneath; only the window shown on the track changes.
-                        val bookSec = (if (bookDuration > 0) bookDuration else liveDurSec)
-                            .coerceAtLeast(1.0)
-                        val currentChapter = chapters.firstOrNull {
-                            absolutePosSec >= it.start && absolutePosSec < it.end
-                        }
-                        val perChapter = trackScope == "chapter" && currentChapter != null
+                        val perChapter = trackScope != "book" && currentChapter != null
                         val spanStart = if (perChapter) currentChapter!!.start else 0.0
                         val spanLen = if (perChapter) {
                             (currentChapter!!.end - currentChapter.start).coerceAtLeast(1.0)
-                        } else bookSec
+                        } else totalBookSec
 
                         val accent = MaterialTheme.colorScheme.primary
                         // while dragging, follow the finger; otherwise follow playback
@@ -409,6 +453,28 @@ fun PlayerScreen(
                         val shownSec = (dragSec?.toDouble() ?: (absolutePosSec - spanStart))
                             .coerceIn(0.0, spanLen)
                         val frac = (shownSec / spanLen).toFloat().coerceIn(0f, 1f)
+
+                        // Audiobookshelf-style dual layout: total book first, then the
+                        // chapter scrubber below it. Both remain seekable.
+                        if (trackScope == "chapter_stacked" && currentChapter != null) {
+                            var bookDragSec by remember(displayId) { mutableStateOf<Float?>(null) }
+                            val bookShownSec = (bookDragSec?.toDouble() ?: absolutePosSec)
+                                .coerceIn(0.0, totalBookSec)
+                            Scrubber(
+                                fraction = (bookShownSec / totalBookSec).toFloat(),
+                                enabled = isCurrent,
+                                accent = accent,
+                                onScrub = { f -> bookDragSec = f * totalBookSec.toFloat() },
+                                onScrubEnd = { f -> seekAbsolute(f * totalBookSec); bookDragSec = null },
+                            )
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(fmtMs((bookShownSec * 1000).toLong()),
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                Text("-${fmtMs(((totalBookSec - bookShownSec) * 1000).toLong())}",
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                            }
+                            Spacer(Modifier.height(10.dp))
+                        }
 
                         // The chapter belongs with the position, not the title: this sits
                         // directly above the track it describes, and the collapsed chapter
@@ -583,7 +649,7 @@ fun PlayerScreen(
                                 Text(
                                     // per-chapter mode cares about how long each chapter
                                     // is; whole-book mode wants where it starts
-                                    if (trackScope == "chapter") fmtMs(((ch.end - ch.start) * 1000).toLong())
+                                    if (trackScope != "book") fmtMs(((ch.end - ch.start) * 1000).toLong())
                                     else fmtMs((ch.start * 1000).toLong()),
                                     style = MaterialTheme.typography.bodySmall, color = TxtSecondary
                                 )

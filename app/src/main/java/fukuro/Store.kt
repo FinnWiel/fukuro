@@ -67,7 +67,8 @@ class Store(private val context: Context) {
         val SKIP_FORWARD = stringPreferencesKey("skip_forward")
         val OFFLINE_ONLY = booleanPreferencesKey("offline_only")   // chose to use the app without a server
         val LOCAL_FOLDER = stringPreferencesKey("local_folder")    // SAF tree uri of the on-device library
-        val TRACK_SCOPE = stringPreferencesKey("track_scope")      // "book" | "chapter"
+        // "book" | "chapter" | "chapter_cover" | "chapter_stacked"
+        val TRACK_SCOPE = stringPreferencesKey("track_scope")
         val CONTINUE_HIDDEN = stringPreferencesKey("continue_hidden") // csv of ids kept out of the shelf
         val AUTO_UPDATE = booleanPreferencesKey("auto_update_check")
         val AUTO_NEXT = booleanPreferencesKey("auto_next_in_series") // off: finishing stops
