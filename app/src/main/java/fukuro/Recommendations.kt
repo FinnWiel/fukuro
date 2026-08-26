@@ -30,6 +30,7 @@ data class BookRecommendation(
     val coverUrl: String? = null,
     val detailUrl: String,
     val isbn: String? = null,
+    val asin: String? = null,
     val publishedYear: Int? = null,
     val provider: String,
     val reason: String,
@@ -148,7 +149,7 @@ class RecommendationService(
     private fun openLibrary(field: String, value: String): List<Candidate> {
         val url = "https://openlibrary.org/search.json".toHttpUrl().newBuilder()
             .addQueryParameter(field, value)
-            .addQueryParameter("fields", "key,title,author_name,cover_i,subject,first_publish_year,isbn,ratings_average,ratings_count")
+            .addQueryParameter("fields", "key,title,author_name,cover_i,subject,first_publish_year,isbn,id_amazon,ratings_average,ratings_count")
             .addQueryParameter("limit", "12")
             .build()
         val req = Request.Builder().url(url)
@@ -166,6 +167,7 @@ class RecommendationService(
                         coverUrl = doc.coverId?.let { "https://covers.openlibrary.org/b/id/$it-L.jpg" },
                         detailUrl = "https://openlibrary.org${doc.key}",
                         isbn = doc.isbn.firstOrNull(),
+                        asin = doc.amazonIds.firstOrNull(),
                         publishedYear = doc.firstPublishYear,
                         provider = "Open Library",
                         rating = doc.rating,
@@ -200,7 +202,10 @@ class RecommendationService(
                         coverUrl = info.images?.thumbnail?.replace("http://", "https://"),
                         detailUrl = info.infoLink ?: "https://books.google.com/books?id=${item.id}",
                         isbn = info.identifiers.firstOrNull { it.type == "ISBN_13" }?.identifier
-                            ?: info.identifiers.firstOrNull()?.identifier,
+                            ?: info.identifiers.firstOrNull { it.type == "ISBN_10" }?.identifier,
+                        asin = info.identifiers.firstOrNull {
+                            it.type == "OTHER" && normalizedAsin(it.identifier) != null
+                        }?.identifier,
                         publishedYear = info.publishedDate?.take(4)?.toIntOrNull(),
                         provider = "Google Books",
                         rating = info.rating,
@@ -239,6 +244,7 @@ class RecommendationService(
             coverUrl = google?.coverUrl ?: openLibrary?.coverUrl ?: best.coverUrl,
             detailUrl = google?.detailUrl ?: best.detailUrl,
             isbn = google?.isbn ?: openLibrary?.isbn ?: best.isbn,
+            asin = google?.asin ?: openLibrary?.asin ?: best.asin,
             publishedYear = google?.publishedYear ?: openLibrary?.publishedYear ?: best.publishedYear,
             provider = providers,
             reason = reason,
@@ -303,6 +309,7 @@ class RecommendationService(
         val coverUrl: String? = null,
         val detailUrl: String,
         val isbn: String? = null,
+        val asin: String? = null,
         val publishedYear: Int? = null,
         val provider: String,
         val rating: Double? = null,
@@ -315,18 +322,28 @@ class RecommendationService(
         val title: String,
         val authors: Set<String>,
         val isbn: String?,
+        val asin: String?,
     )
 
     private class OwnedIndex(private val books: List<OwnedBook>) {
-        fun contains(candidate: Candidate) = contains(candidate.title, candidate.authors, candidate.isbn)
-        fun contains(book: BookRecommendation) = contains(book.title, book.authors, book.isbn)
+        fun contains(candidate: Candidate) =
+            contains(candidate.title, candidate.authors, candidate.isbn, candidate.asin)
+        fun contains(book: BookRecommendation) =
+            contains(book.title, book.authors, book.isbn, book.asin)
 
-        private fun contains(rawTitle: String, rawAuthors: List<String>, rawIsbn: String?): Boolean {
+        private fun contains(
+            rawTitle: String,
+            rawAuthors: List<String>,
+            rawIsbn: String?,
+            rawAsin: String?,
+        ): Boolean {
             val title = comparableTitle(rawTitle)
             val authors = rawAuthors.map(::normalized).filter(String::isNotEmpty).toSet()
             val isbn = normalizedIsbn(rawIsbn)
+            val asin = normalizedAsin(rawAsin)
             return books.any { owned ->
                 if (isbn != null && owned.isbn != null && isbn == owned.isbn) return@any true
+                if (asin != null && owned.asin != null && asin == owned.asin) return@any true
                 if (title.isEmpty() || owned.title.isEmpty()) return@any false
                 if (title == owned.title) return@any true
 
@@ -343,6 +360,10 @@ class RecommendationService(
                     title = comparableTitle(book.media.metadata.title.orEmpty()),
                     authors = authorsOf(book).map(::normalized).filter(String::isNotEmpty).toSet(),
                     isbn = normalizedIsbn(book.media.metadata.isbn),
+                    asin = normalizedAsin(
+                        book.media.metadata.asin
+                            ?: book.media.metadata.isbn?.takeIf { normalizedIsbn(it) == null }
+                    ),
                 )
             })
         }
@@ -396,6 +417,7 @@ class RecommendationService(
         @SerialName("subject") val subjects: List<String> = emptyList(),
         @SerialName("first_publish_year") val firstPublishYear: Int? = null,
         val isbn: List<String> = emptyList(),
+        @SerialName("id_amazon") val amazonIds: List<String> = emptyList(),
         @SerialName("ratings_average") val rating: Double? = null,
         @SerialName("ratings_count") val ratingsCount: Int? = null,
     )
@@ -432,14 +454,40 @@ class RecommendationService(
         private fun bookKey(title: String, author: String?) =
             normalized(title).replace(Regex("^(the|a|an) "), "") + "|" + normalized(author.orEmpty())
 
-        private fun comparableTitle(value: String): String = normalized(
-            value.substringBefore(':').substringBefore(" — ").substringBefore(" – ")
-        ).replace(Regex("^(the|a|an) "), "")
+        private fun comparableTitle(value: String): String {
+            var title = value.trim()
+                .replace(
+                    Regex(
+                        "^(book|volume)\\s+[0-9]+(?:\\.[0-9]+)?\\s*[,.:–—-]?\\s*",
+                        RegexOption.IGNORE_CASE,
+                    ),
+                    "",
+                )
+                .substringBefore(':')
+                .substringBefore(" - ")
+                .substringBefore(" — ")
+                .substringBefore(" – ")
+                .trim()
+            // Providers frequently append series/sequence labels to otherwise identical
+            // titles: "Soulsmith (Cradle) (Volume 2)". Peel every trailing label.
+            val suffix = Regex("\\s*\\([^()]*\\)\\s*$")
+            while (suffix.containsMatchIn(title)) title = title.replace(suffix, "").trim()
+            return normalized(title).replace(Regex("^(the|a|an) "), "")
+        }
 
-        private fun normalizedIsbn(value: String?): String? = value
+        private fun normalizedIsbn(value: String?): String? {
+            val clean = value?.filter(Char::isLetterOrDigit)?.uppercase(Locale.ROOT) ?: return null
+            return clean.takeIf {
+                (it.length == 13 && it.all(Char::isDigit)) ||
+                    (it.length == 10 && it.take(9).all(Char::isDigit) &&
+                        (it.last().isDigit() || it.last() == 'X'))
+            }
+        }
+
+        private fun normalizedAsin(value: String?): String? = value
             ?.filter(Char::isLetterOrDigit)
             ?.uppercase(Locale.ROOT)
-            ?.takeIf { it.length in 10..13 }
+            ?.takeIf { it.length == 10 }
 
         private fun titleSimilarity(left: String, right: String): Double {
             val a = left.split(' ').filter(String::isNotBlank).toSet()
