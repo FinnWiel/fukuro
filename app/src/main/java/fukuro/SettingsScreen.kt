@@ -183,6 +183,22 @@ private fun prettyFolder(uri: String): String {
     return if (tail.isBlank()) decoded.takeLast(40) else "…/$tail"
 }
 
+private val RECOMMENDATION_LANGUAGES = listOf(
+    "" to "Any",
+    "en" to "English",
+    "nl" to "Dutch",
+    "de" to "German",
+    "fr" to "French",
+    "es" to "Spanish",
+    "it" to "Italian",
+    "pt" to "Portuguese",
+    "pl" to "Polish",
+    "sv" to "Swedish",
+    "da" to "Danish",
+    "no" to "Norwegian",
+    "fi" to "Finnish",
+)
+
 /** Hue / saturation / lightness picker for a custom accent colour. */
 @Composable
 private fun AccentPickerDialog(initial: Color, onDismiss: () -> Unit, onPick: (String) -> Unit) {
@@ -262,6 +278,7 @@ fun SettingsScreen(
     }
     val storedGoogleBooksKey by vm.store.googleBooksKeyFlow.collectAsState(initial = "")
     val storedExcludedTags by vm.store.recommendationExcludedTagsFlow.collectAsState(initial = "")
+    val recommendationLanguage by vm.store.recommendationLanguageFlow.collectAsState(initial = "")
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
@@ -553,6 +570,31 @@ fun SettingsScreen(
                     vm.refreshRecommendations(force = true)
                 }
             }) { Text("Save exclusions and refresh") }
+            Spacer(Modifier.height(16.dp))
+            Text("Preferred recommendation language", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Any keeps recommendations in all languages. Choosing one restricts both providers.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                RECOMMENDATION_LANGUAGES.forEach { (code, label) ->
+                    FilterChip(
+                        selected = recommendationLanguage == code,
+                        onClick = {
+                            scope.launch {
+                                vm.store.setRecommendationLanguage(code)
+                                vm.refreshRecommendations(force = true)
+                            }
+                        },
+                        label = { Text(label) },
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = {
                 scope.launch {

@@ -41,6 +41,7 @@ data class BookRecommendation(
     val title: String,
     val authors: List<String> = emptyList(),
     val subjects: List<String> = emptyList(),
+    val languages: List<String> = emptyList(),
     val description: String? = null,
     val coverUrl: String? = null,
     val detailUrl: String,
@@ -93,11 +94,13 @@ class RecommendationService(
     suspend fun cached(): List<BookRecommendation> = withContext(Dispatchers.IO) {
         val feedback = store.recommendationFeedback()
         val excludedTags = store.recommendationExcludedTags()
+        val preferredLanguage = store.recommendationLanguage()
         runCatching {
             json.decodeFromString<RecommendationCache>(cacheFile.readText()).books
         }.getOrDefault(emptyList()).filterNot {
             recommendationKey(it) in feedback.dismissed ||
-                hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags)
+                hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags) ||
+                !matchesLanguage(it.languages, preferredLanguage)
         }
     }
 
@@ -113,9 +116,11 @@ class RecommendationService(
         val owned = OwnedIndex.from(library)
         val feedback = store.recommendationFeedback()
         val excludedTags = store.recommendationExcludedTags()
+        val preferredLanguage = store.recommendationLanguage()
         val oldBooks = old?.books.orEmpty().filterNot {
             owned.contains(it) || recommendationKey(it) in feedback.dismissed ||
-                hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags)
+                hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags) ||
+                !matchesLanguage(it.languages, preferredLanguage)
         }
         if (!force && old != null && old.algorithmVersion == ALGORITHM_VERSION &&
             System.currentTimeMillis() - old.fetchedAt < CACHE_MS
@@ -143,10 +148,14 @@ class RecommendationService(
         val candidates = coroutineScope {
             val permits = Semaphore(4)
             val requests = openQueries.map { (field, value) ->
-                async { permits.withPermit { openLibrary(field, value) } }
+                async { permits.withPermit { openLibrary(field, value, preferredLanguage) } }
             } + if (googleKey.isNotEmpty()) {
                 googleQueries.map { (field, value) ->
-                    async { permits.withPermit { googleBooks(field, value, googleKey) } }
+                    async {
+                        permits.withPermit {
+                            googleBooks(field, value, googleKey, preferredLanguage)
+                        }
+                    }
                 }
             } else emptyList()
             requests.awaitAll().flatten()
@@ -154,6 +163,7 @@ class RecommendationService(
 
         val ranked = candidates
             .filterNot { owned.contains(it) }
+            .filter { matchesLanguage(it.languages, preferredLanguage) }
             .filterNot {
                 hasExcludedTag(it.subjects + listOfNotNull(it.queryTopic), excludedTags)
             }
@@ -161,7 +171,8 @@ class RecommendationService(
             .mapNotNull { (_, sameBook) -> merge(sameBook, profile, feedback) }
             .filterNot {
                 recommendationKey(it) in feedback.dismissed ||
-                    hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags)
+                    hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags) ||
+                    !matchesLanguage(it.languages, preferredLanguage)
             }
             .sortedByDescending { it.score }
         val selected = diversify(ranked, profile)
@@ -217,12 +228,17 @@ class RecommendationService(
         enriched
     }
 
-    private fun openLibrary(field: String, value: String): List<Candidate> {
-        val url = "https://openlibrary.org/search.json".toHttpUrl().newBuilder()
+    private fun openLibrary(field: String, value: String, preferredLanguage: String): List<Candidate> {
+        val urlBuilder = "https://openlibrary.org/search.json".toHttpUrl().newBuilder()
             .addQueryParameter(field, value)
-            .addQueryParameter("fields", "key,title,author_name,cover_i,subject,first_publish_year,isbn,id_amazon,ratings_average,ratings_count")
+            .addQueryParameter("fields", "key,title,author_name,cover_i,subject,language,first_publish_year,isbn,id_amazon,ratings_average,ratings_count")
             .addQueryParameter("limit", "12")
-            .build()
+        if (preferredLanguage.isNotBlank()) {
+            urlBuilder
+                .addQueryParameter("lang", preferredLanguage)
+                .addQueryParameter("language", openLibraryLanguage(preferredLanguage))
+        }
+        val url = urlBuilder.build()
         val req = Request.Builder().url(url)
             .header("User-Agent", "Fukuro Android/${BuildConfig.VERSION_NAME}")
             .get().build()
@@ -235,6 +251,9 @@ class RecommendationService(
                         title = doc.title,
                         authors = doc.authors,
                         subjects = doc.subjects.take(20),
+                        languages = doc.languages.ifEmpty {
+                            listOfNotNull(preferredLanguage.takeIf(String::isNotBlank))
+                        },
                         coverUrl = doc.coverId?.let { "https://covers.openlibrary.org/b/id/$it-L.jpg" },
                         detailUrl = "https://openlibrary.org${doc.key}",
                         isbn = doc.isbn.firstOrNull(),
@@ -252,14 +271,22 @@ class RecommendationService(
         }.getOrDefault(emptyList())
     }
 
-    private fun googleBooks(field: String, value: String, apiKey: String): List<Candidate> {
-        val url = "https://www.googleapis.com/books/v1/volumes".toHttpUrl().newBuilder()
+    private fun googleBooks(
+        field: String,
+        value: String,
+        apiKey: String,
+        preferredLanguage: String,
+    ): List<Candidate> {
+        val urlBuilder = "https://www.googleapis.com/books/v1/volumes".toHttpUrl().newBuilder()
             .addQueryParameter("q", if (field == "q") value else "$field:$value")
             .addQueryParameter("printType", "books")
             .addQueryParameter("maxResults", "12")
             .addQueryParameter("orderBy", "relevance")
             .addQueryParameter("key", apiKey)
-            .build()
+        if (preferredLanguage.isNotBlank()) {
+            urlBuilder.addQueryParameter("langRestrict", preferredLanguage)
+        }
+        val url = urlBuilder.build()
         val req = Request.Builder().url(url).get().build()
         return runCatching {
             recommendationHttp.newCall(req).execute().use { response ->
@@ -271,6 +298,9 @@ class RecommendationService(
                         title = info.title,
                         authors = info.authors,
                         subjects = info.categories,
+                        languages = listOfNotNull(
+                            info.language ?: preferredLanguage.takeIf(String::isNotBlank)
+                        ),
                         description = info.description,
                         coverUrl = info.images?.thumbnail?.replace("http://", "https://"),
                         detailUrl = info.infoLink ?: "https://books.google.com/books?id=${item.id}",
@@ -302,6 +332,8 @@ class RecommendationService(
         val openLibrary = candidates.firstOrNull { it.provider == "Open Library" }
         val authors = candidates.firstOrNull { it.authors.isNotEmpty() }?.authors.orEmpty()
         val subjects = candidates.flatMap { it.subjects }.distinctBy(::normalized).take(20)
+        val languages = candidates.flatMap { it.languages }
+            .distinctBy(::canonicalLanguage).filter(String::isNotBlank)
         val authorMatch = authors.firstNotNullOfOrNull { author ->
             profile.authors.keys.firstOrNull { normalized(it) == normalized(author) }
         }
@@ -325,6 +357,7 @@ class RecommendationService(
             title = best.title,
             authors = authors,
             subjects = subjects,
+            languages = languages,
             description = google?.description ?: best.description,
             coverUrl = google?.coverUrl ?: openLibrary?.coverUrl ?: best.coverUrl,
             detailUrl = google?.detailUrl ?: best.detailUrl,
@@ -492,6 +525,7 @@ class RecommendationService(
         val title: String,
         val authors: List<String>,
         val subjects: List<String>,
+        val languages: List<String>,
         val description: String? = null,
         val coverUrl: String? = null,
         val detailUrl: String,
@@ -665,6 +699,7 @@ class RecommendationService(
         @SerialName("author_name") val authors: List<String> = emptyList(),
         @SerialName("cover_i") val coverId: Long? = null,
         @SerialName("subject") val subjects: List<String> = emptyList(),
+        @SerialName("language") val languages: List<String> = emptyList(),
         @SerialName("first_publish_year") val firstPublishYear: Int? = null,
         val isbn: List<String> = emptyList(),
         @SerialName("id_amazon") val amazonIds: List<String> = emptyList(),
@@ -686,6 +721,7 @@ class RecommendationService(
         val infoLink: String? = null,
         @SerialName("industryIdentifiers") val identifiers: List<GoogleIdentifier> = emptyList(),
         val publishedDate: String? = null,
+        val language: String? = null,
         @SerialName("averageRating") val rating: Double? = null,
         @SerialName("ratingsCount") val ratingsCount: Int? = null,
     )
@@ -693,9 +729,12 @@ class RecommendationService(
     @Serializable private data class GoogleIdentifier(val type: String = "", val identifier: String = "")
 
     companion object {
-        private const val ALGORITHM_VERSION = 2
+        private const val ALGORITHM_VERSION = 3
         private const val CACHE_MS = 24 * 60 * 60 * 1000L
         private val GENERIC_TAG_WORDS = setOf("book", "books", "audiobook", "audiobooks", "novel", "novels")
+        private val CHILDREN_TAG_WORDS = setOf(
+            "child", "children", "kid", "kids", "juvenile", "juveniles",
+        )
 
         private fun normalized(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
@@ -709,15 +748,74 @@ class RecommendationService(
             return exclusions.any { exclusion ->
                 val excluded = normalized(exclusion)
                 if (excluded.isEmpty()) return@any false
-                val meaningfulWords = excluded.split(' ')
-                    .filter { it.length >= 3 && it !in GENERIC_TAG_WORDS }
+                val excludedWords = tagWords(excluded)
                 normalizedSubjects.any { subject ->
-                    subject == excluded || excluded in subject ||
-                        (meaningfulWords.isNotEmpty() && meaningfulWords.all {
-                            word -> word in subject.split(' ')
-                        })
+                    phraseInTag(excluded, subject) ||
+                        (excludedWords.isNotEmpty() && tagWords(subject).containsAll(excludedWords))
                 }
             }
+        }
+
+        private fun phraseInTag(phrase: String, tag: String): Boolean =
+            tag == phrase || tag.startsWith("$phrase ") || tag.endsWith(" $phrase") ||
+                " $phrase " in tag
+
+        private fun tagWords(value: String): Set<String> {
+            val clean = normalized(value)
+            val words = clean.split(' ')
+                .filter { it.length >= 3 && it !in GENERIC_TAG_WORDS }
+                .map { word ->
+                    when {
+                        word in CHILDREN_TAG_WORDS -> "child"
+                        word.endsWith("ies") && word.length > 4 -> word.dropLast(3) + "y"
+                        word.endsWith('s') && word.length > 4 -> word.dropLast(1)
+                        else -> word
+                    }
+                }
+                .toMutableSet()
+            if ("middle grade" in clean || "young reader" in clean) words += "child"
+            return words
+        }
+
+        private fun canonicalLanguage(value: String): String {
+            val code = value.trim().lowercase(Locale.ROOT).substringBefore('-').substringBefore('_')
+            return when (code) {
+                "eng" -> "en"
+                "dut", "nld" -> "nl"
+                "ger", "deu" -> "de"
+                "fre", "fra" -> "fr"
+                "spa" -> "es"
+                "ita" -> "it"
+                "por" -> "pt"
+                "pol" -> "pl"
+                "swe" -> "sv"
+                "dan" -> "da"
+                "nor", "nob", "nno" -> "no"
+                "fin" -> "fi"
+                else -> code
+            }
+        }
+
+        private fun matchesLanguage(languages: List<String>, preferred: String): Boolean {
+            if (preferred.isBlank()) return true
+            val wanted = canonicalLanguage(preferred)
+            return languages.any { canonicalLanguage(it) == wanted }
+        }
+
+        private fun openLibraryLanguage(language: String): String = when (canonicalLanguage(language)) {
+            "en" -> "eng"
+            "nl" -> "dut"
+            "de" -> "ger"
+            "fr" -> "fre"
+            "es" -> "spa"
+            "it" -> "ita"
+            "pt" -> "por"
+            "pl" -> "pol"
+            "sv" -> "swe"
+            "da" -> "dan"
+            "no" -> "nor"
+            "fi" -> "fin"
+            else -> canonicalLanguage(language)
         }
 
         private fun bookKey(title: String, author: String?) =

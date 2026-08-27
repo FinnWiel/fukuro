@@ -14,7 +14,7 @@ Fukuro is a personal Android client for [Audiobookshelf](https://www.audiobooksh
 - Downloads books for offline listening, including offline Android Auto browsing.
 - Saves playback position locally first, then syncs progress back to Audiobookshelf.
 - Keeps listening stats available offline by caching server stats and merging them with local sessions.
-- Recommends books from Open Library and optional Google Books metadata using library authors, genres, and listening history.
+- Recommends books from Open Library and optional Google Books metadata using library authors, genres, favorites, and listening history, with tag exclusions and a preferred-language filter.
 - Supports series, authors, narrators, favorites, chapters, sleep timers, playback speed, uploads, and home-screen customization.
 
 ## Highlights
