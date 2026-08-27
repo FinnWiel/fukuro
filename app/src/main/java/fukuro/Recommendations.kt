@@ -92,9 +92,13 @@ class RecommendationService(
 
     suspend fun cached(): List<BookRecommendation> = withContext(Dispatchers.IO) {
         val feedback = store.recommendationFeedback()
+        val excludedTags = store.recommendationExcludedTags()
         runCatching {
             json.decodeFromString<RecommendationCache>(cacheFile.readText()).books
-        }.getOrDefault(emptyList()).filterNot { recommendationKey(it) in feedback.dismissed }
+        }.getOrDefault(emptyList()).filterNot {
+            recommendationKey(it) in feedback.dismissed ||
+                hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags)
+        }
     }
 
     suspend fun recommendations(
@@ -108,8 +112,10 @@ class RecommendationService(
         }.getOrNull()
         val owned = OwnedIndex.from(library)
         val feedback = store.recommendationFeedback()
+        val excludedTags = store.recommendationExcludedTags()
         val oldBooks = old?.books.orEmpty().filterNot {
-            owned.contains(it) || recommendationKey(it) in feedback.dismissed
+            owned.contains(it) || recommendationKey(it) in feedback.dismissed ||
+                hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags)
         }
         if (!force && old != null && old.algorithmVersion == ALGORITHM_VERSION &&
             System.currentTimeMillis() - old.fetchedAt < CACHE_MS
@@ -148,9 +154,15 @@ class RecommendationService(
 
         val ranked = candidates
             .filterNot { owned.contains(it) }
+            .filterNot {
+                hasExcludedTag(it.subjects + listOfNotNull(it.queryTopic), excludedTags)
+            }
             .groupBy { bookKey(it.title, it.authors.firstOrNull()) }
             .mapNotNull { (_, sameBook) -> merge(sameBook, profile, feedback) }
-            .filterNot { recommendationKey(it) in feedback.dismissed }
+            .filterNot {
+                recommendationKey(it) in feedback.dismissed ||
+                    hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags)
+            }
             .sortedByDescending { it.score }
         val selected = diversify(ranked, profile)
 
@@ -683,12 +695,30 @@ class RecommendationService(
     companion object {
         private const val ALGORITHM_VERSION = 2
         private const val CACHE_MS = 24 * 60 * 60 * 1000L
+        private val GENERIC_TAG_WORDS = setOf("book", "books", "audiobook", "audiobooks", "novel", "novels")
 
         private fun normalized(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .lowercase(Locale.ROOT)
             .replace(Regex("[^a-z0-9]+"), " ")
             .trim()
+
+        private fun hasExcludedTag(subjects: List<String>, exclusions: List<String>): Boolean {
+            if (subjects.isEmpty() || exclusions.isEmpty()) return false
+            val normalizedSubjects = subjects.map(::normalized).filter(String::isNotEmpty)
+            return exclusions.any { exclusion ->
+                val excluded = normalized(exclusion)
+                if (excluded.isEmpty()) return@any false
+                val meaningfulWords = excluded.split(' ')
+                    .filter { it.length >= 3 && it !in GENERIC_TAG_WORDS }
+                normalizedSubjects.any { subject ->
+                    subject == excluded || excluded in subject ||
+                        (meaningfulWords.isNotEmpty() && meaningfulWords.all {
+                            word -> word in subject.split(' ')
+                        })
+                }
+            }
+        }
 
         private fun bookKey(title: String, author: String?) =
             normalized(title).replace(Regex("^(the|a|an) "), "") + "|" + normalized(author.orEmpty())

@@ -261,10 +261,12 @@ fun SettingsScreen(
         }
     }
     val storedGoogleBooksKey by vm.store.googleBooksKeyFlow.collectAsState(initial = "")
+    val storedExcludedTags by vm.store.recommendationExcludedTagsFlow.collectAsState(initial = "")
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var googleBooksKeyText by remember(storedGoogleBooksKey) { mutableStateOf(storedGoogleBooksKey) }
+    var excludedTagsText by remember(storedExcludedTags) { mutableStateOf(storedExcludedTags) }
     if (showPicker) {
         AccentPickerDialog(
             initial = accentColorOf(accent),
@@ -533,6 +535,24 @@ fun SettingsScreen(
                     vm.refreshRecommendations(force = true)
                 }
             }) { Text("Save and refresh") }
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                excludedTagsText,
+                { excludedTagsText = it },
+                label = { Text("Excluded recommendation tags") },
+                supportingText = {
+                    Text("Separate tags with commas, for example: children, juvenile fiction, young adult")
+                },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = {
+                scope.launch {
+                    vm.store.setRecommendationExcludedTags(excludedTagsText.trim())
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Save exclusions and refresh") }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = {
                 scope.launch {

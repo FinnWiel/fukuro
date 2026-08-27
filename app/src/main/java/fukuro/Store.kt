@@ -93,6 +93,7 @@ class Store(private val context: Context) {
         val SERVER_LISTENING_STATS = stringPreferencesKey("server_listening_stats")
         val SERVER_LISTENING_SESSIONS = stringPreferencesKey("server_listening_sessions")
         val RECOMMENDATION_FEEDBACK = stringPreferencesKey("recommendation_feedback")
+        val RECOMMENDATION_EXCLUDED_TAGS = stringPreferencesKey("recommendation_excluded_tags")
     }
 
     val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
@@ -187,6 +188,10 @@ class Store(private val context: Context) {
         it[K.HOME_SHELVES] = shelfJson.encodeToString(DEFAULT_SHELVES)
         it.remove(K.HOME_SECTIONS)
     }
+
+    val recommendationExcludedTagsFlow: Flow<String> = context.dataStore.data.map {
+        it[K.RECOMMENDATION_EXCLUDED_TAGS] ?: ""
+    }
     val serverFlow: Flow<String?> = context.dataStore.data.map { it[K.SERVER] }
     val usernameFlow: Flow<String?> = context.dataStore.data.map { it[K.USERNAME] }
 
@@ -210,6 +215,16 @@ class Store(private val context: Context) {
     suspend fun apiKey(): String? = context.dataStore.data.first()[K.API_KEY]
     suspend fun setGoogleBooksKey(v: String) = context.dataStore.edit { it[K.GOOGLE_BOOKS_KEY] = v }
     suspend fun googleBooksKey(): String = context.dataStore.data.first()[K.GOOGLE_BOOKS_KEY] ?: ""
+    suspend fun setRecommendationExcludedTags(v: String) = context.dataStore.edit {
+        it[K.RECOMMENDATION_EXCLUDED_TAGS] = v
+    }
+    suspend fun recommendationExcludedTags(): List<String> {
+        val raw = context.dataStore.data.first()[K.RECOMMENDATION_EXCLUDED_TAGS].orEmpty()
+        return raw.split(',', '\n')
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinctBy { it.lowercase() }
+    }
     suspend fun playbackSpeed(): Float = context.dataStore.data.first()[K.SPEED]?.toFloatOrNull() ?: 1.0f
     suspend fun setPlaybackSpeed(v: Float) = context.dataStore.edit { it[K.SPEED] = v.toString() }
 
