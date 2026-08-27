@@ -2,6 +2,11 @@ package fukuro
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -18,6 +23,7 @@ import okhttp3.Request
 import java.io.File
 import java.text.Normalizer
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlin.math.ln
 
 private fun feedbackNormalized(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
@@ -76,6 +82,11 @@ class RecommendationService(
     private val store: Store,
 ) {
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+    private val recommendationHttp = http.newBuilder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
+        .build()
     private val cacheFile = File(context.filesDir, "recommendations.json")
     private val detailsFile = File(context.filesDir, "recommendation_details.json")
 
@@ -109,16 +120,30 @@ class RecommendationService(
         val profile = PreferenceProfile.build(library, favorites, progress).adjusted(feedback)
         if (profile.authors.isEmpty() && profile.topics.isEmpty()) return@withContext oldBooks
 
-        val candidates = mutableListOf<Candidate>()
-        profile.authors.keys.take(3).forEach { candidates += openLibrary("author", it) }
-        profile.topics.keys.take(5).forEach { candidates += openLibrary("subject", it) }
-        profile.series.keys.take(3).forEach { candidates += openLibrary("q", it) }
-
         val googleKey = store.googleBooksKey().trim()
-        if (googleKey.isNotEmpty()) {
-            profile.authors.keys.take(3).forEach { candidates += googleBooks("inauthor", it, googleKey) }
-            profile.topics.keys.take(5).forEach { candidates += googleBooks("subject", it, googleKey) }
-            profile.series.keys.take(3).forEach { candidates += googleBooks("q", it, googleKey) }
+        val openQueries = buildList {
+            profile.authors.keys.take(3).forEach { add("author" to it) }
+            profile.topics.keys.take(5).forEach { add("subject" to it) }
+            profile.series.keys.take(3).forEach { add("q" to it) }
+        }.distinctBy { (field, value) -> "$field:${normalized(value)}" }
+        val googleQueries = buildList {
+            profile.authors.keys.take(3).forEach { add("inauthor" to it) }
+            profile.topics.keys.take(5).forEach { add("subject" to it) }
+            profile.series.keys.take(3).forEach { add("q" to it) }
+        }.distinctBy { (field, value) -> "$field:${normalized(value)}" }
+
+        // Provider requests are independent. A small shared concurrency limit makes refreshes
+        // substantially faster without flooding either public books API.
+        val candidates = coroutineScope {
+            val permits = Semaphore(4)
+            val requests = openQueries.map { (field, value) ->
+                async { permits.withPermit { openLibrary(field, value) } }
+            } + if (googleKey.isNotEmpty()) {
+                googleQueries.map { (field, value) ->
+                    async { permits.withPermit { googleBooks(field, value, googleKey) } }
+                }
+            } else emptyList()
+            requests.awaitAll().flatten()
         }
 
         val ranked = candidates
@@ -190,7 +215,7 @@ class RecommendationService(
             .header("User-Agent", "Fukuro Android/${BuildConfig.VERSION_NAME}")
             .get().build()
         return runCatching {
-            http.newCall(req).execute().use { response ->
+            recommendationHttp.newCall(req).execute().use { response ->
                 if (!response.isSuccessful) return emptyList()
                 json.decodeFromString<OlSearch>(response.body?.string().orEmpty()).docs.mapNotNull { doc ->
                     if (doc.title.isBlank() || doc.key.isBlank()) null else Candidate(
@@ -225,7 +250,7 @@ class RecommendationService(
             .build()
         val req = Request.Builder().url(url).get().build()
         return runCatching {
-            http.newCall(req).execute().use { response ->
+            recommendationHttp.newCall(req).execute().use { response ->
                 if (!response.isSuccessful) return emptyList()
                 json.decodeFromString<GoogleSearch>(response.body?.string().orEmpty()).items.mapNotNull { item ->
                     val info = item.info
@@ -309,7 +334,7 @@ class RecommendationService(
             .header("User-Agent", "Fukuro Android/${BuildConfig.VERSION_NAME}")
             .get().build()
         return runCatching {
-            http.newCall(req).execute().use { response ->
+            recommendationHttp.newCall(req).execute().use { response ->
                 if (!response.isSuccessful) null
                 else json.decodeFromString<OlWork>(response.body?.string().orEmpty())
             }
@@ -321,7 +346,7 @@ class RecommendationService(
             .addQueryParameter("key", apiKey).build()
         val req = Request.Builder().url(url).get().build()
         return runCatching {
-            http.newCall(req).execute().use { response ->
+            recommendationHttp.newCall(req).execute().use { response ->
                 if (!response.isSuccessful) null
                 else json.decodeFromString<GoogleItem>(response.body?.string().orEmpty()).info
             }
