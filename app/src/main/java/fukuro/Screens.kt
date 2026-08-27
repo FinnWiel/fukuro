@@ -636,6 +636,33 @@ fun RecommendationDetailScreen(
             }
 
             Spacer(Modifier.height(24.dp))
+            SectionTitle("Tune recommendations", Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { vm.boostRecommendation(book); onBack() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("More like this") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { vm.dismissRecommendation(book); onBack() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Not interested") }
+            if (book.authors.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { vm.reduceRecommendationAuthor(book); onBack() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Less from this author") }
+            }
+            if (!book.primaryTopic.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { vm.reduceRecommendationTopic(book); onBack() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Less like this topic") }
+            }
+
+            Spacer(Modifier.height(24.dp))
             SectionTitle("Synopsis", Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
             when {

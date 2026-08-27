@@ -197,6 +197,39 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun recommendationDetails(book: BookRecommendation): BookRecommendation =
         recommendationService.details(book)
 
+    fun dismissRecommendation(book: BookRecommendation) = viewModelScope.launch {
+        store.dismissRecommendation(recommendationFeedbackKey(book))
+        _state.value = _state.value.copy(
+            recommendations = _state.value.recommendations.filterNot {
+                recommendationFeedbackKey(it) == recommendationFeedbackKey(book)
+            }
+        )
+    }
+
+    fun reduceRecommendationAuthor(book: BookRecommendation) = viewModelScope.launch {
+        val author = book.authors.firstOrNull() ?: return@launch
+        store.reduceRecommendationAuthor(author)
+        _state.value = _state.value.copy(
+            recommendations = _state.value.recommendations.filterNot { candidate ->
+                candidate.authors.any { it.equals(author, ignoreCase = true) }
+            }
+        )
+    }
+
+    fun reduceRecommendationTopic(book: BookRecommendation) = viewModelScope.launch {
+        val topic = book.primaryTopic ?: return@launch
+        store.reduceRecommendationTopic(topic)
+        _state.value = _state.value.copy(
+            recommendations = _state.value.recommendations.filterNot {
+                it.primaryTopic?.equals(topic, ignoreCase = true) == true
+            }
+        )
+    }
+
+    fun boostRecommendation(book: BookRecommendation) = viewModelScope.launch {
+        store.boostRecommendation(book.authors.firstOrNull(), book.primaryTopic)
+    }
+
     /**
      * Cover for any book. On-device books use the file scanned out of their folder and
      * downloaded books the cover saved next to their audio — the server URL is only the

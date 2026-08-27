@@ -533,6 +533,13 @@ fun SettingsScreen(
                     vm.refreshRecommendations(force = true)
                 }
             }) { Text("Save and refresh") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = {
+                scope.launch {
+                    vm.store.clearRecommendationFeedback()
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Reset recommendation feedback") }
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider(color = Fukuro.colors.outline)

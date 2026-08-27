@@ -92,6 +92,7 @@ class Store(private val context: Context) {
         val LISTENING_SESSIONS = stringPreferencesKey("listening_sessions") // most recent local sessions
         val SERVER_LISTENING_STATS = stringPreferencesKey("server_listening_stats")
         val SERVER_LISTENING_SESSIONS = stringPreferencesKey("server_listening_sessions")
+        val RECOMMENDATION_FEEDBACK = stringPreferencesKey("recommendation_feedback")
     }
 
     val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
@@ -220,6 +221,46 @@ class Store(private val context: Context) {
         val raw = prefs[K.CUSTOM_SHELF]
         if (raw.isNullOrBlank()) emptyList()
         else runCatching { Json.decodeFromString<List<CustomShelfEntry>>(raw) }.getOrDefault(emptyList())
+    }
+
+    val recommendationFeedbackFlow: Flow<RecommendationFeedback> = context.dataStore.data.map { prefs ->
+        prefs[K.RECOMMENDATION_FEEDBACK]?.let { raw ->
+            runCatching { Json.decodeFromString<RecommendationFeedback>(raw) }.getOrNull()
+        } ?: RecommendationFeedback()
+    }
+
+    suspend fun recommendationFeedback(): RecommendationFeedback = recommendationFeedbackFlow.first()
+
+    private suspend fun updateRecommendationFeedback(
+        update: (RecommendationFeedback) -> RecommendationFeedback,
+    ) = context.dataStore.edit { prefs ->
+        val current = prefs[K.RECOMMENDATION_FEEDBACK]?.let { raw ->
+            runCatching { Json.decodeFromString<RecommendationFeedback>(raw) }.getOrNull()
+        } ?: RecommendationFeedback()
+        prefs[K.RECOMMENDATION_FEEDBACK] = Json.encodeToString(update(current))
+    }
+
+    suspend fun dismissRecommendation(key: String) = updateRecommendationFeedback {
+        it.copy(dismissed = it.dismissed + key)
+    }
+
+    suspend fun reduceRecommendationAuthor(author: String) = updateRecommendationFeedback {
+        it.copy(reducedAuthors = it.reducedAuthors + author)
+    }
+
+    suspend fun reduceRecommendationTopic(topic: String) = updateRecommendationFeedback {
+        it.copy(reducedTopics = it.reducedTopics + topic)
+    }
+
+    suspend fun boostRecommendation(author: String?, topic: String?) = updateRecommendationFeedback {
+        it.copy(
+            boostedAuthors = author?.let { name -> it.boostedAuthors + name } ?: it.boostedAuthors,
+            boostedTopics = topic?.let { name -> it.boostedTopics + name } ?: it.boostedTopics,
+        )
+    }
+
+    suspend fun clearRecommendationFeedback() = context.dataStore.edit {
+        it.remove(K.RECOMMENDATION_FEEDBACK)
     }
 
     suspend fun setCustomShelf(entries: List<CustomShelfEntry>) = context.dataStore.edit {
