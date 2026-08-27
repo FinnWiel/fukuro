@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -404,35 +405,72 @@ private fun RankingCard(title: String, values: List<Map.Entry<String, Int>>) {
 @Composable
 private fun ListeningChart(buckets: List<Pair<String, Double>>) {
     val max = buckets.maxOfOrNull { it.second }?.coerceAtLeast(1.0) ?: 1.0
+    val axisWidth = 42.dp
+    val axisGap = 6.dp
+    val barGap = 3.dp
+    val axisLabels = listOf(formatCompactDuration(max), formatCompactDuration(max / 2), "0")
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 16.dp)) {
             Row(
                 Modifier.fillMaxWidth().height(150.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                buckets.forEach { (_, seconds) ->
-                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
-                        Box(
-                            Modifier.fillMaxWidth(0.7f)
-                                .fillMaxHeight((seconds / max).toFloat().coerceIn(0.025f, 1f))
-                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                .background(if (seconds > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                Column(
+                    Modifier.width(axisWidth).fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    axisLabels.forEach { label ->
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
                         )
+                    }
+                }
+                Spacer(Modifier.width(axisGap))
+                Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
+                Spacer(Modifier.width(axisGap))
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                        repeat(3) {
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)))
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(barGap),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        buckets.forEach { (_, seconds) ->
+                            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
+                                Box(
+                                    Modifier.fillMaxWidth(0.7f)
+                                        .fillMaxHeight((seconds / max).toFloat().coerceIn(0.025f, 1f))
+                                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                        .background(if (seconds > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                                )
+                            }
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(7.dp))
             Row(Modifier.fillMaxWidth()) {
-                buckets.forEachIndexed { index, (label, _) ->
-                    val show = buckets.size <= 12 || index == 0 || index == buckets.lastIndex || index % 5 == 0
-                    Text(
-                        if (show) label else "",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
+                Spacer(Modifier.width(axisWidth + axisGap + 1.dp + axisGap))
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(barGap)) {
+                    buckets.forEachIndexed { index, (label, _) ->
+                        val show = buckets.size <= 12 || index == 0 || index == buckets.lastIndex || index % 5 == 0
+                        Text(
+                            if (show) label else "",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }
