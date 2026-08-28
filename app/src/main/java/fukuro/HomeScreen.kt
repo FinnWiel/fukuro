@@ -390,6 +390,7 @@ private fun HomeBookCell(
         cover = vm.coverModel(book.id),
         progress = p?.progress?.toFloat()?.coerceIn(0f, 1f) ?: 0f,
         finished = p?.isFinished == true,
+        progressStyle = state.progressStyle,
         coverSize = state.coverSize,
         onClick = { onOpenBook(book.id) },
         onLongClick = { showOptions = true },

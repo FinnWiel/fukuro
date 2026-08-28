@@ -464,6 +464,7 @@ fun CarouselCell(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    progressStyle: String = "bar",
 ) {
     val c = Fukuro.colors
     val d = Fukuro.dims
@@ -475,17 +476,21 @@ fun CarouselCell(
         Box(Modifier.fillMaxWidth().height(carouselCoverHeight(coverSize))) {
             FlatCover(cover, title, Modifier.fillMaxSize())
             if (progress > 0.001f && !finished) {
-                Box(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .height(d.coverProgress).background(c.coverProgressStrip),
-                ) {
+                if (progressStyle == "circle") {
+                    CoverProgressRing(progress.coerceIn(0f, 1f), this)
+                } else {
                     Box(
-                        Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight()
-                            .background(c.accent),
-                    )
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .height(d.coverProgress).background(c.coverProgressStrip),
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight()
+                                .background(c.accent),
+                        )
+                    }
                 }
             }
-            if (finished) FinishedTick(Modifier.align(Alignment.BottomEnd).padding(5.dp))
+            if (finished) CoverFinishedBadge(this)
         }
         Text(
             title,

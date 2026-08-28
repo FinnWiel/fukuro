@@ -801,8 +801,8 @@ fun LibraryScreen(
  * ring is a filled accent disc with a white tick drawn at the track's stroke width.
  */
 @Composable
-private fun CoverFinishedBadge(boxScope: androidx.compose.foundation.layout.BoxScope) {
-    val accent = MaterialTheme.colorScheme.primary
+fun CoverFinishedBadge(boxScope: androidx.compose.foundation.layout.BoxScope) {
+    val accent = Fukuro.colors.accent
     with(boxScope) {
         Box(
             Modifier.align(Alignment.BottomEnd).padding(6.dp).size(26.dp)
@@ -886,6 +886,7 @@ fun CoverProgressRing(
         ) {
             CircularProgressIndicator(
                 progress = { progress },
+                color = Fukuro.colors.accent,
                 // 18dp inside 26dp, 3dp stroke: kept as ratios so a bigger ring stays
                 // the same drawing rather than a thin hoop
                 modifier = Modifier.size(size * (18f / 26f)),
