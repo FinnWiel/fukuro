@@ -519,7 +519,8 @@ fun PlayerScreen(
                             // speed on the left, accent when it isn't 1x
                             TextButton(
                                 onClick = { showSpeedDialog = true },
-                                contentPadding = PaddingValues(horizontal = 4.dp)
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                shape = FukuroButtonShape,
                             ) {
                                 Text(
                                     "${fmtSpeed(speed)}x",
@@ -783,7 +784,8 @@ fun PlayerScreen(
                                 controller?.setPlaybackSpeed(v.coerceIn(0.1f, 10.0f)); customSpeed = ""
                             }
                         },
-                        enabled = customValue != null && customValue > 0f
+                        enabled = customValue != null && customValue > 0f,
+                        shape = FukuroButtonShape,
                     ) { Text("Set") }
                 }
                 if (customValue != null && customValue > 10f) {
@@ -831,13 +833,14 @@ fun PlayerScreen(
                     )
                     Button(
                         onClick = { customMin?.let { m -> setTimer(m.coerceIn(1, 720)); showSleepDialog = false } },
-                        enabled = customMin != null && customMin > 0
+                        enabled = customMin != null && customMin > 0,
+                        shape = FukuroButtonShape,
                     ) { Text("Start") }
                 }
                 if (sleepRemaining > 0) {
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(onClick = { setTimer(0); showSleepDialog = false },
-                        modifier = Modifier.fillMaxWidth()) { Text("Cancel timer") }
+                        modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) { Text("Cancel timer") }
                 }
             }
         }
@@ -933,9 +936,9 @@ private fun DownloadIconButton(vm: ShelfViewModel, itemId: String) {
             title = { Text("Remove download?") },
             text = { Text("Deletes the offline copy from this device and frees $mb MB. The book stays on your server.") },
             confirmButton = {
-                TextButton(onClick = { confirmRemove = false; vm.deleteDownload(itemId) }) { Text("Remove") }
+                TextButton(onClick = { confirmRemove = false; vm.deleteDownload(itemId) }, shape = FukuroButtonShape) { Text("Remove") }
             },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { confirmRemove = false }, shape = FukuroButtonShape) { Text("Cancel") } }
         )
     }
 

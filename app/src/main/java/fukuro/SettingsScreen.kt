@@ -6,14 +6,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,20 +25,24 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Colorize
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +61,7 @@ import androidx.compose.material3.TextButton
 import java.io.File
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /**
@@ -129,21 +137,21 @@ private fun UpdatesSection(vm: ShelfViewModel) {
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { vm.grantInstallPermission() }) { Text("Allow") }
-                        OutlinedButton(onClick = { vm.installUpdate() }) { Text("Install") }
+                        SettingsButton(onClick = { vm.grantInstallPermission() }) { Text("Allow") }
+                        SettingsButton(onClick = { vm.installUpdate() }) { Text("Install") }
                     }
                 }
-                u.file != null -> Button(onClick = { vm.installUpdate() }) { Text("Install") }
-                else -> Button(onClick = { vm.downloadUpdate() }) { Text("Download and install") }
+                u.file != null -> SettingsButton(onClick = { vm.installUpdate() }) { Text("Install") }
+                else -> SettingsButton(onClick = { vm.downloadUpdate() }) { Text("Download and install") }
             }
         }
     }
 
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
+        SettingsButton(
             onClick = { vm.checkForUpdate(manual = true) },
-            enabled = !u.checking && !u.downloading
+            enabled = !u.checking && !u.downloading,
         ) { Text(if (u.checking) "Checking…" else "Check for updates") }
         when {
             u.upToDate -> Text(
@@ -197,8 +205,8 @@ private fun AccentPickerDialog(initial: Color, onDismiss: () -> Unit, onPick: (S
                 Slider(value = light, onValueChange = { light = it }, valueRange = 0.2f..0.7f)
             }
         },
-        confirmButton = { TextButton(onClick = { onPick(hex) }) { Text("Use colour") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { TextButton(onClick = { onPick(hex) }, shape = FukuroButtonShape) { Text("Use colour") } },
+        dismissButton = { TextButton(onClick = onDismiss, shape = FukuroButtonShape) { Text("Cancel") } }
     )
 }
 
@@ -242,7 +250,6 @@ fun SettingsScreen(
         }
     }
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
-    val shelves by vm.store.homeShelvesFlow.collectAsState(initial = emptyList())
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
@@ -275,6 +282,8 @@ fun SettingsScreen(
                 ),
                 selected = theme,
                 onSelect = { key -> scope.launch { vm.store.setTheme(key) } },
+                modifier = Modifier.fillMaxWidth(),
+                fillWidth = true,
             )
             Spacer(Modifier.height(12.dp))
             OverlineText("Accent color")
@@ -319,14 +328,6 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-            OverlineText("Cover size")
-            Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = COVER_SIZE_LABELS.mapIndexed { i, label -> i to label },
-                selected = coverSize,
-                onSelect = { i -> scope.launch { vm.store.setCoverSize(i) } },
-            )
                 }
             }
 
@@ -337,13 +338,21 @@ fun SettingsScreen(
             Spacer(Modifier.height(16.dp))
 
             SectionTitle("Home")
-            Spacer(Modifier.height(4.dp))
-            SectionCaption(
-                "Your shelves, in the order Home draws them — reorder them, switch " +
-                    "one off, or add one of your own."
+            Spacer(Modifier.height(8.dp))
+            OverlineText("Cover size")
+            Spacer(Modifier.height(8.dp))
+            SegmentedSelector(
+                options = COVER_SIZE_LABELS.mapIndexed { index, label -> index to label },
+                selected = coverSize,
+                onSelect = { value -> scope.launch { vm.store.setCoverSize(value) } },
             )
             Spacer(Modifier.height(12.dp))
-            FukuroChip(shelvesSummary(shelves), false, onOpenShelves)
+            HorizontalDivider(color = Fukuro.colors.outline)
+            Spacer(Modifier.height(12.dp))
+            SettingsButton(
+                onClick = onOpenShelves,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Customise shelves") }
                 }
             }
 
@@ -355,75 +364,44 @@ fun SettingsScreen(
 
             SectionTitle("Player")
             Spacer(Modifier.height(8.dp))
-            OverlineText("Player progress bars")
+            Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = autoNext, onCheckedChange = { on -> scope.launch { vm.store.setAutoNext(on) } })
+                Text("Start the next book when one finishes", Modifier.weight(1f))
+                SettingInfo("Automatically starts the next book when the current book belongs to a series.")
+            }
+
+            Spacer(Modifier.height(12.dp))
+            SettingLabel("Progress on covers", "Choose whether book progress is drawn as a circle or as a bar across the cover.")
             Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = listOf(
-                    "book" to "Whole book",
-                    "chapter" to "Current chapter",
-                    "chapter_cover" to "Both · cover",
-                    "chapter_stacked" to "Both · stacked",
-                ),
+            SegmentedSelector(
+                options = listOf("circle" to "Circle", "bar" to "Bar"),
+                selected = progressStyle,
+                onSelect = { key -> scope.launch { vm.store.setProgressStyle(key) } },
+            )
+
+            Spacer(Modifier.height(12.dp))
+            SettingLabel("Player progress bars", "Both modes use chapter progress for seeking and add whole-book progress on the cover or as a second bar.")
+            Spacer(Modifier.height(8.dp))
+            ProgressBarStylePicker(
                 selected = trackScope,
                 onSelect = { key -> scope.launch { vm.store.setTrackScope(key) } },
             )
-            Spacer(Modifier.height(6.dp))
-            SectionCaption(
-                "Both modes use the chapter as the main seek bar and add total-book progress. " +
-                    "On the cover it takes the shape set under \"How progress shows on covers\"."
-            )
 
             Spacer(Modifier.height(12.dp))
-            OverlineText("Swiping sideways on a player")
+            SettingLabel("Player swipe", "Books without a series always swipe between chapters.")
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("chapter" to "Chapters", "book" to "Books in series").forEach { (key, label) ->
-                    FilterChip(
-                        selected = swipeAction == key,
-                        onClick = { scope.launch { vm.store.setSwipeAction(key) } },
-                        label = { Text(label) }
-                    )
-                }
-            }
-            Text(
-                "A book that isn't part of a series always swipes between chapters.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = autoNext, onCheckedChange = { on -> scope.launch { vm.store.setAutoNext(on) } })
-                Text("Start the next book in the series when one finishes", Modifier.weight(1f))
-            }
-
-            Spacer(Modifier.height(12.dp))
-            OverlineText("How progress shows on covers")
-            Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = listOf("circle" to "Circle", "bar" to "Bar on cover"),
-                selected = progressStyle,
-                onSelect = { key -> scope.launch { vm.store.setProgressStyle(key) } },
+            SegmentedSelector(
+                options = listOf("chapter" to "Chapters", "book" to "Books in series"),
+                selected = swipeAction,
+                onSelect = { key -> scope.launch { vm.store.setSwipeAction(key) } },
             )
 
             Spacer(Modifier.height(16.dp))
             SectionTitle("Skip buttons")
             Spacer(Modifier.height(8.dp))
-            OverlineText("Back")
+            SkipSlider("Back", skipBack) { seconds -> scope.launch { vm.store.setSkipBack(seconds) } }
             Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = listOf(5, 10, 15, 30).map { it to "${it}s" },
-                selected = skipBack,
-                onSelect = { seconds -> scope.launch { vm.store.setSkipBack(seconds) } },
-            )
-            Spacer(Modifier.height(8.dp))
-            OverlineText("Forward")
-            Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = listOf(15, 30, 45, 60).map { it to "${it}s" },
-                selected = skipForward,
-                onSelect = { seconds -> scope.launch { vm.store.setSkipForward(seconds) } },
-            )
+            SkipSlider("Forward", skipForward) { seconds -> scope.launch { vm.store.setSkipForward(seconds) } }
                 }
             }
 
@@ -448,14 +426,14 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { folderPicker.launch(null) }) {
+                SettingsButton(onClick = { folderPicker.launch(null) }) {
                     Text(if (localFolder.isBlank()) "Choose folder" else "Change folder")
                 }
                 if (localFolder.isNotBlank()) {
-                    OutlinedButton(onClick = { vm.rescanLocal() }, enabled = !state.scanning) {
+                    SettingsButton(onClick = { vm.rescanLocal() }, enabled = !state.scanning) {
                         Text(if (state.scanning) "Scanning…" else "Rescan")
                     }
-                    OutlinedButton(onClick = { scope.launch { vm.store.setLocalFolder(""); vm.rescanLocal() } }) {
+                    SettingsButton(onClick = { scope.launch { vm.store.setLocalFolder(""); vm.rescanLocal() } }) {
                         Text("Remove")
                     }
                 }
@@ -484,8 +462,8 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { scope.launch { vm.store.setApiKey(apiKeyText.trim()) } }) { Text("Save key") }
-                Button(onClick = onOpenUpload) { Text("Upload a book") }
+                SettingsButton(onClick = { scope.launch { vm.store.setApiKey(apiKeyText.trim()) } }) { Text("Save key") }
+                SettingsButton(onClick = onOpenUpload) { Text("Upload a book") }
             }
                 }
             }
@@ -505,13 +483,13 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = onSignIn) { Text("Sign in to a server") }
+                SettingsButton(onClick = onSignIn) { Text("Sign in to a server") }
                 Spacer(Modifier.height(140.dp))
                 return@Column
             }
             Text("${username ?: "?"} @ ${server ?: "?"}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { vm.logout(); onLoggedOut() }) { Text("Log out") }
+            SettingsButton(onClick = { vm.logout(); onLoggedOut() }) { Text("Log out") }
 
             Spacer(Modifier.height(24.dp))
             Text(
@@ -535,10 +513,10 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
+                    SettingsButton(onClick = {
                         clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
                     }) { Text("Copy") }
-                    OutlinedButton(onClick = { crashFile.delete(); crashText = null }) { Text("Clear") }
+                    SettingsButton(onClick = { crashFile.delete(); crashText = null }) { Text("Clear") }
                 }
             }
                 }
@@ -547,9 +525,187 @@ fun SettingsScreen(
     }
 }
 
-/** The chip that opens Customise home says how many shelves are switched on. */
-private fun shelvesSummary(shelves: List<Shelf>): String {
-    val on = shelves.count { it.enabled }
-    if (on == 0) return "Customise home"
-    return "Customise home · $on shelf" + (if (on == 1) "" else "s")
+@Composable
+private fun SettingLabel(label: String, info: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        OverlineText(label, Modifier.weight(1f))
+        SettingInfo(info)
+    }
+}
+
+@Composable
+private fun SettingInfo(text: String) {
+    var open by remember { mutableStateOf(false) }
+    IconButton(onClick = { open = true }, modifier = Modifier.size(32.dp)) {
+        Icon(Icons.Rounded.Info, contentDescription = "More information", modifier = Modifier.size(18.dp), tint = Fukuro.colors.onSurfaceVariant)
+    }
+    if (open) AlertDialog(
+        onDismissRequest = { open = false },
+        text = { Text(text) },
+        confirmButton = { TextButton(onClick = { open = false }, shape = FukuroButtonShape) { Text("Got it") } },
+    )
+}
+
+@Composable
+private fun SettingsButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) = OutlinedButton(
+    onClick = onClick,
+    modifier = modifier,
+    enabled = enabled,
+    shape = FukuroButtonShape,
+    colors = ButtonDefaults.outlinedButtonColors(contentColor = Fukuro.colors.onBackground),
+    content = content,
+)
+
+@Composable
+private fun <T> SegmentedSelector(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    val shape = RoundedCornerShape(10.dp)
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().height(42.dp).clip(shape)
+            .border(1.dp, Fukuro.colors.outline, shape)
+    ) {
+        val selectedIndex = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+        val segmentWidth = maxWidth / options.size
+        val highlightX by animateDpAsState(
+            targetValue = segmentWidth * selectedIndex,
+            animationSpec = tween(durationMillis = 220),
+            label = "selector",
+        )
+        Box(
+            Modifier.offset(x = highlightX).width(segmentWidth).fillMaxHeight()
+                .background(Fukuro.colors.accent)
+        )
+        Row(Modifier.fillMaxSize()) {
+            options.forEach { (value, label) ->
+                Box(
+                    Modifier.weight(1f).fillMaxHeight().clickable { onSelect(value) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, style = if (selected == value) Fukuro.type.chipSelected else Fukuro.type.chip,
+                        color = if (selected == value) Fukuro.colors.onAccent else Fukuro.colors.onBackground)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkipSlider(label: String, seconds: Int, onChange: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        OverlineText(label, Modifier.weight(1f))
+        Text("${seconds}s", style = MaterialTheme.typography.labelLarge, color = Fukuro.colors.onBackground)
+    }
+    Slider(
+        value = seconds.toFloat(),
+        onValueChange = { onChange((it / 5f).roundToInt() * 5) },
+        valueRange = 0f..60f,
+        steps = 11,
+        modifier = Modifier.fillMaxWidth().height(32.dp),
+    )
+}
+
+@Composable
+private fun ProgressBarStylePicker(selected: String, onSelect: (String) -> Unit) {
+    val options = listOf(
+        Triple("book", "Whole book", "One overall timeline"),
+        Triple("chapter", "Chapter", "Seek within the chapter"),
+        Triple("chapter_cover", "Cover + chapter", "Book progress on artwork"),
+        Triple("chapter_stacked", "Two timelines", "Chapter above whole book"),
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.chunked(2).forEach { rowOptions ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowOptions.forEach { (key, title, subtitle) ->
+                    ProgressBarStyleCard(
+                        key = key,
+                        title = title,
+                        subtitle = subtitle,
+                        selected = selected == key,
+                        onClick = { onSelect(key) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProgressBarStyleCard(
+    key: String,
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        if (selected) Fukuro.colors.accent else Fukuro.colors.outline,
+        label = "progressStyleBorder",
+    )
+    Column(
+        modifier.clip(shape).background(Fukuro.colors.surface)
+            .border(if (selected) 2.dp else 1.dp, borderColor, shape)
+            .clickable(onClick = onClick).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelLarge,
+                color = Fukuro.colors.onBackground,
+                maxLines = 1,
+            )
+            if (selected) Icon(
+                Icons.Rounded.Check,
+                contentDescription = "Selected",
+                tint = Fukuro.colors.accent,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+        ProgressBarPreview(key)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = Fukuro.colors.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun ProgressBarPreview(style: String) {
+    val trackShape = RoundedCornerShape(2.dp)
+    val track: @Composable (Float, Color) -> Unit = { fraction, color ->
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(trackShape).background(Fukuro.colors.outline)) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(color))
+        }
+    }
+    Column(
+        Modifier.fillMaxWidth().height(24.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        when (style) {
+            "book" -> track(0.28f, Fukuro.colors.accent)
+            "chapter" -> track(0.42f, Fukuro.colors.accent)
+            "chapter_cover" -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { track(0.42f, Fukuro.colors.accent) }
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier.size(16.dp).clip(RoundedCornerShape(3.dp))
+                        .border(3.dp, Fukuro.colors.accent, RoundedCornerShape(3.dp)),
+                )
+            }
+            else -> Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                track(0.42f, Fukuro.colors.accent)
+                track(0.68f, Fukuro.colors.onSurfaceVariant)
+            }
+        }
+    }
 }

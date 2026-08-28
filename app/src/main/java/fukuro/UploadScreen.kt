@@ -62,7 +62,7 @@ fun UploadScreen(vm: ShelfViewModel, onBack: () -> Unit) {
             OutlinedTextField(series, { series = it }, label = { Text("Series (optional)") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(16.dp))
-            OutlinedButton(onClick = { picker.launch("audio/*") }, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { picker.launch("audio/*") }, modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) {
                 Text(if (picked.isEmpty()) "Pick audio file(s)" else "${picked.size} file(s) selected — tap to change")
             }
             Spacer(Modifier.height(16.dp))
@@ -83,12 +83,12 @@ fun UploadScreen(vm: ShelfViewModel, onBack: () -> Unit) {
             Button(
                 onClick = { vm.uploadBook(title, author, series, picked) },
                 enabled = !upload.running && title.isNotBlank() && picked.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape,
             ) { Text(if (upload.running) "Uploading…" else "Upload") }
             if (upload.success) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = { vm.resetUpload(); title = ""; author = ""; series = ""; picked = emptyList() },
-                    modifier = Modifier.fillMaxWidth()) { Text("Upload another") }
+                    modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) { Text("Upload another") }
             }
         }
     }

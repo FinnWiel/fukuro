@@ -211,18 +211,18 @@ fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> U
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onBack) { Text("Done") }
-                    OutlinedButton(onClick = { vm.refresh() }, enabled = !state.loading) {
+                    Button(onClick = onBack, shape = FukuroButtonShape) { Text("Done") }
+                    OutlinedButton(onClick = { vm.refresh() }, enabled = !state.loading, shape = FukuroButtonShape) {
                         Text(if (state.loading) "Checking…" else "Retry")
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { changing = !changing }) {
+                TextButton(onClick = { changing = !changing }, shape = FukuroButtonShape) {
                     Text(if (changing) "Cancel" else "Use a different server")
                 }
-                TextButton(onClick = { vm.logout(); changing = true }) { Text("Log out") }
+                TextButton(onClick = { vm.logout(); changing = true }, shape = FukuroButtonShape) { Text("Log out") }
             }
         }
 
@@ -300,7 +300,7 @@ fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> U
         Button(
             onClick = { vm.login(serverUrl, user, pass) { ok -> if (ok) onLoggedIn() } },
             enabled = !state.loading && serverUrl.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape,
         ) { Text(if (state.loading) "Connecting…" else "Log in") }
         state.error?.let {
             Spacer(Modifier.height(12.dp))
@@ -317,7 +317,7 @@ fun LoginScreen(vm: ShelfViewModel, onBack: () -> Unit = {}, onLoggedIn: () -> U
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = { vm.continueOffline { onLoggedIn() } },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape,
         ) { Text("Continue without a server") }
     }
     }
@@ -435,9 +435,9 @@ fun BookOptionsSheet(
             confirmButton = {
                 TextButton(onClick = {
                     confirmRemove = false; vm.deleteDownload(itemId); onDismiss()
-                }) { Text("Remove") }
+                }, shape = FukuroButtonShape) { Text("Remove") }
             },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { confirmRemove = false }, shape = FukuroButtonShape) { Text("Cancel") } }
         )
     }
 
@@ -460,9 +460,9 @@ fun BookOptionsSheet(
                     vm.renameBook(itemId, renameText) { err ->
                         if (err == null) { showRename = false; onDismiss() } else renameError = err
                     }
-                }, enabled = renameText.isNotBlank()) { Text("Save") }
+                }, enabled = renameText.isNotBlank(), shape = FukuroButtonShape) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showRename = false }, shape = FukuroButtonShape) { Text("Cancel") } }
         )
     }
 }
@@ -738,7 +738,7 @@ fun LibraryScreen(
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionTitle("Sort & filter", Modifier.weight(1f))
-                    TextButton(onClick = { sortBy = "title"; filterBy = "all"; descending = false }) {
+                    TextButton(onClick = { sortBy = "title"; filterBy = "all"; descending = false }, shape = FukuroButtonShape) {
                         Text("Reset", color = c.accent)
                     }
                 }
@@ -1005,6 +1005,7 @@ fun SeriesScreen(
             confirmButton = {
                 TextButton(
                     enabled = selectedForRemoval.isNotEmpty(),
+                    shape = FukuroButtonShape,
                     onClick = {
                         vm.deleteAll(selectedForRemoval.toList())
                         showRemoveDownloads = false
@@ -1012,7 +1013,7 @@ fun SeriesScreen(
                 ) { Text("Remove (${selectedForRemoval.size})") }
             },
             dismissButton = {
-                TextButton(onClick = { showRemoveDownloads = false }) { Text("Cancel") }
+                TextButton(onClick = { showRemoveDownloads = false }, shape = FukuroButtonShape) { Text("Cancel") }
             }
         )
     }

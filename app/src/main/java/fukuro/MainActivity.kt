@@ -9,6 +9,8 @@ import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -17,6 +19,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -25,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -73,6 +77,8 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.ColorUtils
 import androidx.media3.session.MediaController
@@ -92,6 +98,8 @@ import coil.compose.AsyncImage
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlin.math.PI
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
     private val vm: ShelfViewModel by viewModels()
@@ -374,22 +382,7 @@ fun AppNav(
                                 }
                             },
                             icon = {
-                                // bouncy scale-in on the active icon
-                                val scale by animateFloatAsState(
-                                    targetValue = if (selected) FukuroDims.navActiveScale else 1f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    ),
-                                    label = "navIconScale"
-                                )
-                                Box(Modifier.scale(scale)) {
-                                    Icon(
-                                        if (selected) tab.iconSelected else tab.iconIdle,
-                                        tab.label,
-                                        Modifier.size(FukuroDims.navIcon)
-                                    )
-                                }
+                                AnimatedBottomNavIcon(tab, selected)
                             },
                             label = { Text(tab.label, style = FukuroType.navLabel) },
                             colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
@@ -432,6 +425,73 @@ fun AppNav(
         androidx.activity.compose.BackHandler(enabled = sheetItem != null) {
             sheetItem = null
         }
+    }
+}
+
+/** A short, semantic animation each time a bottom-nav destination is selected. */
+@Composable
+private fun AnimatedBottomNavIcon(tab: Tab, selected: Boolean) {
+    val motion = androidx.compose.runtime.remember { Animatable(1f) }
+    LaunchedEffect(selected) {
+        if (selected) {
+            motion.snapTo(0f)
+            motion.animateTo(1f, tween(560, easing = FastOutSlowInEasing))
+        }
+    }
+    val scale by animateFloatAsState(
+        targetValue = if (selected) FukuroDims.navActiveScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "navIconScale",
+    )
+    val progress = motion.value
+    val envelope = sin(PI * progress).toFloat()
+    val iconModifier = Modifier.size(FukuroDims.navIcon).graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+        when (tab.route) {
+            "settings" -> rotationZ = 360f * progress
+            "home" -> translationY = -5f * envelope
+            "library" -> rotationY = 18f * envelope
+        }
+    }
+
+    if (tab.route == "stats") {
+        val color = LocalContentColor.current
+        Canvas(iconModifier) {
+            drawAnimatedStatsBars(color, progress)
+        }
+    } else {
+        Icon(
+            if (selected) tab.iconSelected else tab.iconIdle,
+            tab.label,
+            iconModifier,
+        )
+    }
+}
+
+private fun DrawScope.drawAnimatedStatsBars(color: Color, progress: Float) {
+    val barWidth = size.width * 0.18f
+    val gap = size.width * 0.09f
+    val heights = floatArrayOf(0.42f, 0.72f, 0.55f)
+    val totalWidth = barWidth * 3 + gap * 2
+    val startX = (size.width - totalWidth) / 2f
+    heights.forEachIndexed { index, heightFraction ->
+        val linearGrowth = ((progress - index * 0.10f) / 0.80f).coerceIn(0f, 1f)
+        // Smoothstep keeps the build crisp while avoiding an abrupt start or stop.
+        val growth = linearGrowth * linearGrowth * (3f - 2f * linearGrowth)
+        val height = size.height * heightFraction * growth
+        drawRoundRect(
+            color = color,
+            topLeft = androidx.compose.ui.geometry.Offset(
+                startX + index * (barWidth + gap),
+                size.height * 0.82f - height,
+            ),
+            size = androidx.compose.ui.geometry.Size(barWidth, height),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth * 0.28f),
+        )
     }
 }
 

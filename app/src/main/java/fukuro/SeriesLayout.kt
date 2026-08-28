@@ -276,13 +276,13 @@ private fun SeriesBookRow(
     }
 }
 
-/** Pill action with an icon, matching the chips used everywhere else. */
+/** Compact action with an icon. Pill shapes are reserved for option chips. */
 @Composable
 private fun SeriesAction(label: String, onClick: () -> Unit, icon: @Composable () -> Unit) {
     val c = Fukuro.colors
     Row(
-        Modifier.clip(CircleShape).background(c.surface)
-            .border(1.dp, c.outline, CircleShape)
+        Modifier.clip(FukuroButtonShape).background(c.surface)
+            .border(1.dp, c.outline, FukuroButtonShape)
             .clickable(onClick = onClick)
             .padding(horizontal = Fukuro.dims.chipPaddingH, vertical = Fukuro.dims.chipPaddingV),
         verticalAlignment = Alignment.CenterVertically,

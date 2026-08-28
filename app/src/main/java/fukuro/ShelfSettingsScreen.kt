@@ -238,10 +238,10 @@ fun CustomiseHomeScreen(
                     confirmReset = false
                     shelves = DEFAULT_SHELVES
                     scope.launch { vm.store.resetHomeShelves() }
-                }) { Text("Reset", color = c.accent) }
+                }, shape = FukuroButtonShape) { Text("Reset", color = c.accent) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmReset = false }) {
+                TextButton(onClick = { confirmReset = false }, shape = FukuroButtonShape) {
                     Text("Cancel", color = c.onSurfaceVariant)
                 }
             },
@@ -899,9 +899,9 @@ private fun CustomShelfEditorDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(selected) }) { Text("Save", color = c.accent) } },
+        confirmButton = { TextButton(onClick = { onSave(selected) }, shape = FukuroButtonShape) { Text("Save", color = c.accent) } },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = c.onSurfaceVariant) }
+            TextButton(onClick = onDismiss, shape = FukuroButtonShape) { Text("Cancel", color = c.onSurfaceVariant) }
         },
     )
 }

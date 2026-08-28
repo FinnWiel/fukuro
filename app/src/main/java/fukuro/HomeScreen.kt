@@ -561,7 +561,7 @@ private fun UpdateBanner(vm: ShelfViewModel) {
                         u.file != null -> vm.installUpdate()
                         else -> vm.downloadUpdate()
                     }
-                }) {
+                }, shape = FukuroButtonShape) {
                     Text(
                         when {
                             u.needsPermission -> "Allow"

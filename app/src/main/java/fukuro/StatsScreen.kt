@@ -11,7 +11,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -498,17 +501,36 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>, style: ChartStyl
     val c = Fukuro.colors
     val max = buckets.maxOfOrNull { it.second }?.coerceAtLeast(1.0) ?: 1.0
     val barGap = 3.dp
+    var selectedBucket by remember(buckets, style) { mutableStateOf<Int?>(null) }
+    val selectedColor = lerp(c.accent, Color.Black, 0.28f)
 
     FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp)) {
-            Text(
-                "Peak ${formatCompactDuration(max)}",
-                style = Fukuro.type.captionMeta,
-                color = c.tertiaryText,
-                maxLines = 1,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.End,
-            )
+            Row(
+                Modifier.fillMaxWidth().height(28.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                selectedBucket?.let { index ->
+                    buckets.getOrNull(index)?.let { (label, seconds) ->
+                        Text(
+                            "$label  ·  ${formatExactDuration(seconds)}",
+                            style = Fukuro.type.captionMeta,
+                            color = c.onAccent,
+                            maxLines = 1,
+                            modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                                .background(c.accent)
+                                .padding(horizontal = 8.dp, vertical = 5.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "Peak ${formatCompactDuration(max)}",
+                    style = Fukuro.type.captionMeta,
+                    color = c.tertiaryText,
+                    maxLines = 1,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Box(Modifier.fillMaxWidth().height(Fukuro.dims.chartHeight)) {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
@@ -522,8 +544,14 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>, style: ChartStyl
                         horizontalArrangement = Arrangement.spacedBy(barGap),
                         verticalAlignment = Alignment.Bottom,
                     ) {
-                        buckets.forEach { (_, seconds) ->
-                            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
+                        buckets.forEachIndexed { index, (_, seconds) ->
+                            Box(
+                                Modifier.weight(1f).fillMaxHeight()
+                                    .clickable {
+                                        selectedBucket = if (selectedBucket == index) null else index
+                                    },
+                                contentAlignment = Alignment.BottomCenter,
+                            ) {
                                 Box(
                                     Modifier.fillMaxWidth(0.7f)
                                         .fillMaxHeight((seconds / max).toFloat().coerceIn(0.025f, 1f))
@@ -533,12 +561,27 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>, style: ChartStyl
                                                 topEnd = Fukuro.dims.chartBarRadius,
                                             )
                                         )
-                                        .background(if (seconds > 0) c.accent else c.track)
+                                        .background(
+                                            when {
+                                                seconds <= 0 -> c.track
+                                                selectedBucket == index -> selectedColor
+                                                else -> c.accent
+                                            }
+                                        )
                                 )
                             }
                         }
                     }
-                    ChartStyle.LINE -> LineChart(buckets.map { it.second }, max, c.accent)
+                    ChartStyle.LINE -> LineChart(
+                        values = buckets.map { it.second },
+                        max = max,
+                        color = c.accent,
+                        selectedColor = selectedColor,
+                        selectedIndex = selectedBucket,
+                        onSelect = { index ->
+                            selectedBucket = if (selectedBucket == index) null else index
+                        },
+                    )
                 }
             }
             Spacer(Modifier.height(7.dp))
@@ -586,9 +629,25 @@ private fun ChartStyleButton(
 
 /** The same buckets as a polyline, with a dot on each reading. */
 @Composable
-private fun LineChart(values: List<Double>, max: Double, color: Color) {
+private fun LineChart(
+    values: List<Double>,
+    max: Double,
+    color: Color,
+    selectedColor: Color,
+    selectedIndex: Int?,
+    onSelect: (Int) -> Unit,
+) {
     if (values.isEmpty()) return
-    Canvas(Modifier.fillMaxSize()) {
+    Canvas(
+        Modifier.fillMaxSize().pointerInput(values) {
+            detectTapGestures { tap ->
+                val index = if (values.size == 1) 0 else
+                    ((tap.x / size.width) * (values.size - 1)).roundToInt()
+                        .coerceIn(values.indices)
+                onSelect(index)
+            }
+        }
+    ) {
         val stepX = if (values.size == 1) 0f else size.width / (values.size - 1)
         fun pointAt(index: Int): Offset {
             val fraction = (values[index] / max).toFloat().coerceIn(0f, 1f)
@@ -606,7 +665,15 @@ private fun LineChart(values: List<Double>, max: Double, color: Color) {
         )
         // a dot per reading, but only while they are far enough apart to be legible
         if (values.size <= 14) {
-            values.indices.forEach { drawCircle(color, radius = 3.dp.toPx(), center = pointAt(it)) }
+            values.indices.forEach { index ->
+                drawCircle(
+                    color = if (selectedIndex == index) selectedColor else color,
+                    radius = if (selectedIndex == index) 5.dp.toPx() else 3.dp.toPx(),
+                    center = pointAt(index),
+                )
+            }
+        } else if (selectedIndex != null && selectedIndex in values.indices) {
+            drawCircle(selectedColor, radius = 5.dp.toPx(), center = pointAt(selectedIndex))
         }
     }
 }
@@ -718,6 +785,19 @@ private fun formatDuration(seconds: Double): String {
         minutes < 60 * 24 -> "${minutes / 60}h ${minutes % 60}m"
         else -> "${minutes / 1440}d ${(minutes % 1440) / 60}h"
     }
+}
+
+/** Tooltip duration that always retains minute precision, including multi-day totals. */
+private fun formatExactDuration(seconds: Double): String {
+    val minutes = (seconds / 60).roundToInt().coerceAtLeast(0)
+    val days = minutes / 1440
+    val hours = (minutes % 1440) / 60
+    val mins = minutes % 60
+    return buildList {
+        if (days > 0) add("${days}d")
+        if (hours > 0) add("${hours}h")
+        add("${mins}m")
+    }.joinToString(" ")
 }
 
 private fun formatCompactDuration(seconds: Double): String {

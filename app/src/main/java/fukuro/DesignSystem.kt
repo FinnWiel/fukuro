@@ -30,9 +30,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+
+/** Standard action shape. Pills are reserved for choices, not buttons. */
+val FukuroButtonShape = RoundedCornerShape(10.dp)
 
 /* ---------------------------------------------------------------------------
  * Shared atoms
@@ -144,7 +148,7 @@ fun FukuroChip(
             .clickable(onClick = onClick)
             .padding(horizontal = Fukuro.dims.chipPaddingH, vertical = Fukuro.dims.chipPaddingV),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
         leading?.invoke()
         Text(
@@ -152,6 +156,7 @@ fun FukuroChip(
             style = if (selected) Fukuro.type.chipSelected else Fukuro.type.chip,
             color = if (selected) c.onAccent else c.onBackground,
             maxLines = 1,
+            textAlign = TextAlign.Center,
         )
         trailing?.invoke()
     }
@@ -165,6 +170,7 @@ fun <T> ChipGroup(
     selected: T,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
+    fillWidth: Boolean = false,
 ) {
     androidx.compose.foundation.layout.FlowRow(
         modifier,
@@ -172,7 +178,10 @@ fun <T> ChipGroup(
         verticalArrangement = Arrangement.spacedBy(Fukuro.dims.chipGap),
     ) {
         options.forEach { (value, label) ->
-            FukuroChip(label, value == selected, { onSelect(value) })
+            FukuroChip(
+                label, value == selected, { onSelect(value) },
+                modifier = if (fillWidth) Modifier.weight(1f) else Modifier,
+            )
         }
     }
 }
