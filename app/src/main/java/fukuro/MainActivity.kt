@@ -687,7 +687,6 @@ private fun MiniPlayer(
                 // height isn't overridden by Material's own indicator sizing
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = FukuroDims.miniPlayerMargin)
-                        .padding(bottom = FukuroDims.miniPlayerMargin)
                         .height(FukuroDims.miniPlayerProgress).clip(RoundedCornerShape(2.dp))
                         .background(tokens.miniPlayerTrack)
                 ) {
