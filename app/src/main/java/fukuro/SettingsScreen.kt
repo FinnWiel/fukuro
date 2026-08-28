@@ -13,20 +13,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Colorize
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Slider
@@ -35,7 +30,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -249,25 +243,10 @@ fun SettingsScreen(
     }
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
     val shelves by vm.store.homeShelvesFlow.collectAsState(initial = emptyList())
-    val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
-    var showCustomShelfEditor by remember { mutableStateOf(false) }
-
-    if (showCustomShelfEditor) {
-        CustomShelfEditorDialog(
-            vm = vm,
-            current = customShelf,
-            onDismiss = { showCustomShelfEditor = false },
-            onSave = { entries ->
-                scope.launch { vm.store.setCustomShelf(entries) }
-                showCustomShelfEditor = false
-            },
-        )
-    }
-
     if (showPicker) {
         AccentPickerDialog(
             initial = accentColorOf(accent),
@@ -364,19 +343,7 @@ fun SettingsScreen(
                     "one off, or add one of your own."
             )
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FukuroChip(
-                    label = shelvesSummary(shelves),
-                    selected = false,
-                    onClick = onOpenShelves,
-                )
-                FukuroChip(
-                    label = if (customShelf.isEmpty()) "Hand-picked shelf"
-                    else "Hand-picked (${customShelf.size})",
-                    selected = false,
-                    onClick = { showCustomShelfEditor = true },
-                )
-            }
+            FukuroChip(shelvesSummary(shelves), false, onOpenShelves)
                 }
             }
 
@@ -578,150 +545,6 @@ fun SettingsScreen(
             }
         }
     }
-}
-
-private val CUSTOM_SHELF_TYPES = listOf(
-    "book" to "Books",
-    "series" to "Series",
-    "author" to "Authors",
-    "narrator" to "Narrators",
-)
-
-private fun customShelfTypeLabel(type: String): String =
-    CUSTOM_SHELF_TYPES.firstOrNull { it.first == type }?.second?.removeSuffix("s") ?: type
-
-/** Edit one ordered list whose cards can point at any supported library entity. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CustomShelfEditorDialog(
-    vm: ShelfViewModel,
-    current: List<CustomShelfEntry>,
-    onDismiss: () -> Unit,
-    onSave: (List<CustomShelfEntry>) -> Unit,
-) {
-    val state by vm.state.collectAsState()
-    var selected by remember(current) { mutableStateOf(current) }
-    var type by remember { mutableStateOf("book") }
-    var query by remember { mutableStateOf("") }
-
-    val allCandidates = when (type) {
-        "series" -> state.series.map { CustomShelfEntry("series", it.id, it.name) }
-        "author" -> (state.authors.map { it.name } + state.allItems.flatMap { authorsOf(it) })
-            .filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
-            .map { CustomShelfEntry("author", it, it) }
-        "narrator" -> state.allItems.flatMap { narratorsOf(it) }
-            .filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
-            .map { CustomShelfEntry("narrator", it, it) }
-        else -> state.allItems
-            .sortedBy { it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title }
-            .map { CustomShelfEntry("book", it.id, it.media.metadata.title ?: "Untitled") }
-    }
-    val candidates = allCandidates
-        .filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) }
-        .filterNot { candidate -> selected.any { it.type == candidate.type && it.id == candidate.id } }
-        .take(80)
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Custom shelf") },
-        text = {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 540.dp)) {
-                item {
-                    Text(
-                        "Selected items appear on Home in this exact order.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                if (selected.isEmpty()) {
-                    item {
-                        Text("Nothing selected yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-                itemsIndexed(selected, key = { _, entry -> "selected:${entry.type}:${entry.id}" }) { index, entry ->
-                    Row(
-                        Modifier.fillMaxWidth().height(48.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(entry.title, maxLines = 1)
-                            Text(
-                                customShelfTypeLabel(entry.type),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        IconButton(
-                            enabled = index > 0,
-                            modifier = Modifier.size(32.dp),
-                            onClick = {
-                                selected = selected.toMutableList().also {
-                                    val moved = it.removeAt(index); it.add(index - 1, moved)
-                                }
-                            },
-                        ) { Icon(Icons.Rounded.KeyboardArrowUp, "Move up") }
-                        IconButton(
-                            enabled = index < selected.lastIndex,
-                            modifier = Modifier.size(32.dp),
-                            onClick = {
-                                selected = selected.toMutableList().also {
-                                    val moved = it.removeAt(index); it.add(index + 1, moved)
-                                }
-                            },
-                        ) { Icon(Icons.Rounded.KeyboardArrowDown, "Move down") }
-                        TextButton(onClick = { selected = selected - entry }) { Text("Remove") }
-                    }
-                }
-                item {
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider(color = Fukuro.colors.outline)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Add items", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CUSTOM_SHELF_TYPES.forEach { (key, label) ->
-                            FilterChip(
-                                selected = type == key,
-                                onClick = { type = key; query = "" },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        singleLine = true,
-                        label = { Text("Search ${CUSTOM_SHELF_TYPES.first { it.first == type }.second.lowercase()}") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                }
-                items(candidates, key = { "candidate:${it.type}:${it.id}" }) { entry ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable { selected = selected + entry }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(entry.title, Modifier.weight(1f), maxLines = 2)
-                        TextButton(onClick = { selected = selected + entry }) { Text("Add") }
-                    }
-                }
-                if (candidates.isEmpty()) {
-                    item {
-                        Text(
-                            if (query.isBlank()) "No more items available" else "No matches",
-                            modifier = Modifier.padding(vertical = 12.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onSave(selected) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 /** The chip that opens Customise home says how many shelves are switched on. */

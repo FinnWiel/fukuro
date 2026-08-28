@@ -2,7 +2,7 @@ package fukuro
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragHandle
@@ -30,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -52,10 +57,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
@@ -95,6 +100,7 @@ fun CustomiseHomeScreen(
     LaunchedEffect(stored) { shelves = stored }
     var editing by remember { mutableStateOf<Shelf?>(null) }
     var addingSource by remember { mutableStateOf(false) }
+    var pickingItems by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
 
     fun persist(list: List<Shelf>) {
@@ -130,7 +136,7 @@ fun CustomiseHomeScreen(
                 .padding(bottom = d.chromeHeight(miniPlayerVisible)),
         ) {
             SectionCaption(
-                "Home draws these top to bottom. Long-press the handle to reorder.",
+                "Home draws these top to bottom. Drag a handle to reorder them.",
                 Modifier.padding(horizontal = d.screenPadding, vertical = 4.dp),
             )
             Spacer(Modifier.height(12.dp))
@@ -178,6 +184,19 @@ fun CustomiseHomeScreen(
             onSave = { updated ->
                 persist(shelves.map { if (it.id == updated.id) updated else it })
                 editing = null
+            },
+            onEditItems = { pickingItems = true },
+        )
+    }
+
+    if (pickingItems) {
+        CustomShelfEditorDialog(
+            vm = vm,
+            current = customShelf,
+            onDismiss = { pickingItems = false },
+            onSave = { entries ->
+                scope.launch { vm.store.setCustomShelf(entries) }
+                pickingItems = false
             },
         )
     }
@@ -277,17 +296,19 @@ private fun ShelfReorderList(
                     Modifier.fillMaxWidth()
                         .height(SHELF_ROW_HEIGHT)
                         .zIndex(if (dragging) 1f else 0f)
-                        .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
+                        .offset { IntOffset(0, if (dragging) dragOffset.roundToInt() else 0) }
                         .padding(horizontal = d.screenPadding)
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (dragging) c.surface else androidx.compose.ui.graphics.Color.Transparent)
-                        .clickable { onEdit(shelf) }
                         .padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // The handle drags on touch rather than after a long press: it is
+                    // already a deliberate target, and waiting for a long press meant
+                    // competing with the page's own scroll for the same gesture.
                     Box(
                         Modifier.size(d.touchTarget).pointerInput(shelf.id) {
-                            detectDragGesturesAfterLongPress(
+                            detectDragGestures(
                                 onDragStart = {
                                     dragIndex = currentShelves.indexOfFirst { it.id == shelf.id }
                                     dragOffset = 0f
@@ -295,14 +316,14 @@ private fun ShelfReorderList(
                                 onDrag = { change, amount ->
                                     change.consume()
                                     val from = dragIndex
-                                    if (from < 0) return@detectDragGesturesAfterLongPress
+                                    if (from < 0) return@detectDragGestures
                                     dragOffset += amount.y
                                     val steps = (dragOffset / rowHeightPx).roundToInt()
                                     val to = (from + steps).coerceIn(0, currentShelves.lastIndex)
                                     if (to == from) {
                                         // at an end of the list: don't let the row drift off it
                                         dragOffset = dragOffset.coerceIn(-rowHeightPx, rowHeightPx)
-                                        return@detectDragGesturesAfterLongPress
+                                        return@detectDragGestures
                                     }
                                     move(from, to)
                                     dragOffset -= (to - from) * rowHeightPx
@@ -326,10 +347,11 @@ private fun ShelfReorderList(
                             Icons.Rounded.DragHandle,
                             "Reorder ${shelf.title}",
                             Modifier.size(d.icon),
-                            tint = c.tertiaryText,
+                            tint = if (dragging) c.accent else c.tertiaryText,
                         )
                     }
-                    Column(Modifier.weight(1f)) {
+                    // tapping the shelf itself edits it; the handle keeps the drag
+                    Column(Modifier.weight(1f).clickable { onEdit(shelf) }) {
                         Text(
                             shelf.title,
                             style = Fukuro.type.rowTitle,
@@ -373,7 +395,14 @@ private fun ShelfReorderList(
  * Editing one shelf
  * ------------------------------------------------------------------------- */
 
-private val MAX_ITEM_OPTIONS = listOf<Int?>(null, 5, 10, 20, 50)
+/** The slider runs 1..10 and then one step past it, which means "no limit". */
+private const val MAX_ITEMS_SLIDER_TOP = 11
+
+private fun sliderToMaxItems(position: Float): Int? =
+    position.roundToInt().let { if (it >= MAX_ITEMS_SLIDER_TOP) null else it.coerceAtLeast(1) }
+
+private fun maxItemsToSlider(maxItems: Int?): Float =
+    (maxItems ?: MAX_ITEMS_SLIDER_TOP).coerceIn(1, MAX_ITEMS_SLIDER_TOP).toFloat()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -384,6 +413,7 @@ private fun ShelfEditorSheet(
     shelf: Shelf,
     onDismiss: () -> Unit,
     onSave: (Shelf) -> Unit,
+    onEditItems: () -> Unit,
 ) {
     val c = Fukuro.colors
     val d = Fukuro.dims
@@ -436,13 +466,33 @@ private fun ShelfEditorSheet(
             )
 
             Spacer(Modifier.height(16.dp))
-            OverlineText("Show at most")
-            Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = MAX_ITEM_OPTIONS.map { it to (it?.toString() ?: "All") },
-                selected = draft.maxItems,
-                onSelect = { draft = draft.copy(maxItems = it) },
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OverlineText("Show at most", Modifier.weight(1f))
+                Text(
+                    draft.maxItems?.let { "$it item" + (if (it == 1) "" else "s") } ?: "No limit",
+                    style = Fukuro.type.chip,
+                    color = c.onBackground,
+                )
+            }
+            Slider(
+                value = maxItemsToSlider(draft.maxItems),
+                onValueChange = { draft = draft.copy(maxItems = sliderToMaxItems(it)) },
+                valueRange = 1f..MAX_ITEMS_SLIDER_TOP.toFloat(),
+                // one detent per whole number, so the value is picked exactly
+                steps = MAX_ITEMS_SLIDER_TOP - 2,
             )
+
+            if (draft.source == ShelfSource.CustomList) {
+                Spacer(Modifier.height(16.dp))
+                OverlineText("Items")
+                Spacer(Modifier.height(8.dp))
+                FukuroChip(
+                    label = if (customShelf.isEmpty()) "Choose items"
+                    else "Choose items (${customShelf.size})",
+                    selected = false,
+                    onClick = { onEditItems() },
+                )
+            }
 
             Spacer(Modifier.height(20.dp))
             OverlineText("Preview")
@@ -652,5 +702,152 @@ private fun PickerRow(label: String, onClick: () -> Unit) {
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
             .padding(vertical = 14.dp),
+    )
+}
+
+/* ---------------------------------------------------------------------------
+ * The hand-picked shelf
+ * ------------------------------------------------------------------------- */
+
+private val CUSTOM_SHELF_TYPES = listOf(
+    "book" to "Books",
+    "series" to "Series",
+    "author" to "Authors",
+    "narrator" to "Narrators",
+)
+
+private fun customShelfTypeLabel(type: String): String =
+    CUSTOM_SHELF_TYPES.firstOrNull { it.first == type }?.second?.removeSuffix("s") ?: type
+
+/** Edit one ordered list whose cards can point at any supported library entity. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CustomShelfEditorDialog(
+    vm: ShelfViewModel,
+    current: List<CustomShelfEntry>,
+    onDismiss: () -> Unit,
+    onSave: (List<CustomShelfEntry>) -> Unit,
+) {
+    val c = Fukuro.colors
+    val state by vm.state.collectAsState()
+    var selected by remember(current) { mutableStateOf(current) }
+    var type by remember { mutableStateOf("book") }
+    var query by remember { mutableStateOf("") }
+
+    val allCandidates = when (type) {
+        "series" -> state.series.map { CustomShelfEntry("series", it.id, it.name) }
+        "author" -> (state.authors.map { it.name } + state.allItems.flatMap { authorsOf(it) })
+            .filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
+            .map { CustomShelfEntry("author", it, it) }
+        "narrator" -> state.allItems.flatMap { narratorsOf(it) }
+            .filter { it.isNotBlank() }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
+            .map { CustomShelfEntry("narrator", it, it) }
+        else -> state.allItems
+            .sortedBy { it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title }
+            .map { CustomShelfEntry("book", it.id, it.media.metadata.title ?: "Untitled") }
+    }
+    val candidates = allCandidates
+        .filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) }
+        .filterNot { candidate -> selected.any { it.type == candidate.type && it.id == candidate.id } }
+        .take(80)
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = c.surface,
+        title = { SectionTitle("Hand-picked shelf") },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 540.dp)) {
+                item {
+                    SectionCaption("These appear on Home in this exact order.")
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (selected.isEmpty()) {
+                    item {
+                        SectionCaption("Nothing selected yet")
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+                itemsIndexed(selected, key = { _, entry -> "selected:${entry.type}:${entry.id}" }) { index, entry ->
+                    Row(
+                        Modifier.fillMaxWidth().height(52.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                entry.title,
+                                style = Fukuro.type.body,
+                                color = c.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                customShelfTypeLabel(entry.type),
+                                style = Fukuro.type.captionMeta,
+                                color = c.tertiaryText,
+                            )
+                        }
+                        IconButton(
+                            enabled = index > 0,
+                            modifier = Modifier.size(32.dp),
+                            onClick = {
+                                selected = selected.toMutableList().also {
+                                    val moved = it.removeAt(index); it.add(index - 1, moved)
+                                }
+                            },
+                        ) { Icon(Icons.Rounded.KeyboardArrowUp, "Move up", tint = c.onSurfaceVariant) }
+                        IconButton(
+                            enabled = index < selected.lastIndex,
+                            modifier = Modifier.size(32.dp),
+                            onClick = {
+                                selected = selected.toMutableList().also {
+                                    val moved = it.removeAt(index); it.add(index + 1, moved)
+                                }
+                            },
+                        ) { Icon(Icons.Rounded.KeyboardArrowDown, "Move down", tint = c.onSurfaceVariant) }
+                        IconButton(
+                            modifier = Modifier.size(32.dp),
+                            onClick = { selected = selected - entry },
+                        ) { Icon(Icons.Rounded.Delete, "Remove", tint = c.onSurfaceVariant) }
+                    }
+                }
+                item {
+                    Spacer(Modifier.height(8.dp))
+                    OverlineText("Add items")
+                    Spacer(Modifier.height(8.dp))
+                    ChipGroup(
+                        options = CUSTOM_SHELF_TYPES,
+                        selected = type,
+                        onSelect = { type = it; query = "" },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    FlatTextField(query, { query = it }, "Search")
+                    Spacer(Modifier.height(4.dp))
+                }
+                items(candidates, key = { "candidate:${it.type}:${it.id}" }) { entry ->
+                    Text(
+                        entry.title,
+                        style = Fukuro.type.body,
+                        color = c.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable { selected = selected + entry }
+                            .padding(vertical = 12.dp),
+                    )
+                }
+                if (candidates.isEmpty()) {
+                    item {
+                        SectionCaption(
+                            if (query.isBlank()) "No more items available" else "No matches",
+                            Modifier.padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(selected) }) { Text("Save", color = c.accent) } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = c.onSurfaceVariant) }
+        },
     )
 }

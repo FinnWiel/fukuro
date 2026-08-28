@@ -363,15 +363,15 @@ fun resolveShelf(
 }
 
 /**
- * A carousel of three books looks like a mistake next to a full-width row, so a
- * short carousel falls back to rows. Series always render as rows.
+ * Series carry a segmented progress bar per book, which only fits full width, so
+ * they are always rows. Everything else draws exactly what the shelf asks for.
+ *
+ * A short carousel used to fall back to rows on its own. That silently overrode the
+ * user's choice — picking Carousel on a shelf of three books appeared to do nothing
+ * — so the setting wins and the rule is gone.
  */
-fun effectiveLayout(shelf: Shelf, items: ShelfItems): ShelfLayout = when {
-    items is ShelfItems.SeriesGroups -> ShelfLayout.ROWS
-    shelf.layout == ShelfLayout.CAROUSEL && items is ShelfItems.Books && items.books.size < 4 ->
-        ShelfLayout.ROWS
-    else -> shelf.layout
-}
+fun effectiveLayout(shelf: Shelf, items: ShelfItems): ShelfLayout =
+    if (items is ShelfItems.SeriesGroups) ShelfLayout.ROWS else shelf.layout
 
 /* ---------------------------------------------------------------------------
  * Series rows

@@ -1,6 +1,5 @@
 package fukuro
 
-import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,15 +20,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -46,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -133,6 +127,8 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
             .filter { (day, _) -> inPeriod(day, period, today) }
             .toMap()
     }
+    // Today stands outside the period filter: it is always today.
+    val todaySeconds = allDays.entries.firstOrNull { parseDay(it.key) == today }?.value ?: 0.0
     val listeningSeconds = selectedDays.values.sum()
     val activeDays = selectedDays.count { it.value > 0.0 }
     val finishedProgress = state.progress.values.filter { progress ->
@@ -173,6 +169,8 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                     }
                 }
             }
+
+            item { TodayTile(todaySeconds) }
 
             if (!state.loggedIn && localDays.isEmpty()) item {
                 EmptyStats("Start listening in Fukuro to build your stats. Sign in to include your Audiobookshelf history.")
@@ -283,16 +281,6 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                 RecentSessionsSection(recent, onOpenBook)
             }
 
-            // Year in Review deliberately stays last, regardless of which sections above
-            // have data for the selected period.
-            item {
-                YearInReviewCard(
-                    days = allDays,
-                    progress = state.progress.values.toList(),
-                    sessions = sessions,
-                    library = state.allItems,
-                )
-            }
         }
       }
     }
@@ -495,140 +483,6 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
 }
 
 @Composable
-private fun YearInReviewCard(
-    days: Map<String, Double>,
-    progress: List<MediaProgress>,
-    sessions: List<DisplaySession>,
-    library: List<LibraryItem>,
-) {
-    val context = LocalContext.current
-    val today = LocalDate.now()
-    val years = remember(days) {
-        (days.keys.mapNotNull { parseDay(it)?.year } + today.year)
-            .distinct().sortedDescending()
-    }
-    var selectedYear by remember(years) { mutableStateOf(years.firstOrNull() ?: today.year) }
-    var menuOpen by remember { mutableStateOf(false) }
-    val yearDays = days.mapNotNull { (raw, seconds) -> parseDay(raw)?.takeIf { it.year == selectedYear }?.let { it to seconds } }.toMap()
-    val yearFinished = progress.count { it.isFinished && epochDay(it.lastUpdate)?.year == selectedYear }
-    val active = yearDays.count { it.value > 0 }
-    val activeSet = yearDays.filterValues { it > 0 }.keys
-    val yearSessions = sessions.filter { epochDay(it.startedAt)?.year == selectedYear }
-    val booksById = library.associateBy { it.id }
-    val authorTotals = yearSessions.groupBy { session ->
-        booksById[session.itemId]?.media?.metadata?.authorName
-            ?.takeIf { it.isNotBlank() }
-            ?: session.author.takeIf { it.isNotBlank() }
-    }.filterKeys { it != null }.mapKeys { it.key!! }.mapValues { (_, values) -> values.sumOf { it.seconds } }
-    val seriesTotals = yearSessions.groupBy { session ->
-        booksById[session.itemId]?.media?.metadata?.seriesName
-            ?.substringBeforeLast('#')?.trim()?.takeIf { it.isNotBlank() }
-    }.filterKeys { it != null }.mapKeys { it.key!! }.mapValues { (_, values) -> values.sumOf { it.seconds } }
-    val topAuthor = authorTotals.maxByOrNull { it.value }
-    val topSeries = seriesTotals.maxByOrNull { it.value }
-    val c = Fukuro.colors
-    // The year in review used to be a purple-to-orange wash. The design language has
-    // no decorative colour, so the scale of the numbers carries it instead and the
-    // accent marks only the headline figure and the share action.
-    FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.heroRadius)) {
-        Column(Modifier.padding(20.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    OverlineText("Fukuro")
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "Your year in stories",
-                        style = Fukuro.type.greeting,
-                        color = c.onBackground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Box {
-                    FukuroChip(
-                        label = selectedYear.toString(),
-                        selected = false,
-                        onClick = { menuOpen = true },
-                        trailing = {
-                            Icon(
-                                Icons.Rounded.ArrowDropDown, null,
-                                Modifier.size(18.dp), tint = c.onSurfaceVariant,
-                            )
-                        },
-                    )
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        years.forEach { year ->
-                            DropdownMenuItem(text = { Text(year.toString()) }, onClick = {
-                                selectedYear = year
-                                menuOpen = false
-                            })
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(24.dp))
-            Text(formatDuration(yearDays.values.sum()), style = Fukuro.type.display, color = c.accent)
-            Text("spent listening", style = Fukuro.type.body, color = c.onSurfaceVariant)
-            Spacer(Modifier.height(24.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                WrappedNumber(yearFinished.toString(), "books finished")
-                WrappedNumber(active.toString(), "active days")
-                WrappedNumber(longestStreak(activeSet).toString(), "best streak")
-            }
-            Spacer(Modifier.height(22.dp))
-            WrappedHighlight("Most-listened author", topAuthor?.key)
-            Spacer(Modifier.height(12.dp))
-            WrappedHighlight("Most-listened series", topSeries?.key)
-            Spacer(Modifier.height(16.dp))
-            FukuroChip(
-                label = "Share year",
-                selected = true,
-                onClick = {
-                    val summary = buildString {
-                        append("My $selectedYear Fukuro stats: ")
-                        append("${formatDuration(yearDays.values.sum())} listening, ")
-                        append("$yearFinished books finished, $active active days, ")
-                        append("${longestStreak(activeSet)} day best streak.")
-                        topAuthor?.let { append(" Most-listened author: ${it.key}.") }
-                        topSeries?.let { append(" Most-listened series: ${it.key}.") }
-                    }
-                    context.startActivity(Intent.createChooser(
-                        Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, summary)
-                        },
-                        "Share year in review",
-                    ))
-                },
-                leading = { Icon(Icons.Rounded.Share, null, Modifier.size(16.dp), tint = c.onAccent) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun WrappedHighlight(label: String, name: String?) {
-    Column {
-        OverlineText(label)
-        Text(
-            name ?: "No listening yet",
-            style = Fukuro.type.heroTitle,
-            color = Fukuro.colors.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun WrappedNumber(value: String, label: String) {
-    Column {
-        Text(value, style = Fukuro.type.statValue, color = Fukuro.colors.onBackground)
-        Text(label, style = Fukuro.type.captionMeta, color = Fukuro.colors.tertiaryText)
-    }
-}
-
-@Composable
 private fun SessionRow(session: DisplaySession, onClick: () -> Unit) {
     val c = Fukuro.colors
     Row(
@@ -759,4 +613,36 @@ private fun mostCommonTime(sessions: List<DisplaySession>): String {
         when (hour) { in 5..11 -> "Morning"; in 12..17 -> "Afternoon"; else -> "Evening" }
     }.eachCount()
     return counts.maxByOrNull { it.value }?.key ?: "—"
+}
+
+/**
+ * Today's listening, in its own small tile above the period sections — it is the
+ * one figure that should not move when the period chips change.
+ */
+@Composable
+private fun TodayTile(seconds: Double) {
+    val c = Fukuro.colors
+    FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.tileRadius)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                OverlineText("Listened today")
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (seconds > 0) formatDuration(seconds) else "Nothing yet",
+                    style = Fukuro.type.statValue,
+                    color = if (seconds > 0) c.accent else c.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Icon(
+                Icons.Rounded.Schedule,
+                null,
+                Modifier.size(Fukuro.dims.icon),
+                tint = c.tertiaryText,
+            )
+        }
+    }
 }
