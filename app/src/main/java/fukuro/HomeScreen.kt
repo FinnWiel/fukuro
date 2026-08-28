@@ -76,6 +76,8 @@ fun HomeScreen(
     onOpenSeries: (String) -> Unit = {},
     onOpenAuthor: (String) -> Unit = {},
     onPlayBook: (String) -> Unit = {},
+    playingBookId: String? = null,
+    isPlaying: Boolean = false,
     miniPlayerVisible: Boolean = false,
 ) {
     val state by vm.state.collectAsState()
@@ -133,6 +135,8 @@ fun HomeScreen(
                         onOpenSeries = onOpenSeries,
                         onOpenAuthor = onOpenAuthor,
                         onPlayBook = onPlayBook,
+                        playingBookId = playingBookId,
+                        isPlaying = isPlaying,
                         onOpenNarrator = onOpenNarrator,
                     )
                 }
@@ -242,6 +246,8 @@ private fun LazyListScope.shelfBody(
     onOpenAuthor: (String) -> Unit,
     onOpenNarrator: (String) -> Unit,
     onPlayBook: (String) -> Unit,
+    playingBookId: String?,
+    isPlaying: Boolean,
 ) {
     val layout = effectiveLayout(shelf, content)
     when (content) {
@@ -261,6 +267,7 @@ private fun LazyListScope.shelfBody(
                         cover = vm.coverModel(book.id),
                         onOpen = { onOpenBook(book.id) },
                         onPlay = { onPlayBook(book.id) },
+                        isPlaying = playingBookId == book.id && isPlaying,
                         modifier = Modifier.padding(
                             start = Fukuro.dims.screenPadding,
                             end = Fukuro.dims.screenPadding,

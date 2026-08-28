@@ -187,6 +187,9 @@ fun AppNav(
     var playingBookId by androidx.compose.runtime.remember(controller) {
         mutableStateOf(bookId(controller?.currentMediaItem))
     }
+    var controllerIsPlaying by androidx.compose.runtime.remember(controller) {
+        mutableStateOf(controller?.isPlaying == true)
+    }
     androidx.compose.runtime.DisposableEffect(controller) {
         val activeController = controller
         if (activeController == null) {
@@ -196,9 +199,13 @@ fun AppNav(
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     playingBookId = bookId(mediaItem)
                 }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    controllerIsPlaying = isPlaying
+                }
             }
             activeController.addListener(listener)
             playingBookId = bookId(activeController.currentMediaItem)
+            controllerIsPlaying = activeController.isPlaying
             onDispose { activeController.removeListener(listener) }
         }
     }
@@ -274,7 +281,13 @@ fun AppNav(
                         onOpenSeries = { id -> nav.navigate("series/$id") },
                         onOpenAuthor = { name -> nav.navigate("author/${android.net.Uri.encode(name)}") },
                         onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") },
-                        onPlayBook = { id -> playBook(id) },
+                        onPlayBook = { id ->
+                            if (playingBookId == id) {
+                                if (controller?.isPlaying == true) controller?.pause() else controller?.play()
+                            } else playBook(id)
+                        },
+                        playingBookId = playingBookId,
+                        isPlaying = controllerIsPlaying,
                         miniPlayerVisible = miniPlayerVisible)
                 }
                 composable("library") {

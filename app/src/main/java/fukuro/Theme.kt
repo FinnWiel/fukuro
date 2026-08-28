@@ -196,11 +196,11 @@ object FukuroDims {
     val chipPaddingV = 7.dp
     val statusDot = 7.dp
 
-    val heroHeight = 144.dp
+    val heroHeight = 120.dp
     val heroRadius = 20.dp
     val heroPadding = 16.dp
-    val heroCoverWidth = 76.dp
-    val heroCoverHeight = 112.dp
+    val heroCoverWidth = 88.dp
+    val heroCoverHeight = 88.dp
     val heroCoverRadius = 8.dp
     val heroCoverElevation = 10.dp
     val heroPlayButton = 52.dp

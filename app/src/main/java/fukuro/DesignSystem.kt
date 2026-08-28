@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -364,6 +365,7 @@ fun AccentPlayButton(
     contentDescription: String,
     modifier: Modifier = Modifier,
     size: Dp = Fukuro.dims.heroPlayButton,
+    isPlaying: Boolean = false,
 ) {
     val c = Fukuro.colors
     Box(
@@ -371,7 +373,7 @@ fun AccentPlayButton(
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            Icons.Rounded.PlayArrow,
+            if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
             contentDescription,
             Modifier.size(Fukuro.dims.heroPlayIcon),
             tint = c.onAccent,
@@ -393,6 +395,7 @@ fun HeroCard(
     onPlay: () -> Unit,
     modifier: Modifier = Modifier,
     overline: String = "Reading now",
+    isPlaying: Boolean = false,
 ) {
     val c = Fukuro.colors
     val d = Fukuro.dims
@@ -437,7 +440,11 @@ fun HeroCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            AccentPlayButton(onPlay, "Play $title")
+            AccentPlayButton(
+                onPlay,
+                if (isPlaying) "Pause $title" else "Play $title",
+                isPlaying = isPlaying,
+            )
         }
     }
 }
