@@ -1,7 +1,6 @@
 package fukuro
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
@@ -27,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -38,14 +36,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
-import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
@@ -63,7 +58,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
@@ -102,12 +96,10 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 
 /* ---------------- Login ---------------- */
 
@@ -540,361 +532,14 @@ fun narratorsOf(item: LibraryItem): List<String> =
 fun LibraryItem.hasNarrator(name: String): Boolean =
     narratorsOf(this).any { it.equals(name.trim(), ignoreCase = true) }
 
-/** Cover size options: home carousel width, and how many columns the grids use. */
+/**
+ * Cover size options. The grids use them as a column count; Home's carousels turn
+ * the same setting into a cell width (see [carouselCellWidth]).
+ */
 val COVER_SIZE_LABELS = listOf("XS", "S", "M", "L", "XL")
-private val COVER_ROW_WIDTHS = listOf(88, 104, 120, 142, 168)
 private val COVER_GRID_COLUMNS = listOf(5, 4, 3, 2, 1)
 
-fun coverRowWidth(size: Int) = COVER_ROW_WIDTHS[size.coerceIn(0, 4)]
 fun coverGridColumns(size: Int) = COVER_GRID_COLUMNS[size.coerceIn(0, 4)]
-
-/* ---------------- Home ---------------- */
-
-private data class HomeContent(
-    val inProgress: List<LibraryItem> = emptyList(),
-    val series: List<AbsSeries> = emptyList(),
-    val favorites: List<LibraryItem> = emptyList(),
-    val completed: List<LibraryItem> = emptyList(),
-    val downloaded: List<LibraryItem> = emptyList(),
-    val custom: List<CustomShelfEntry> = emptyList(),
-    val authors: List<Pair<AbsAuthor, Int>> = emptyList(),
-    val narrators: List<Pair<String, Int>> = emptyList(),
-    val allBooks: List<LibraryItem> = emptyList(),
-)
-
-private fun buildHomeContent(
-    state: UiState,
-    enabledSections: Set<String>,
-    customShelf: List<CustomShelfEntry>,
-): HomeContent {
-    val items = state.items
-    val inProgress = if ("continue" in enabledSections) items.filter { item ->
-        val p = state.progress[item.id]
-        p != null && !p.isFinished && p.progress > 0.001 && item.id !in state.continueHidden
-    }.sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L } else emptyList()
-
-    val visibleSeries = if ("series" in enabledSections) state.series.map { series ->
-        if (state.offline) series.copy(books = series.books.filter { state.isOnDevice(it.id) }) else series
-    }.filter { it.books.isNotEmpty() } else emptyList()
-
-    val favorites = if ("favorites" in enabledSections) {
-        items.filter { it.id in state.favorites }
-    } else emptyList()
-    val completed = if ("completed" in enabledSections) items
-        .filter { state.progress[it.id]?.isFinished == true }
-        .sortedByDescending { state.progress[it.id]?.lastUpdate ?: 0L } else emptyList()
-    val downloaded = if ("downloaded" in enabledSections) {
-        items.filter { it.id in state.downloadedIds }
-    } else emptyList()
-
-    val custom = if ("custom" in enabledSections) customShelf.filter { entry ->
-        when (entry.type) {
-            "book" -> items.any { it.id == entry.id }
-            "series" -> state.series.firstOrNull { it.id == entry.id }
-                ?.books?.any { !state.offline || state.isOnDevice(it.id) } == true
-            "author" -> items.any { it.hasAuthor(entry.id) }
-            "narrator" -> items.any { it.hasNarrator(entry.id) }
-            else -> false
-        }
-    } else emptyList()
-
-    val authors = if ("authors" in enabledSections) {
-        val source = state.authors.ifEmpty {
-            items.flatMap { authorsOf(it) }.groupingBy { it }.eachCount()
-                .map { (name, count) -> AbsAuthor(id = "", name = name, numBooks = count) }
-                .sortedBy { it.name.lowercase() }
-        }.filter { author -> !state.offline || items.any { it.hasAuthor(author.name) } }
-        source.map { author -> author to items.count { it.hasAuthor(author.name) } }
-    } else emptyList()
-
-    val narrators = if ("narrators" in enabledSections) items.flatMap { narratorsOf(it) }
-        .groupingBy { it }.eachCount().toList().sortedBy { it.first.lowercase() }
-    else emptyList()
-
-    val allBooks = if ("all" in enabledSections) items.sortedBy {
-        it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title
-    } else emptyList()
-
-    return HomeContent(
-        inProgress, visibleSeries, favorites, completed, downloaded,
-        custom, authors, narrators, allBooks,
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HomeScreen(
-    vm: ShelfViewModel,
-    onOpenBook: (String) -> Unit,
-    onOpenServer: () -> Unit = {},
-    onOpenNarrator: (String) -> Unit = {},
-    onOpenSeries: (String) -> Unit = {},
-    onOpenAuthor: (String) -> Unit = {},
-) {
-    val state by vm.state.collectAsState()
-    val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
-    val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
-    val sections = sectionsCsv.split(',').filter { it.isNotBlank() }
-    // Shelf construction includes grouping and sorting the full library. Keep that work
-    // away from the main thread so returning to Home can draw its first frame immediately.
-    var homeContent by remember { mutableStateOf(HomeContent()) }
-    LaunchedEffect(
-        state.allItems, state.series, state.authors,
-        state.serverProgress, state.localProgress,
-        state.downloadedIds, state.favorites, state.continueHidden,
-        state.serverChecked, state.serverOnline,
-        sectionsCsv, customShelf,
-    ) {
-        homeContent = withContext(Dispatchers.Default) {
-            buildHomeContent(state, sections.toSet(), customShelf)
-        }
-    }
-
-    Scaffold(topBar = {
-        TopAppBar(
-            title = {
-                Icon(
-                    painter = painterResource(R.drawable.ic_owl),
-                    contentDescription = "Fukuro",
-                    tint = Color(0xFFEF4223),
-                    modifier = Modifier.width(52.dp).height(32.dp),
-                )
-            },
-            actions = {
-                // server status; tap to add a server or manage the connection
-                val tint = when {
-                    state.serverOnline -> Color(0xFF2FBF71)
-                    state.loggedIn -> Color(0xFFE5484D)
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(end = 8.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onOpenServer() }
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        if (state.serverOnline) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
-                        contentDescription = "Server connection",
-                        modifier = Modifier.size(18.dp),
-                        tint = tint
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        when {
-                            state.serverOnline -> "Server"
-                            state.loggedIn -> "Offline"
-                            else -> "Add server"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = tint
-                    )
-                }
-            }
-        )
-    }) { pad ->
-        PullToRefreshBox(
-            isRefreshing = state.loading,
-            onRefresh = { vm.refresh() },
-            modifier = Modifier.fillMaxSize().padding(pad)
-        ) {
-        LazyColumn(Modifier.fillMaxSize()) {
-            item { UpdateBanner(vm) }
-            sections.forEach { section ->
-                when (section) {
-                    "continue" -> {
-                        // most recently listened first; dismissed books are left out
-                        val inProgress = homeContent.inProgress
-                        if (inProgress.isNotEmpty()) {
-                            item { SectionHeader("Continue Listening") }
-                            item { BookRow(vm, inProgress, state, onOpenBook) }
-                        }
-                    }
-                    "series" -> {
-                        // offline a series shrinks to the part of it that's on the device,
-                        // and drops out entirely when none of it is
-                        val withBooks = homeContent.series
-                        if (withBooks.isNotEmpty()) {
-                            item { SectionHeader("Series") }
-                            item {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                                    items(withBooks, key = { it.id }) { series ->
-                                        CollectionCard(
-                                            // up to four covers, in reading order
-                                            covers = series.books.take(4).map { vm.coverModel(it.id) },
-                                            title = series.name,
-                                            subtitle = "${series.books.size} book" +
-                                                (if (series.books.size == 1) "" else "s"),
-                                            coverSize = state.coverSize,
-                                            onClick = { onOpenSeries(series.id) }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    "favorites" -> {
-                        val favs = homeContent.favorites
-                        if (favs.isNotEmpty()) {
-                            item { SectionHeader("Favorites") }
-                            item { BookRow(vm, favs, state, onOpenBook) }
-                        }
-                    }
-                    "completed" -> {
-                        // most recently finished first, so the shelf reflects what you just ended
-                        val done = homeContent.completed
-                        if (done.isNotEmpty()) {
-                            item { SectionHeader("Completed") }
-                            item { BookRow(vm, done, state, onOpenBook) }
-                        }
-                    }
-                    "downloaded" -> {
-                        val downloaded = homeContent.downloaded
-                        if (downloaded.isNotEmpty()) {
-                            item { SectionHeader("Downloaded") }
-                            item { BookRow(vm, downloaded, state, onOpenBook) }
-                        }
-                    }
-                    "custom" -> {
-                        val visible = homeContent.custom
-                        if (visible.isNotEmpty()) {
-                            item { SectionHeader("Custom") }
-                            item {
-                                CustomShelfRow(
-                                    vm = vm,
-                                    entries = visible,
-                                    state = state,
-                                    onOpenBook = onOpenBook,
-                                    onOpenSeries = onOpenSeries,
-                                    onOpenAuthor = onOpenAuthor,
-                                    onOpenNarrator = onOpenNarrator,
-                                )
-                            }
-                        }
-                    }
-                    "authors" -> {
-                        // prefer the server's author list (it carries portraits); fall back to
-                        // grouping books by author name when the endpoint isn't available
-                        val authors = homeContent.authors
-                        if (authors.isNotEmpty()) {
-                            item { SectionHeader("Authors") }
-                            item {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                                    items(authors, key = { it.first.id.ifBlank { it.first.name } }) { (author, books) ->
-                                        CollectionCard(
-                                            covers = listOf(author.imagePath?.let { vm.api.authorImageUrl(author.id) }),
-                                            title = author.name,
-                                            subtitle = (if (books > 0) books else author.numBooks).let {
-                                                "$it book" + (if (it == 1) "" else "s")
-                                            },
-                                            coverSize = state.coverSize,
-                                            onClick = { onOpenAuthor(author.name) },
-                                            placeholder = { OwlPlaceholder() }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    "narrators" -> {
-                        val narrators = homeContent.narrators
-                        if (narrators.isNotEmpty()) {
-                            item { SectionHeader("Narrators") }
-                            item {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-                                    items(narrators, key = { it.first }) { (name, count) ->
-                                        CollectionCard(
-                                            // the server has no narrator portraits, so the
-                                            // owl stands in, same as an author without a photo
-                                            covers = listOf(null),
-                                            title = name,
-                                            subtitle = "$count book" + (if (count == 1) "" else "s"),
-                                            coverSize = state.coverSize,
-                                            onClick = { onOpenNarrator(name) },
-                                            placeholder = { OwlPlaceholder() }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    "all" -> {
-                        item { SectionHeader("All Books") }
-                        item { BookRow(vm, homeContent.allBooks, state, onOpenBook) }
-                    }
-                }
-            }
-            item { Spacer(Modifier.height(140.dp)) } // clear the floating chrome
-        }
-        }
-    }
-}
-
-/**
- * Quiet strip at the top of Home when a newer release is out — otherwise the automatic
- * check would only ever be visible to someone who went looking in Settings.
- */
-@Composable
-private fun UpdateBanner(vm: ShelfViewModel) {
-    val u by vm.update.collectAsState()
-    val info = u.info
-    if (info == null || u.dismissed) return
-
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Row(
-            Modifier.height(52.dp).padding(start = 14.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                when {
-                    u.downloading -> "Downloading ${info.version}… ${(u.progress * 100).toInt()}%"
-                    u.needsPermission -> "Allow Fukuro to install apps"
-                    else -> "Fukuro ${info.version} is available"
-                },
-                Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                maxLines = 2, overflow = TextOverflow.Ellipsis
-            )
-            if (u.downloading) {
-                CircularProgressIndicator(
-                    progress = { u.progress },
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
-                )
-                Spacer(Modifier.width(12.dp))
-            } else {
-                TextButton(onClick = {
-                    when {
-                        u.needsPermission -> vm.grantInstallPermission()
-                        u.file != null -> vm.installUpdate()
-                        else -> vm.downloadUpdate()
-                    }
-                }) {
-                    Text(
-                        when {
-                            u.needsPermission -> "Allow"
-                            u.file != null -> "Install"
-                            else -> "Update"
-                        }
-                    )
-                }
-            }
-            IconButton(onClick = { vm.dismissUpdate() }, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    Icons.Rounded.Close, "Dismiss", Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
-    }
-}
 
 /* ---------------- Library (full grid + search) ---------------- */
 
@@ -944,7 +589,8 @@ fun LibraryScreen(
     miniPlayerVisible: Boolean = false,
 ) {
     // the floating chrome is taller when the mini player is showing
-    val chromeHeight = if (miniPlayerVisible) 140.dp else 84.dp
+    val chromeHeight = FukuroDims.chromeHeight(miniPlayerVisible)
+    val c = Fukuro.colors
     val state by vm.state.collectAsState()
     val favoritesTop by vm.store.favoritesTopFlow.collectAsState(initial = false)
     var query by remember { mutableStateOf("") }
@@ -974,35 +620,44 @@ fun LibraryScreen(
 
     val activeFilters = (if (filterBy != "all") 1 else 0) + (if (sortBy != "title") 1 else 0)
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Library") }) }) { pad ->
+    Scaffold(containerColor = c.background) { pad ->
         PullToRefreshBox(
             isRefreshing = state.loading,
             onRefresh = { vm.refresh() },
-            modifier = Modifier.fillMaxSize().padding(pad)
+            modifier = Modifier.fillMaxSize().padding(top = pad.calculateTopPadding())
         ) {
             Box(Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                     state = gridState,
                     columns = GridCells.Fixed(coverGridColumns(state.coverSize)),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = chromeHeight),
+                    contentPadding = PaddingValues(
+                        start = FukuroDims.screenPadding - 4.dp,
+                        end = FukuroDims.screenPadding - 4.dp,
+                        top = 10.dp,
+                        bottom = chromeHeight,
+                    ),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // search scrolls away with the content
+                    // title and search scroll away with the content
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column {
+                            Text(
+                                "Library",
+                                style = FukuroType.greeting,
+                                color = c.onBackground,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+                            )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
                             ) {
-                                // hand-built so the border can match the icon stroke weight;
-                                // OutlinedTextField hard-codes a 1dp border
+                                // hand-built so the field is a flat surface with the same
+                                // hairline as every other one; OutlinedTextField is not
                                 Box(
-                                    Modifier.weight(1f).height(48.dp)
-                                        .border(
-                                            2.dp,
-                                            MaterialTheme.colorScheme.outline,
-                                            RoundedCornerShape(24.dp)
-                                        )
+                                    Modifier.weight(1f).height(FukuroDims.touchTarget)
+                                        .clip(RoundedCornerShape(FukuroDims.touchTarget / 2))
+                                        .background(c.surface)
+                                        .border(1.dp, c.outline, RoundedCornerShape(FukuroDims.touchTarget / 2))
                                         .padding(horizontal = 14.dp),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
@@ -1011,17 +666,15 @@ fun LibraryScreen(
                                             value = query,
                                             onValueChange = { query = it },
                                             singleLine = true,
-                                            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            ),
-                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                            textStyle = FukuroType.chip.copy(color = c.onBackground),
+                                            cursorBrush = SolidColor(c.accent),
                                             modifier = Modifier.weight(1f),
                                             decorationBox = { inner ->
                                                 if (query.isEmpty()) {
                                                     Text(
                                                         "Search",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        style = FukuroType.chip,
+                                                        color = c.onSurfaceVariant
                                                     )
                                                 }
                                                 inner()
@@ -1029,24 +682,27 @@ fun LibraryScreen(
                                         )
                                         Icon(
                                             Icons.Filled.Search, null, Modifier.size(20.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            tint = c.onSurfaceVariant
                                         )
                                     }
                                 }
                                 Spacer(Modifier.width(8.dp))
-                                IconButton(onClick = { sheetOpen = true }, modifier = Modifier.size(48.dp)) {
+                                IconButton(
+                                    onClick = { sheetOpen = true },
+                                    modifier = Modifier.size(FukuroDims.touchTarget)
+                                ) {
                                     Icon(
                                         Icons.Rounded.FilterList, "Sort and filter",
-                                        tint = if (activeFilters > 0) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                        Modifier.size(FukuroDims.icon),
+                                        tint = if (activeFilters > 0) c.accent else c.onSurfaceVariant
                                     )
                                 }
                             }
                             if (activeFilters > 0 || query.isNotBlank()) {
                                 Text(
                                     "${sorted.size} of ${state.items.size} books",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = FukuroType.captionMeta,
+                                    color = c.tertiaryText,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                 )
                             }
@@ -1075,68 +731,60 @@ fun LibraryScreen(
     }
 
     if (sheetOpen) {
-        ModalBottomSheet(onDismissRequest = { sheetOpen = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { sheetOpen = false },
+            containerColor = c.background,
+        ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sort & filter", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    SectionTitle("Sort & filter", Modifier.weight(1f))
                     TextButton(onClick = { sortBy = "title"; filterBy = "all"; descending = false }) {
-                        Text("Reset")
+                        Text("Reset", color = c.accent)
                     }
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Text("Sort by", style = MaterialTheme.typography.titleSmall)
+                OverlineText("Sort by")
                 Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
+                ChipGroup(
+                    options = listOf(
                         "title" to "Title", "author" to "Author", "narrator" to "Narrator",
                         "added" to "Recently added", "duration" to "Length", "progress" to "Progress",
-                    ).forEach { (key, label) ->
-                        FilterChip(
-                            selected = sortBy == key,
-                            onClick = { sortBy = key },
-                            label = { Text(label) }
-                        )
-                    }
-                }
+                    ),
+                    selected = sortBy,
+                    onSelect = { sortBy = it },
+                )
                 Spacer(Modifier.height(8.dp))
-                FilterChip(
+                FukuroChip(
+                    label = if (descending) "Descending" else "Ascending",
                     selected = descending,
                     onClick = { descending = !descending },
-                    label = { Text(if (descending) "Descending" else "Ascending") },
-                    leadingIcon = {
+                    leading = {
                         Icon(
                             if (descending) Icons.Rounded.ArrowDownward else Icons.Rounded.ArrowUpward,
-                            null, Modifier.size(16.dp)
+                            null, Modifier.size(16.dp),
+                            tint = if (descending) c.onAccent else c.onBackground
                         )
                     }
                 )
 
                 Spacer(Modifier.height(20.dp))
-                Text("Show", style = MaterialTheme.typography.titleSmall)
+                OverlineText("Show")
                 Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
+                ChipGroup(
+                    options = listOf(
                         "all" to "All books", "reading" to "In progress", "unstarted" to "Not started",
                         "finished" to "Finished", "downloaded" to "Downloaded", "favorites" to "Favorites",
-                    ).forEach { (key, label) ->
-                        FilterChip(
-                            selected = filterBy == key,
-                            onClick = { filterBy = key },
-                            label = { Text(label) }
-                        )
-                    }
-                }
+                    ),
+                    selected = filterBy,
+                    onSelect = { filterBy = it },
+                )
 
                 Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Favorites on top", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Applies everywhere, saved as a setting",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Text("Favorites on top", style = FukuroType.rowTitle, color = c.onBackground)
+                        SectionCaption("Applies everywhere, saved as a setting")
                     }
                     Switch(
                         checked = favoritesTop,
@@ -1145,35 +793,6 @@ fun LibraryScreen(
                 }
             }
         }
-    }
-}
-
-/** Card for a series or author in a carousel: cover, name, count. */
-@Composable
-private fun CollectionCard(
-    covers: List<Any?>, // URLs for server items, Files for on-device covers
-    title: String,
-    subtitle: String,
-    coverSize: Int,
-    onClick: () -> Unit,
-    placeholder: @Composable () -> Unit = { CoverPlaceholder() },
-) {
-    // series/author cards track the cover size setting, a little wider than book cards
-    Column(Modifier.width((coverRowWidth(coverSize) + 20).dp).padding(4.dp).clickable { onClick() }) {
-        val shape = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))
-        if (covers.size > 1) {
-            CoverMosaic(covers, contentDescription = title, modifier = shape)
-        } else {
-            CoverImage(
-                model = covers.firstOrNull(), contentDescription = title,
-                modifier = shape, placeholder = placeholder
-            )
-        }
-        Text(
-            title, style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp)
-        )
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1214,12 +833,17 @@ private fun CoverProgressBar(progress: Float, boxScope: androidx.compose.foundat
         Box(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 // follow the cover's rounded bottom corners
-                .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
-                .height(5.dp).background(Color(0x99000000))
+                .clip(
+                    RoundedCornerShape(
+                        bottomStart = FukuroDims.coverRadius,
+                        bottomEnd = FukuroDims.coverRadius,
+                    )
+                )
+                .height(FukuroDims.coverProgress).background(Fukuro.colors.coverProgressStrip)
         ) {
             Box(
                 Modifier.fillMaxWidth(progress).fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.primary)
+                    .background(Fukuro.colors.accent)
             )
         }
     }
@@ -1289,13 +913,15 @@ fun BookGridCell(vm: ShelfViewModel, book: LibraryItem, state: UiState, onOpenBo
             CoverImage(
                 model = vm.coverModel(book.id),
                 contentDescription = book.media.metadata.title,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f)
+                    .clip(RoundedCornerShape(FukuroDims.coverRadius))
             )
             CoverProgressOverlay(p, state.progressStyle, this)
         }
         Text(
             book.media.metadata.title ?: "?",
-            style = MaterialTheme.typography.bodySmall,
+            style = FukuroType.captionTitle,
+            color = Fukuro.colors.onBackground,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp)
         )
@@ -1418,12 +1044,10 @@ fun SeriesScreen(
 fun NarratorGridScreen(vm: ShelfViewModel, narrator: String, onOpenBook: (String) -> Unit, onBack: () -> Unit) {
     val state by vm.state.collectAsState()
     val books = state.items.filter { it.hasNarrator(narrator) }
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(narrator, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
-        )
-    }) { pad ->
+    Scaffold(
+        containerColor = Fukuro.colors.background,
+        topBar = { FlatTopBar(narrator, onBack) },
+    ) { pad ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(coverGridColumns(state.coverSize)),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 140.dp),
@@ -1440,12 +1064,10 @@ fun NarratorGridScreen(vm: ShelfViewModel, narrator: String, onOpenBook: (String
 fun AuthorGridScreen(vm: ShelfViewModel, author: String, onOpenBook: (String) -> Unit, onBack: () -> Unit) {
     val state by vm.state.collectAsState()
     val books = state.items.filter { it.hasAuthor(author) }
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(author, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } }
-        )
-    }) { pad ->
+    Scaffold(
+        containerColor = Fukuro.colors.background,
+        topBar = { FlatTopBar(author, onBack) },
+    ) { pad ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(coverGridColumns(state.coverSize)),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 140.dp),
@@ -1455,119 +1077,3 @@ fun AuthorGridScreen(vm: ShelfViewModel, author: String, onOpenBook: (String) ->
         }
     }
 }
-
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title, style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-    )
-}
-
-@Composable
-private fun BookRow(vm: ShelfViewModel, books: List<LibraryItem>, state: UiState, onOpenBook: (String) -> Unit) {
-    LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) {
-        items(books, key = { it.id }) { book ->
-            BookShelfCard(vm, book, state, onOpenBook)
-        }
-    }
-}
-
-@Composable
-private fun BookShelfCard(
-    vm: ShelfViewModel,
-    book: LibraryItem,
-    state: UiState,
-    onOpenBook: (String) -> Unit,
-) {
-    val p = state.progress[book.id]
-    var showOptions by remember { mutableStateOf(false) }
-    if (showOptions) BookOptionsSheet(vm, book.id, onDismiss = { showOptions = false })
-    Column(
-        Modifier.width(coverRowWidth(state.coverSize).dp).padding(4.dp)
-            .combinedClickable(
-                onClick = { onOpenBook(book.id) },
-                onLongClick = { showOptions = true },
-            )
-    ) {
-        Box(Modifier.fillMaxWidth()) {
-            CoverImage(
-                model = vm.coverModel(book.id),
-                contentDescription = book.media.metadata.title,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp)),
-            )
-            CoverProgressOverlay(p, state.progressStyle, this)
-        }
-        Text(
-            book.media.metadata.title ?: "?",
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-/** A single ordered row that deliberately keeps unlike library entities mixed. */
-@Composable
-private fun CustomShelfRow(
-    vm: ShelfViewModel,
-    entries: List<CustomShelfEntry>,
-    state: UiState,
-    onOpenBook: (String) -> Unit,
-    onOpenSeries: (String) -> Unit,
-    onOpenAuthor: (String) -> Unit,
-    onOpenNarrator: (String) -> Unit,
-) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
-        items(entries, key = { "${it.type}:${it.id}" }) { entry ->
-            when (entry.type) {
-                "book" -> state.items.firstOrNull { it.id == entry.id }?.let {
-                    BookShelfCard(vm, it, state, onOpenBook)
-                }
-                "series" -> state.series.firstOrNull { it.id == entry.id }?.let { series ->
-                    val books = if (state.offline) {
-                        series.books.filter { state.isOnDevice(it.id) }
-                    } else series.books
-                    if (books.isNotEmpty()) {
-                        CollectionCard(
-                            covers = books.take(4).map { vm.coverModel(it.id) },
-                            title = entry.title,
-                            subtitle = "${books.size} book" + if (books.size == 1) "" else "s",
-                            coverSize = state.coverSize,
-                            onClick = { onOpenSeries(entry.id) },
-                        )
-                    }
-                }
-                "author" -> {
-                    val books = state.items.filter { it.hasAuthor(entry.id) }
-                    if (books.isNotEmpty()) {
-                        val author = state.authors.firstOrNull { it.name.equals(entry.id, ignoreCase = true) }
-                        CollectionCard(
-                            covers = listOf(author?.imagePath?.let { vm.api.authorImageUrl(author.id) }),
-                            title = entry.title,
-                            subtitle = "${books.size} book" + if (books.size == 1) "" else "s",
-                            coverSize = state.coverSize,
-                            onClick = { onOpenAuthor(entry.id) },
-                            placeholder = { OwlPlaceholder() },
-                        )
-                    }
-                }
-                "narrator" -> {
-                    val count = state.items.count { it.hasNarrator(entry.id) }
-                    if (count > 0) {
-                        CollectionCard(
-                            covers = listOf(null),
-                            title = entry.title,
-                            subtitle = "$count book" + if (count == 1) "" else "s",
-                            coverSize = state.coverSize,
-                            onClick = { onOpenNarrator(entry.id) },
-                            placeholder = { OwlPlaceholder() },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-

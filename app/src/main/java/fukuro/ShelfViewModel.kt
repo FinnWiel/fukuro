@@ -25,6 +25,8 @@ data class UiState(
     val allItems: List<LibraryItem> = emptyList(),
     val series: List<AbsSeries> = emptyList(),
     val authors: List<AbsAuthor> = emptyList(),
+    /** Named libraries on the server; only for the shelf editor, so not cached. */
+    val libraries: List<AbsLibrary> = emptyList(),
     val serverProgress: Map<String, MediaProgress> = emptyMap(),
     val localProgress: Map<String, LocalProgress> = emptyMap(),
     val downloadedIds: Set<String> = emptySet(),
@@ -270,7 +272,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             try {
-                val lib = api.libraries().firstOrNull()
+                val libraries = api.libraries()
+                val lib = libraries.firstOrNull()
                 val items = if (lib != null) api.libraryItems(lib.id) else emptyList()
                 val series = if (lib != null) try { api.librarySeries(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
                 val authors = if (lib != null) try { api.libraryAuthors(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
@@ -278,7 +281,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 cache.write(CachedLibrary(items, series, authors, progress.values.toList()))
                 _state.value = _state.value.copy(
                     allItems = (items + localItems).unique(), series = series, authors = authors,
-                    serverProgress = progress,
+                    libraries = libraries, serverProgress = progress,
                     loading = false, serverOnline = true, serverChecked = true, downloadedIds = downloaded,
                     localCount = localItems.size
                 )

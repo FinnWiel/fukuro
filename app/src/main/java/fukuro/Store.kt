@@ -60,7 +60,8 @@ class Store(private val context: Context) {
         val TOKEN = stringPreferencesKey("token")
         val USERNAME = stringPreferencesKey("username")
         val THEME = stringPreferencesKey("theme") // system | dark | light
-        val HOME_SECTIONS = stringPreferencesKey("home_sections") // csv order
+        val HOME_SECTIONS = stringPreferencesKey("home_sections") // csv order, pre-1.11 shelves
+        val HOME_SHELVES = stringPreferencesKey("home_shelves") // json list of Shelf
         val LOCAL_PROGRESS = stringPreferencesKey("local_progress") // json {itemId: currentTimeSec}
         val ACCENT = stringPreferencesKey("accent") // "dynamic" or a key from ACCENT_COLORS
         val PROGRESS_STYLE = stringPreferencesKey("progress_style") // "circle" | "bar"
@@ -143,8 +144,34 @@ class Store(private val context: Context) {
     fun skipForwardBlocking(): Int = mSkipForward
     fun downloadDirBlocking(): String = mDownloadDir
     val apiKeyFlow: Flow<String> = context.dataStore.data.map { it[K.API_KEY] ?: "" }
-    val homeSectionsFlow: Flow<String> =
-        context.dataStore.data.map { it[K.HOME_SECTIONS] ?: DEFAULT_SECTIONS }
+    /*
+     * Home shelves. Nothing saved yet means one of two things: a fresh install,
+     * which gets the designed defaults, or an existing one that only ever knew the
+     * old CSV of section keys — that gets its own order carried across, so an
+     * arrangement someone set up survives the upgrade. The CSV is left in place
+     * either way; the first save here takes over from it for good.
+     */
+    private val shelfJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    val homeShelvesFlow: Flow<List<Shelf>> = context.dataStore.data.map { prefs ->
+        val raw = prefs[K.HOME_SHELVES]
+        if (!raw.isNullOrBlank()) {
+            runCatching { shelfJson.decodeFromString<List<Shelf>>(raw) }.getOrNull()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { return@map it }
+        }
+        prefs[K.HOME_SECTIONS]?.let { shelvesFromSections(it) } ?: DEFAULT_SHELVES
+    }
+
+    suspend fun setHomeShelves(shelves: List<Shelf>) = context.dataStore.edit {
+        it[K.HOME_SHELVES] = shelfJson.encodeToString(shelves.distinctBy { shelf -> shelf.id })
+    }
+
+    /** Back to the designed defaults, dropping the old CSV order with them. */
+    suspend fun resetHomeShelves() = context.dataStore.edit {
+        it[K.HOME_SHELVES] = shelfJson.encodeToString(DEFAULT_SHELVES)
+        it.remove(K.HOME_SECTIONS)
+    }
     val serverFlow: Flow<String?> = context.dataStore.data.map { it[K.SERVER] }
     val usernameFlow: Flow<String?> = context.dataStore.data.map { it[K.USERNAME] }
 
@@ -321,8 +348,6 @@ class Store(private val context: Context) {
         if (favorite) cur.addAll(itemIds) else cur.removeAll(itemIds.toSet())
         context.dataStore.edit { it[K.FAVORITES] = cur.joinToString(",") }
     }
-    suspend fun setHomeSections(csv: String) = context.dataStore.edit { it[K.HOME_SECTIONS] = csv }
-
     suspend fun logout() = context.dataStore.edit { it.remove(K.TOKEN); it.remove(K.USERNAME) }
 
     /**
@@ -383,19 +408,4 @@ class Store(private val context: Context) {
      */
     fun setLocalProgressBlocking(itemId: String, currentTimeSec: Double) =
         runBlocking { setLocalProgress(itemId, currentTimeSec) }
-
-    companion object {
-        const val DEFAULT_SECTIONS = "continue,favorites,downloaded,series,all"
-        val SECTION_LABELS = mapOf(
-            "continue" to "Continue Listening",
-            "favorites" to "Favorites",
-            "completed" to "Completed",
-            "downloaded" to "Downloaded",
-            "custom" to "Custom",
-            "series" to "Series",
-            "authors" to "Authors",
-            "narrators" to "Narrators",
-            "all" to "All Books",
-        )
-    }
 }
