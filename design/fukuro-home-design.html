@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Fukuro Home — design reference</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:FILL,wght,GRAD,opsz@0..1,300..700,0,24&display=block" rel="stylesheet">
+<style>
+body{margin:0;background:#e9e7e2;font-family:Roboto,system-ui,sans-serif;padding:40px 44px}
+h1{font:700 20px/1.2 Roboto,sans-serif;color:#1a1a1a;margin:0 0 6px}
+p.lede{font:400 13px/1.6 Roboto,sans-serif;color:rgba(0,0,0,.6);margin:0 0 28px;max-width:640px}
+.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 12px/1.3 Roboto,sans-serif;color:rgba(0,0,0,.55)}
+.oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px}
+.frame{width:396px;border-radius:26px;overflow:hidden;box-shadow:0 18px 44px rgba(0,0,0,.22)}
+.ms{font-family:'Material Symbols Rounded';font-weight:400;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;direction:ltr;-webkit-font-smoothing:antialiased}
+</style></head><body>
+<h1>Fukuro Home — target design</h1>
+<p class="lede">Design reference for the app redesign. Each frame is 396&times;812 CSS px, which maps 1:1 to dp on an Android device. Read the inline styles for exact colours, sizes, and spacing; the written spec in <code>claude-code-prompt.md</code> lists the same values as tokens. 5a is dark, 5b is light. The mini player and bottom nav stay light-on-dark in both themes.</p>
+<div class="dv-opts">
+<div class="dv-opt" id="5a"><div class="dv-olabel"><span class="oid">5a</span>Flat surfaces · dark</div>
+<div class="frame">
+<div style="position:relative;width:396px;height:812px;overflow:hidden;background:#101312;color:#EDEDED">
+
+<div style="position:relative;padding:10px 0 0">
+
+<div style="display:flex;align-items:center;gap:10px;height:44px;padding:0 16px">
+<div style="flex:1;min-width:0;font-size:22px;font-weight:700;letter-spacing:-.2px">Good evening</div>
+<div style="display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;background:#181C1A;border:1px solid #232826"><span style="width:7px;height:7px;border-radius:50%;background:#2FBF71"></span><span style="font-size:12px;font-weight:500;letter-spacing:.5px">Server</span></div>
+</div>
+
+<div style="display:flex;gap:8px;margin-top:12px;padding:0 16px">
+<div style="padding:7px 13px;border-radius:999px;background:#EF4223;color:#000;font-size:13px;font-weight:600;flex:none">All</div>
+<div style="padding:7px 13px;border-radius:999px;background:#181C1A;border:1px solid #232826;font-size:13px;font-weight:500;flex:none">In progress</div>
+<div style="padding:7px 13px;border-radius:999px;background:#181C1A;border:1px solid #232826;font-size:13px;font-weight:500;flex:none">Downloaded</div>
+<div style="padding:7px 13px;border-radius:999px;background:#181C1A;border:1px solid #232826;font-size:13px;font-weight:500;flex:none">Series</div>
+</div>
+
+<div style="margin:10px 16px 0;height:144px;box-sizing:border-box;border-radius:20px;background:#181C1A;border:1px solid #232826;padding:16px;display:flex;gap:14px;align-items:center">
+<div style="width:76px;height:112px;border-radius:8px;background:#1F3A4D;flex:none;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;box-shadow:0 10px 24px rgba(0,0,0,.45)"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">The Long Winter</span></div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px">
+<div style="font-size:11px;font-weight:600;letter-spacing:2px;color:#BFC4C1">READING NOW</div>
+<div style="font-size:18px;font-weight:600;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Long Winter</div>
+<div style="height:4px;border-radius:999px;background:rgba(255,255,255,.18)"><div style="width:42%;height:4px;border-radius:999px;background:#EF4223"></div></div>
+<div style="font-size:12px;color:#BFC4C1">Chapter 14  ·  6h 51m left</div>
+</div>
+<div style="width:52px;height:52px;border-radius:50%;background:#EF4223;flex:none;display:flex;align-items:center;justify-content:center"><span class="ms" style="font-size:30px;color:#000;font-variation-settings:'FILL' 1">play_arrow</span></div>
+</div>
+
+<div style="font-size:18px;font-weight:700;letter-spacing:-.1px;margin:12px 16px 8px">Jump back in</div>
+<div style="display:flex;gap:12px;padding:0 16px">
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#6B2D2A;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">Salt and Iron</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:18%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Salt and Iron</div><div style="font-size:11px;color:#9AA09D">9h 04m left</div></div>
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#4A4E3A;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">A History of Quiet Places</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:71%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">A History of Quiet Places</div><div style="font-size:11px;color:#9AA09D">2h 40m left</div></div>
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#3C2E4D;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">The Cartographer</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:9%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Cartographer</div><div style="font-size:11px;color:#9AA09D">11h 12m left</div></div>
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#8A3E2B;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">Nightjar</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:34%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Nightjar</div><div style="font-size:11px;color:#9AA09D">5h 30m left</div></div>
+</div>
+
+<div style="font-size:18px;font-weight:700;letter-spacing:-.1px;margin:12px 16px 8px">Your series</div>
+<div style="display:flex;flex-direction:column;gap:10px;padding:0 16px">
+<div style="display:flex;align-items:center;gap:12px;height:86px"><div style="width:52px;height:78px;border-radius:6px;background:#3C2E4D;flex:none"></div><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:baseline;gap:8px"><div style="flex:1;min-width:0;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Winter Cycle</div><span style="font-size:11px;color:#BFC4C1;flex:none">2 / 5</span></div><div style="font-size:12px;color:#BFC4C1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Next up · Book 3, The Cartographer</div><div style="display:flex;gap:3px;height:6px"><div style="flex:1;border-radius:3px;background:#EF4223"></div><div style="flex:1;border-radius:3px;background:#EF4223"></div><div style="flex:1.3;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden"><div style="width:42%;height:6px;background:#EF4223"></div></div><div style="flex:1;border-radius:3px;background:rgba(255,255,255,.18)"></div><div style="flex:.9;border-radius:3px;background:rgba(255,255,255,.18)"></div></div></div></div>
+<div style="display:flex;align-items:center;gap:12px;height:86px"><div style="width:52px;height:78px;border-radius:6px;background:#7A5C2E;flex:none"></div><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:baseline;gap:8px"><div style="flex:1;min-width:0;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Salt Roads</div><span style="font-size:11px;color:#BFC4C1;flex:none">0 / 4</span></div><div style="font-size:12px;color:#BFC4C1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Start with · Book 1, Ledger of Small Hours</div><div style="display:flex;gap:3px;height:6px"><div style="flex:1.1;border-radius:3px;background:rgba(255,255,255,.18)"></div><div style="flex:1;border-radius:3px;background:rgba(255,255,255,.18)"></div><div style="flex:1.2;border-radius:3px;background:rgba(255,255,255,.18)"></div><div style="flex:.9;border-radius:3px;background:rgba(255,255,255,.18)"></div></div></div></div>
+</div>
+
+</div>
+
+<div style="position:absolute;left:0;right:0;bottom:0;padding-top:16px;background:linear-gradient(to bottom,transparent 0%,rgba(0,0,0,.6) 45%,rgba(0,0,0,.91) 100%)">
+<div style="margin:0 6px 2px"><div style="border-radius:10px;background:#24333F;overflow:hidden">
+<div style="display:flex;align-items:center;padding:6px 2px 6px 7px">
+<div style="width:46px;height:46px;border-radius:6px;background:#1F3A4D;flex:none"></div>
+<div style="width:8px"></div>
+<div style="flex:1;min-width:0"><div style="font-size:14px;letter-spacing:.25px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Long Winter</div><div style="font-size:12px;letter-spacing:.4px;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Chapter 14  ·  Ada Vance</div></div>
+<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span class="ms" style="font-size:24px;color:rgba(255,255,255,.7)">favorite</span></div>
+<div style="width:46px;height:46px;display:flex;align-items:center;justify-content:center"><span class="ms" style="font-size:32px;color:#fff;font-variation-settings:'FILL' 1">pause</span></div>
+<div style="width:10px"></div>
+</div>
+<div style="margin:0 6px 6px;height:3px;border-radius:2px;background:rgba(255,255,255,.28)"><div style="width:42%;height:3px;border-radius:2px;background:#fff"></div></div>
+</div></div>
+<div style="height:60px;display:flex">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#fff"><span class="ms" style="font-size:24px;transform:scale(1.18);font-variation-settings:'FILL' 1">home</span><span style="font-size:11px;font-weight:500;letter-spacing:.5px">Home</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:rgba(255,255,255,.55)"><span class="ms" style="font-size:24px">library_books</span><span style="font-size:11px;font-weight:500;letter-spacing:.5px">Library</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:rgba(255,255,255,.55)"><span class="ms" style="font-size:24px">settings</span><span style="font-size:11px;font-weight:500;letter-spacing:.5px">Settings</span></div>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+
+<div class="dv-opt" id="5b"><div class="dv-olabel"><span class="oid">5b</span>Flat surfaces · light</div>
+<div class="frame">
+<div style="position:relative;width:396px;height:812px;overflow:hidden;background:#F8FAF9;color:#141816">
+
+<div style="position:relative;padding:10px 0 0">
+
+<div style="display:flex;align-items:center;gap:10px;height:44px;padding:0 16px">
+<div style="flex:1;min-width:0;font-size:22px;font-weight:700;letter-spacing:-.2px">Good evening</div>
+<div style="display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;background:#FFFFFF;border:1px solid #E6EAE8"><span style="width:7px;height:7px;border-radius:50%;background:#2FBF71"></span><span style="font-size:12px;font-weight:500;letter-spacing:.5px">Server</span></div>
+</div>
+
+<div style="display:flex;gap:8px;margin-top:12px;padding:0 16px">
+<div style="padding:7px 13px;border-radius:999px;background:#EF4223;color:#fff;font-size:13px;font-weight:600;flex:none">All</div>
+<div style="padding:7px 13px;border-radius:999px;background:#FFFFFF;border:1px solid #E6EAE8;font-size:13px;font-weight:500;flex:none">In progress</div>
+<div style="padding:7px 13px;border-radius:999px;background:#FFFFFF;border:1px solid #E6EAE8;font-size:13px;font-weight:500;flex:none">Downloaded</div>
+<div style="padding:7px 13px;border-radius:999px;background:#FFFFFF;border:1px solid #E6EAE8;font-size:13px;font-weight:500;flex:none">Series</div>
+</div>
+
+<div style="margin:10px 16px 0;height:144px;box-sizing:border-box;border-radius:20px;background:#FFFFFF;border:1px solid #E6EAE8;padding:16px;display:flex;gap:14px;align-items:center">
+<div style="width:76px;height:112px;border-radius:8px;background:#1F3A4D;flex:none;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;box-shadow:0 10px 24px rgba(20,24,22,.22)"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">The Long Winter</span></div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px">
+<div style="font-size:11px;font-weight:600;letter-spacing:2px;color:#464B49">READING NOW</div>
+<div style="font-size:18px;font-weight:600;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Long Winter</div>
+<div style="height:4px;border-radius:999px;background:rgba(20,24,22,.12)"><div style="width:42%;height:4px;border-radius:999px;background:#EF4223"></div></div>
+<div style="font-size:12px;color:#464B49">Chapter 14  ·  6h 51m left</div>
+</div>
+<div style="width:52px;height:52px;border-radius:50%;background:#EF4223;flex:none;display:flex;align-items:center;justify-content:center"><span class="ms" style="font-size:30px;color:#fff;font-variation-settings:'FILL' 1">play_arrow</span></div>
+</div>
+
+<div style="font-size:18px;font-weight:700;letter-spacing:-.1px;margin:12px 16px 8px">Jump back in</div>
+<div style="display:flex;gap:12px;padding:0 16px">
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#6B2D2A;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">Salt and Iron</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:18%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Salt and Iron</div><div style="font-size:11px;color:#6b706e">9h 04m left</div></div>
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#4A4E3A;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">A History of Quiet Places</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:71%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">A History of Quiet Places</div><div style="font-size:11px;color:#6b706e">2h 40m left</div></div>
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#3C2E4D;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">The Cartographer</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:9%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Cartographer</div><div style="font-size:11px;color:#6b706e">11h 12m left</div></div>
+<div style="width:96px;flex:none"><div style="height:108px;border-radius:6px;background:#8A3E2B;display:flex;align-items:flex-start;padding:9px;box-sizing:border-box;position:relative;overflow:hidden"><span style="font-size:11px;font-weight:600;line-height:1.15;color:#fff">Nightjar</span><div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.45)"><div style="width:34%;height:3px;background:#EF4223"></div></div></div><div style="font-size:12px;padding-top:6px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Nightjar</div><div style="font-size:11px;color:#6b706e">5h 30m left</div></div>
+</div>
+
+<div style="font-size:18px;font-weight:700;letter-spacing:-.1px;margin:12px 16px 8px">Your series</div>
+<div style="display:flex;flex-direction:column;gap:10px;padding:0 16px">
+<div style="display:flex;align-items:center;gap:12px;height:86px"><div style="width:52px;height:78px;border-radius:6px;background:#3C2E4D;flex:none"></div><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:baseline;gap:8px"><div style="flex:1;min-width:0;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Winter Cycle</div><span style="font-size:11px;color:#6b706e;flex:none">2 / 5</span></div><div style="font-size:12px;color:#6b706e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Next up · Book 3, The Cartographer</div><div style="display:flex;gap:3px;height:6px"><div style="flex:1;border-radius:3px;background:#EF4223"></div><div style="flex:1;border-radius:3px;background:#EF4223"></div><div style="flex:1.3;border-radius:3px;background:rgba(20,24,22,.12);overflow:hidden"><div style="width:42%;height:6px;background:#EF4223"></div></div><div style="flex:1;border-radius:3px;background:rgba(20,24,22,.12)"></div><div style="flex:.9;border-radius:3px;background:rgba(20,24,22,.12)"></div></div></div></div>
+<div style="display:flex;align-items:center;gap:12px;height:86px"><div style="width:52px;height:78px;border-radius:6px;background:#7A5C2E;flex:none"></div><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:baseline;gap:8px"><div style="flex:1;min-width:0;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Salt Roads</div><span style="font-size:11px;color:#6b706e;flex:none">0 / 4</span></div><div style="font-size:12px;color:#6b706e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Start with · Book 1, Ledger of Small Hours</div><div style="display:flex;gap:3px;height:6px"><div style="flex:1.1;border-radius:3px;background:rgba(20,24,22,.12)"></div><div style="flex:1;border-radius:3px;background:rgba(20,24,22,.12)"></div><div style="flex:1.2;border-radius:3px;background:rgba(20,24,22,.12)"></div><div style="flex:.9;border-radius:3px;background:rgba(20,24,22,.12)"></div></div></div></div>
+</div>
+
+</div>
+
+<div style="position:absolute;left:0;right:0;bottom:0;padding-top:16px;background:linear-gradient(to bottom,transparent 0%,rgba(0,0,0,.6) 45%,rgba(0,0,0,.91) 100%)">
+<div style="margin:0 6px 2px"><div style="border-radius:10px;background:#24333F;overflow:hidden">
+<div style="display:flex;align-items:center;padding:6px 2px 6px 7px">
+<div style="width:46px;height:46px;border-radius:6px;background:#1F3A4D;flex:none"></div>
+<div style="width:8px"></div>
+<div style="flex:1;min-width:0"><div style="font-size:14px;letter-spacing:.25px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The Long Winter</div><div style="font-size:12px;letter-spacing:.4px;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Chapter 14  ·  Ada Vance</div></div>
+<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span class="ms" style="font-size:24px;color:rgba(255,255,255,.7)">favorite</span></div>
+<div style="width:46px;height:46px;display:flex;align-items:center;justify-content:center"><span class="ms" style="font-size:32px;color:#fff;font-variation-settings:'FILL' 1">pause</span></div>
+<div style="width:10px"></div>
+</div>
+<div style="margin:0 6px 6px;height:3px;border-radius:2px;background:rgba(255,255,255,.28)"><div style="width:42%;height:3px;border-radius:2px;background:#fff"></div></div>
+</div></div>
+<div style="height:60px;display:flex">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#fff"><span class="ms" style="font-size:24px;transform:scale(1.18);font-variation-settings:'FILL' 1">home</span><span style="font-size:11px;font-weight:500;letter-spacing:.5px">Home</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:rgba(255,255,255,.55)"><span class="ms" style="font-size:24px">library_books</span><span style="font-size:11px;font-weight:500;letter-spacing:.5px">Library</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:rgba(255,255,255,.55)"><span class="ms" style="font-size:24px">settings</span><span style="font-size:11px;font-weight:500;letter-spacing:.5px">Settings</span></div>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+</div>
+</div>
+</body></html>
