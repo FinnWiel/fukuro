@@ -126,7 +126,12 @@ fun CustomiseHomeScreen(
 
     Scaffold(
         containerColor = c.background,
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbar,
+                modifier = Modifier.padding(bottom = d.chromeHeight(miniPlayerVisible)),
+            )
+        },
         topBar = { FlatTopBar("Customise home", onBack) },
     ) { pad ->
         Column(

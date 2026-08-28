@@ -634,7 +634,7 @@ private fun MiniPlayer(
                         model = artwork ?: currentItemId?.let { vm.coverModel(it) },
                         contentDescription = title,
                         // drawn above the text, so a swipe passes behind it
-                        modifier = Modifier.size(FukuroDims.miniPlayerCover)
+                        modifier = Modifier.size(40.dp)
                             .clip(RoundedCornerShape(FukuroDims.coverRadius)).zIndex(1f)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -687,12 +687,11 @@ private fun MiniPlayer(
                 // height isn't overridden by Material's own indicator sizing
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = FukuroDims.miniPlayerMargin)
-                        .height(FukuroDims.miniPlayerProgress).clip(RoundedCornerShape(2.dp))
+                        .height(FukuroDims.miniPlayerProgress)
                         .background(tokens.miniPlayerTrack)
                 ) {
                     Box(
                         Modifier.fillMaxWidth(progress).fillMaxHeight()
-                            .clip(RoundedCornerShape(2.dp))
                             .background(tokens.onScrim)
                     )
                 }
