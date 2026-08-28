@@ -66,18 +66,6 @@ private fun greetingFor(hour: Int): String = when (hour) {
 /** One shelf and what it currently holds. */
 private data class ResolvedShelf(val shelf: Shelf, val items: ShelfItems)
 
-/** The book the hero card offers, or null when nothing is in progress. */
-private fun heroBook(state: UiState, filter: HomeFilter): LibraryItem? {
-    if (filter == HomeFilter.SERIES) return null
-    return state.items
-        .filter { item ->
-            val p = state.progress[item.id]
-            p != null && !p.isFinished && p.progress > 0.001 && item.id !in state.continueHidden
-        }
-        .filter { filter != HomeFilter.DOWNLOADED || state.isOnDevice(it.id) }
-        .maxByOrNull { state.progress[it.id]?.lastUpdate ?: 0L }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -114,8 +102,6 @@ fun HomeScreen(
         }
     }
 
-    val hero = heroBook(state, filter)
-
     Scaffold(containerColor = c.background) { pad ->
         PullToRefreshBox(
             isRefreshing = state.loading,
@@ -133,25 +119,11 @@ fun HomeScreen(
                 item(key = "filters") { FilterChipRow(filter) { filter = it } }
                 item(key = "update") { UpdateBanner(vm) }
 
-                if (hero != null) item(key = "hero") {
-                    val p = state.progress[hero.id]
-                    val chapter = chapterLabel(hero, p?.currentTime ?: 0.0)
-                    HeroCard(
-                        title = hero.media.metadata.title ?: hero.relPath,
-                        subtitle = listOfNotNull(chapter, formatTimeLeft(timeLeftSeconds(hero, p)))
-                            .joinToString("  ·  "),
-                        progress = p?.progress?.toFloat()?.coerceIn(0f, 1f) ?: 0f,
-                        cover = vm.coverModel(hero.id),
-                        onOpen = { onOpenBook(hero.id) },
-                        onPlay = { onPlayBook(hero.id) },
-                        modifier = Modifier.padding(
-                            start = d.screenPadding, end = d.screenPadding, top = 10.dp,
-                        ),
-                    )
-                }
-
                 resolved.forEach { (shelf, items) ->
-                    item(key = "title-${shelf.id}") { ShelfTitle(shelf.title) }
+                    // the hero carries its own label as an overline, so it gets no title
+                    if (effectiveLayout(shelf, items) != ShelfLayout.HERO) {
+                        item(key = "title-${shelf.id}") { ShelfTitle(shelf.title) }
+                    }
                     shelfBody(
                         shelf = shelf,
                         content = items,
@@ -160,11 +132,12 @@ fun HomeScreen(
                         onOpenBook = onOpenBook,
                         onOpenSeries = onOpenSeries,
                         onOpenAuthor = onOpenAuthor,
+                        onPlayBook = onPlayBook,
                         onOpenNarrator = onOpenNarrator,
                     )
                 }
 
-                if (resolved.isEmpty() && hero == null) item(key = "empty") { HomeEmptyState(state) }
+                if (resolved.isEmpty()) item(key = "empty") { HomeEmptyState(state) }
             }
         }
     }
@@ -268,11 +241,34 @@ private fun LazyListScope.shelfBody(
     onOpenSeries: (String) -> Unit,
     onOpenAuthor: (String) -> Unit,
     onOpenNarrator: (String) -> Unit,
+    onPlayBook: (String) -> Unit,
 ) {
     val layout = effectiveLayout(shelf, content)
     when (content) {
         is ShelfItems.Books -> {
-            if (layout == ShelfLayout.CAROUSEL) {
+            if (layout == ShelfLayout.HERO) {
+                val book = content.books.first()
+                item(key = "hero-${shelf.id}") {
+                    val p = state.progress[book.id]
+                    HeroCard(
+                        overline = shelf.title,
+                        title = book.media.metadata.title ?: book.relPath,
+                        subtitle = listOfNotNull(
+                            chapterLabel(book, p?.currentTime ?: 0.0),
+                            formatTimeLeft(timeLeftSeconds(book, p)),
+                        ).joinToString("  ·  "),
+                        progress = p?.progress?.toFloat()?.coerceIn(0f, 1f) ?: 0f,
+                        cover = vm.coverModel(book.id),
+                        onOpen = { onOpenBook(book.id) },
+                        onPlay = { onPlayBook(book.id) },
+                        modifier = Modifier.padding(
+                            start = Fukuro.dims.screenPadding,
+                            end = Fukuro.dims.screenPadding,
+                            top = Fukuro.dims.shelfTitleTop,
+                        ),
+                    )
+                }
+            } else if (layout == ShelfLayout.CAROUSEL) {
                 item(key = "row-${shelf.id}") {
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = Fukuro.dims.screenPadding),

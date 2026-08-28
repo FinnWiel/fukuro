@@ -13,7 +13,12 @@ import java.util.UUID
  * current [UiState] into the items to draw.
  * ------------------------------------------------------------------------- */
 
-enum class ShelfLayout { CAROUSEL, ROWS }
+enum class ShelfLayout {
+    CAROUSEL,
+    ROWS,
+    /** One book, full width, as the "reading now" card. */
+    HERO,
+}
 
 enum class ShelfSort { RECENT, TITLE, AUTHOR, ADDED, PROGRESS }
 
@@ -31,6 +36,13 @@ val SHELF_SORT_LABELS = linkedMapOf(
  */
 @Serializable
 sealed interface ShelfSource {
+    /**
+     * The single book the hero card offers. [bookId] null means whichever book was
+     * listened to most recently; naming one pins the card to that book instead.
+     */
+    @Serializable @SerialName("reading_now")
+    data class ReadingNow(val bookId: String? = null) : ShelfSource
+
     @Serializable @SerialName("continue")
     data object ContinueReading : ShelfSource
 
@@ -93,6 +105,7 @@ fun newShelfId(): String = UUID.randomUUID().toString()
 /** The layout a source is built around, used as the default when adding a shelf. */
 fun defaultLayoutFor(source: ShelfSource): ShelfLayout = when (source) {
     is ShelfSource.AllSeries -> ShelfLayout.ROWS
+    is ShelfSource.ReadingNow -> ShelfLayout.HERO
     else -> ShelfLayout.CAROUSEL
 }
 
@@ -105,6 +118,7 @@ fun defaultSortFor(source: ShelfSource): ShelfSort = when (source) {
 
 /** Human name for a source, for the shelf list and the source picker. */
 fun sourceLabel(source: ShelfSource): String = when (source) {
+    is ShelfSource.ReadingNow -> "Reading now"
     ShelfSource.ContinueReading -> "Continue listening"
     ShelfSource.RecentlyAdded -> "Recently added"
     ShelfSource.Favorites -> "Favorites"
@@ -123,6 +137,7 @@ fun sourceLabel(source: ShelfSource): String = when (source) {
 
 /** Sources that need no further choice; the rest ask which series/genre/author/library. */
 val SIMPLE_SHELF_SOURCES: List<ShelfSource> = listOf(
+    ShelfSource.ReadingNow(),
     ShelfSource.ContinueReading,
     ShelfSource.RecentlyAdded,
     ShelfSource.Favorites,
@@ -139,7 +154,12 @@ val SIMPLE_SHELF_SOURCES: List<ShelfSource> = listOf(
  * What a brand-new install starts with. Existing installs are migrated from their
  * saved `home_sections` order instead, so nobody loses a shelf they had arranged.
  */
+/** The hero card, as a shelf. Kept in one place so the defaults and the migration agree. */
+private fun heroShelf() =
+    Shelf("default-hero", "Reading now", ShelfSource.ReadingNow(), ShelfLayout.HERO, maxItems = 1)
+
 val DEFAULT_SHELVES: List<Shelf> = listOf(
+    heroShelf(),
     Shelf("default-continue", "Jump back in", ShelfSource.ContinueReading, ShelfLayout.CAROUSEL, sort = ShelfSort.RECENT),
     Shelf("default-series", "Your series", ShelfSource.AllSeries, ShelfLayout.ROWS, sort = ShelfSort.RECENT),
     Shelf("default-recent", "Recently added", ShelfSource.RecentlyAdded, ShelfLayout.CAROUSEL, sort = ShelfSort.ADDED),
@@ -159,8 +179,8 @@ private val SECTION_SOURCES: Map<String, Pair<String, ShelfSource>> = mapOf(
 )
 
 /** Turns a saved `home_sections` CSV into the shelf list it stands for. */
-fun shelvesFromSections(csv: String): List<Shelf> =
-    csv.split(',').map { it.trim() }.filter { it.isNotBlank() }.mapNotNull { key ->
+fun shelvesFromSections(csv: String): List<Shelf> {
+    val migrated = csv.split(',').map { it.trim() }.filter { it.isNotBlank() }.mapNotNull { key ->
         val (title, source) = SECTION_SOURCES[key] ?: return@mapNotNull null
         Shelf(
             id = "section-$key",
@@ -169,7 +189,12 @@ fun shelvesFromSections(csv: String): List<Shelf> =
             layout = defaultLayoutFor(source),
             sort = defaultSortFor(source),
         )
-    }.ifEmpty { DEFAULT_SHELVES }
+    }
+    if (migrated.isEmpty()) return DEFAULT_SHELVES
+    // the hero was never a section — it was always drawn — so it joins the list at
+    // the top, where it used to sit, and can now be switched off like any other
+    return listOf(heroShelf()) + migrated
+}
 
 /* ---------------------------------------------------------------------------
  * Filters
@@ -275,6 +300,21 @@ fun resolveShelf(
     }
 
     return when (val source = shelf.source) {
+        is ShelfSource.ReadingNow -> {
+            if (filter == HomeFilter.SERIES) return ShelfItems.Empty
+            // a pinned book that is no longer in the library falls back to the
+            // most recently played one rather than leaving an empty card
+            val pinned = source.bookId?.let { id -> items.firstOrNull { it.id == id } }
+            val book = pinned ?: items
+                .filter { item ->
+                    val p = state.progress[item.id]
+                    p != null && !p.isFinished && p.progress > 0.001 && item.id !in state.continueHidden
+                }
+                .maxByOrNull { state.progress[it.id]?.lastUpdate ?: 0L }
+            if (book == null || !bookMatchesFilter(book, state, filter)) ShelfItems.Empty
+            else ShelfItems.Books(listOf(book))
+        }
+
         ShelfSource.ContinueReading -> books(
             items.filter { item ->
                 val p = state.progress[item.id]
@@ -370,8 +410,11 @@ fun resolveShelf(
  * user's choice — picking Carousel on a shelf of three books appeared to do nothing
  * — so the setting wins and the rule is gone.
  */
-fun effectiveLayout(shelf: Shelf, items: ShelfItems): ShelfLayout =
-    if (items is ShelfItems.SeriesGroups) ShelfLayout.ROWS else shelf.layout
+fun effectiveLayout(shelf: Shelf, items: ShelfItems): ShelfLayout = when {
+    shelf.source is ShelfSource.ReadingNow -> ShelfLayout.HERO
+    items is ShelfItems.SeriesGroups -> ShelfLayout.ROWS
+    else -> shelf.layout
+}
 
 /* ---------------------------------------------------------------------------
  * Series rows

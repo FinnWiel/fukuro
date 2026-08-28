@@ -1,6 +1,16 @@
 package fukuro
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.rounded.ShowChart
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -8,7 +18,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,11 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -138,7 +143,11 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
         state.allItems.firstOrNull { it.id == progress.libraryItemId }
     }
     val finished = completedItems.size
-    val completedStorySeconds = completedItems.sumOf { it.media.duration }
+    // Reading progress is a lifetime total, so it ignores the period chips.
+    val allTimeCompleted = state.progress.values
+        .filter { it.isFinished }
+        .mapNotNull { p -> state.allItems.firstOrNull { it.id == p.libraryItemId } }
+    val allTimeCompletedSeconds = allTimeCompleted.sumOf { it.media.duration }
     val current = state.progress.values
         .filter { !it.isFinished && it.progress > 0.001 }
         .maxByOrNull { it.lastUpdate }
@@ -182,9 +191,9 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SummaryTile(Icons.Rounded.Schedule, formatDuration(listeningSeconds), "Listening", Modifier.weight(1f))
-                    SummaryTile(Icons.Rounded.CheckCircle, finished.toString(), "Finished", Modifier.weight(1f))
-                    SummaryTile(Icons.Rounded.CalendarMonth, activeDays.toString(), "Active days", Modifier.weight(1f))
+                    SummaryTile(formatDuration(listeningSeconds), "Listening", Modifier.weight(1f))
+                    SummaryTile(finished.toString(), "Finished", Modifier.weight(1f))
+                    SummaryTile(activeDays.toString(), "Active days", Modifier.weight(1f))
                 }
             }
 
@@ -196,10 +205,11 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
 
             item {
                 SectionTitle("Reading progress")
+                SectionCaption("All time")
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HabitTile("Books completed", finished.toString(), period.label.lowercase(), Modifier.weight(1f))
-                    HabitTile("Story completed", formatDuration(completedStorySeconds), "audiobook length", Modifier.weight(1f))
+                    HabitTile("Books completed", allTimeCompleted.size.toString(), Modifier.weight(1f))
+                    HabitTile("Story completed", formatDuration(allTimeCompletedSeconds), Modifier.weight(1f))
                 }
             }
 
@@ -213,19 +223,26 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                     epochDay(session.startedAt)?.let { inPeriod(it, period, today) } == true
                 }
                 val commonTime = mostCommonTime(relevantSessions)
+                val bestDay = best?.key?.dayOfWeek
+                    ?.getDisplayName(TextStyle.SHORT, Locale.getDefault())
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HabitTile("Daily average", formatDuration(activeAverage), "per active day", Modifier.weight(1f))
-                        HabitTile("Best day", best?.key?.dayOfWeek?.getDisplayName(TextStyle.SHORT, Locale.getDefault()) ?: "—", formatDuration(best?.value ?: 0.0), Modifier.weight(1f))
+                        HabitTile("Daily average", formatDuration(activeAverage), Modifier.weight(1f))
+                        HabitTile(
+                            "Best day",
+                            if (bestDay == null) "—"
+                            else "$bestDay · ${formatCompactDuration(best.value)}",
+                            Modifier.weight(1f),
+                        )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        HabitTile("Current streak", currentStreak(allActive, today).toString(), "days", Modifier.weight(1f))
-                        HabitTile("Longest streak", longestStreak(allActive).toString(), "days", Modifier.weight(1f))
-                        HabitTile("Usually", commonTime, "listening", Modifier.weight(1f))
+                        HabitTile("Current streak", "${currentStreak(allActive, today)} days", Modifier.weight(1f))
+                        HabitTile("Longest streak", "${longestStreak(allActive)} days", Modifier.weight(1f))
+                        HabitTile("Usually", commonTime, Modifier.weight(1f))
                     }
                 }
-                Spacer(Modifier.height(10.dp))
-                WeekdayPattern(selectedDays)
+                Spacer(Modifier.height(14.dp))
+                ContributionGrid(allDays, today)
             }
 
             if (current != null && currentItem != null) item {
@@ -287,12 +304,10 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
 }
 
 @Composable
-private fun SummaryTile(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
+private fun SummaryTile(value: String, label: String, modifier: Modifier = Modifier) {
     val c = Fukuro.colors
     FlatSurface(modifier, RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Column(Modifier.padding(12.dp)) {
-            Icon(icon, null, tint = c.accent, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.height(10.dp))
             Text(value, style = Fukuro.type.greeting, color = c.onBackground, maxLines = 1)
             Text(label, style = Fukuro.type.captionMeta, color = c.onSurfaceVariant, maxLines = 1)
         }
@@ -300,51 +315,132 @@ private fun SummaryTile(icon: ImageVector, value: String, label: String, modifie
 }
 
 @Composable
-private fun HabitTile(label: String, value: String, suffix: String, modifier: Modifier = Modifier) {
+private fun HabitTile(label: String, value: String, modifier: Modifier = Modifier) {
     val c = Fukuro.colors
     FlatSurface(modifier, RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Column(Modifier.padding(11.dp)) {
             Text(label, style = Fukuro.type.captionMeta, color = c.onSurfaceVariant, maxLines = 1)
-            Text(value, style = Fukuro.type.rowTitle, color = c.onBackground, maxLines = 1)
-            Text(suffix, style = Fukuro.type.captionMeta, color = c.tertiaryText, maxLines = 1)
+            Text(
+                value,
+                style = Fukuro.type.rowTitle,
+                color = c.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
+/** How full one day's square is, on a 0..4 scale like GitHub's contribution graph. */
+private fun heatLevel(seconds: Double, max: Double): Int = when {
+    seconds <= 0.0 || max <= 0.0 -> 0
+    else -> kotlin.math.ceil((seconds / max) * 4.0).toInt().coerceIn(1, 4)
+}
+
+/**
+ * A year of listening as a grid of days — a column per week, a row per weekday,
+ * shaded by how long was listened. Scrolls horizontally and starts at today.
+ * Always the last 52 weeks: the period chips above belong to the graph, and a
+ * year is what makes the shape of a habit visible.
+ */
 @Composable
-private fun WeekdayPattern(days: Map<LocalDate, Double>) {
-    val totals = (1..7).associateWith { weekday ->
-        days.filterKeys { it.dayOfWeek.value == weekday }.values.sum()
-    }
-    val max = totals.values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+private fun ContributionGrid(days: Map<String, Double>, today: LocalDate) {
     val c = Fukuro.colors
+    val cell = 11.dp
+    val gap = 3.dp
+    val weeks = 52
+
+    val byDate = remember(days) {
+        days.mapNotNull { (raw, seconds) -> parseDay(raw)?.let { it to seconds } }.toMap()
+    }
+    // the Monday of the week 51 weeks back, so the last column is this week
+    val start = remember(today) {
+        today.minusDays((today.dayOfWeek.value - 1).toLong()).minusWeeks((weeks - 1).toLong())
+    }
+    val max = remember(byDate, start) {
+        byDate.filterKeys { !it.isBefore(start) && !it.isAfter(today) }
+            .values.maxOrNull() ?: 0.0
+    }
+    val scroll = rememberScrollState()
+    LaunchedEffect(weeks) { scroll.scrollTo(scroll.maxValue) }
+
     Column {
-        OverlineText("Weekday pattern")
-        Spacer(Modifier.height(7.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            totals.forEach { (weekday, seconds) ->
-                val intensity = if (seconds <= 0.0) 0.08f else (0.22f + 0.78f * (seconds / max).toFloat())
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        Modifier.fillMaxWidth().aspectRatio(1f)
-                            .clip(RoundedCornerShape(Fukuro.dims.coverRadius))
-                            .background(c.accent.copy(alpha = intensity)),
-                        contentAlignment = Alignment.Center,
-                    ) {
+        OverlineText("The last year")
+        Spacer(Modifier.height(8.dp))
+        Row {
+            // weekday labels stay put while the grid scrolls, as GitHub's do
+            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                Spacer(Modifier.height(cell))
+                (1..7).forEach { weekday ->
+                    Box(Modifier.height(cell), contentAlignment = Alignment.CenterStart) {
                         Text(
-                            if (seconds > 0) formatCompactDuration(seconds) else "–",
+                            if (weekday % 2 == 1) {
+                                java.time.DayOfWeek.of(weekday)
+                                    .getDisplayName(TextStyle.NARROW, Locale.getDefault())
+                            } else "",
                             style = Fukuro.type.captionMeta,
-                            color = if (intensity > .55f) c.onAccent else c.onSurfaceVariant,
+                            color = c.tertiaryText,
+                            maxLines = 1,
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        java.time.DayOfWeek.of(weekday).getDisplayName(TextStyle.NARROW, Locale.getDefault()),
-                        style = Fukuro.type.captionMeta,
-                        color = c.tertiaryText,
-                    )
                 }
             }
+            Spacer(Modifier.width(6.dp))
+            Row(Modifier.horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                repeat(weeks) { week ->
+                    val weekStart = start.plusWeeks(week.toLong())
+                    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                        // a month's name sits above the week its first day falls in
+                        Box(Modifier.height(cell), contentAlignment = Alignment.CenterStart) {
+                            val startsMonth = (0..6).any { weekStart.plusDays(it.toLong()).dayOfMonth == 1 }
+                            if (startsMonth) Text(
+                                weekStart.plusDays(6).month
+                                    .getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                                style = Fukuro.type.captionMeta,
+                                color = c.tertiaryText,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                        repeat(7) { weekday ->
+                            val date = weekStart.plusDays(weekday.toLong())
+                            if (date.isAfter(today)) {
+                                Spacer(Modifier.size(cell))
+                            } else {
+                                val level = heatLevel(byDate[date] ?: 0.0, max)
+                                Box(
+                                    Modifier.size(cell)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(
+                                            if (level == 0) c.track
+                                            else c.accent.copy(alpha = 0.25f + 0.25f * level)
+                                        )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Less", style = Fukuro.type.captionMeta, color = c.tertiaryText)
+            Spacer(Modifier.width(6.dp))
+            (0..4).forEach { level ->
+                Box(
+                    Modifier.size(cell).clip(RoundedCornerShape(2.dp))
+                        .background(
+                            if (level == 0) c.track else c.accent.copy(alpha = 0.25f + 0.25f * level)
+                        )
+                )
+                Spacer(Modifier.width(gap))
+            }
+            Spacer(Modifier.width(3.dp))
+            Text("More", style = Fukuro.type.captionMeta, color = c.tertiaryText)
         }
     }
 }
@@ -401,16 +497,41 @@ private fun RankingCard(title: String, values: List<Map.Entry<String, Int>>) {
     }
 }
 
+private enum class ChartStyle { BARS, LINE }
+
+/**
+ * Listening per bucket, as bars or a line. The axis is deliberately narrow — three
+ * short labels are enough to read the scale, and the plot is what matters.
+ */
 @Composable
 private fun ListeningChart(buckets: List<Pair<String, Double>>) {
+    val c = Fukuro.colors
+    var style by rememberSaveable { mutableStateOf(ChartStyle.BARS) }
     val max = buckets.maxOfOrNull { it.second }?.coerceAtLeast(1.0) ?: 1.0
-    val axisWidth = 42.dp
-    val axisGap = 6.dp
+    val axisWidth = 28.dp
+    val axisGap = 4.dp
     val barGap = 3.dp
     val axisLabels = listOf(formatCompactDuration(max), formatCompactDuration(max / 2), "0")
-    val c = Fukuro.colors
+
     FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.tileRadius)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End,
+            ) {
+                ChartStyleButton(
+                    icon = Icons.Rounded.BarChart,
+                    description = "Show as bars",
+                    selected = style == ChartStyle.BARS,
+                ) { style = ChartStyle.BARS }
+                Spacer(Modifier.width(4.dp))
+                ChartStyleButton(
+                    icon = Icons.Rounded.ShowChart,
+                    description = "Show as a line",
+                    selected = style == ChartStyle.LINE,
+                ) { style = ChartStyle.LINE }
+            }
             Row(
                 Modifier.fillMaxWidth().height(Fukuro.dims.chartHeight),
                 verticalAlignment = Alignment.Bottom,
@@ -426,6 +547,7 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
                             style = Fukuro.type.captionMeta,
                             color = c.tertiaryText,
                             maxLines = 1,
+                            softWrap = false,
                         )
                     }
                 }
@@ -438,26 +560,29 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
                             Box(Modifier.fillMaxWidth().height(1.dp).background(c.outline))
                         }
                     }
-                    Row(
-                        Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(barGap),
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
-                        buckets.forEach { (_, seconds) ->
-                            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
-                                Box(
-                                    Modifier.fillMaxWidth(0.7f)
-                                        .fillMaxHeight((seconds / max).toFloat().coerceIn(0.025f, 1f))
-                                        .clip(
-                                            RoundedCornerShape(
-                                                topStart = Fukuro.dims.chartBarRadius,
-                                                topEnd = Fukuro.dims.chartBarRadius,
+                    when (style) {
+                        ChartStyle.BARS -> Row(
+                            Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(barGap),
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            buckets.forEach { (_, seconds) ->
+                                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
+                                    Box(
+                                        Modifier.fillMaxWidth(0.7f)
+                                            .fillMaxHeight((seconds / max).toFloat().coerceIn(0.025f, 1f))
+                                            .clip(
+                                                RoundedCornerShape(
+                                                    topStart = Fukuro.dims.chartBarRadius,
+                                                    topEnd = Fukuro.dims.chartBarRadius,
+                                                )
                                             )
-                                        )
-                                        .background(if (seconds > 0) c.accent else c.track)
-                                )
+                                            .background(if (seconds > 0) c.accent else c.track)
+                                    )
+                                }
                             }
                         }
+                        ChartStyle.LINE -> LineChart(buckets.map { it.second }, max, c.accent)
                     }
                 }
             }
@@ -482,6 +607,58 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
     }
 }
 
+/** One of the two chart-shape buttons in the card's top-right corner. */
+@Composable
+private fun ChartStyleButton(
+    icon: ImageVector,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val c = Fukuro.colors
+    Box(
+        Modifier.size(30.dp)
+            .clip(RoundedCornerShape(Fukuro.dims.coverRadius))
+            .background(if (selected) c.accent else c.background)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            description,
+            Modifier.size(18.dp),
+            tint = if (selected) c.onAccent else c.tertiaryText,
+        )
+    }
+}
+
+/** The same buckets as a polyline, with a dot on each reading. */
+@Composable
+private fun LineChart(values: List<Double>, max: Double, color: Color) {
+    if (values.isEmpty()) return
+    Canvas(Modifier.fillMaxSize()) {
+        val stepX = if (values.size == 1) 0f else size.width / (values.size - 1)
+        fun pointAt(index: Int): Offset {
+            val fraction = (values[index] / max).toFloat().coerceIn(0f, 1f)
+            val x = if (values.size == 1) size.width / 2f else stepX * index
+            return Offset(x, size.height * (1f - fraction))
+        }
+        val path = Path().apply {
+            moveTo(pointAt(0).x, pointAt(0).y)
+            for (i in 1 until values.size) lineTo(pointAt(i).x, pointAt(i).y)
+        }
+        drawPath(
+            path,
+            color,
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+        // a dot per reading, but only while they are far enough apart to be legible
+        if (values.size <= 14) {
+            values.indices.forEach { drawCircle(color, radius = 3.dp.toPx(), center = pointAt(it)) }
+        }
+    }
+}
+
 @Composable
 private fun SessionRow(session: DisplaySession, onClick: () -> Unit) {
     val c = Fukuro.colors
@@ -490,8 +667,6 @@ private fun SessionRow(session: DisplaySession, onClick: () -> Unit) {
             .clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.AutoStories, null, tint = c.accent, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 session.title.ifBlank { "Audiobook" },
@@ -508,7 +683,16 @@ private fun SessionRow(session: DisplaySession, onClick: () -> Unit) {
                 maxLines = 1,
             )
         }
-        Text(formatDuration(session.seconds), style = Fukuro.type.rowTitle, color = c.onBackground)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            formatDuration(session.seconds),
+            style = Fukuro.type.rowTitle,
+            color = c.onBackground,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.End,
+            modifier = Modifier.widthIn(min = 76.dp),
+        )
     }
 }
 
@@ -623,25 +807,14 @@ private fun mostCommonTime(sessions: List<DisplaySession>): String {
 private fun TodayTile(seconds: Double) {
     val c = Fukuro.colors
     FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.tileRadius)) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                OverlineText("Listened today")
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    if (seconds > 0) formatDuration(seconds) else "Nothing yet",
-                    style = Fukuro.type.statValue,
-                    color = if (seconds > 0) c.accent else c.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-            Icon(
-                Icons.Rounded.Schedule,
-                null,
-                Modifier.size(Fukuro.dims.icon),
-                tint = c.tertiaryText,
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            OverlineText("Listened today")
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (seconds > 0) formatDuration(seconds) else "Nothing yet",
+                style = Fukuro.type.statValue,
+                color = c.onBackground,
+                maxLines = 1,
             )
         }
     }

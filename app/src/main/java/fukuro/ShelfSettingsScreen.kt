@@ -418,6 +418,10 @@ private fun ShelfEditorSheet(
     val c = Fukuro.colors
     val d = Fukuro.dims
     var draft by remember(shelf.id) { mutableStateOf(shelf) }
+    var choosingBook by remember(shelf.id) { mutableStateOf(false) }
+    var bookQuery by remember(shelf.id) { mutableStateOf("") }
+    // the hero shelf shows one book, so layout, order and size mean nothing to it
+    val readingNow = draft.source as? ShelfSource.ReadingNow
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = c.background) {
         Column(
@@ -440,47 +444,85 @@ private fun ShelfEditorSheet(
                 placeholder = "Shelf title",
             )
 
-            Spacer(Modifier.height(16.dp))
-            OverlineText("Layout")
-            Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = listOf(
-                    ShelfLayout.CAROUSEL to "Carousel",
-                    ShelfLayout.ROWS to "Rows",
-                ),
-                selected = draft.layout,
-                onSelect = { draft = draft.copy(layout = it) },
-            )
-            if (draft.source == ShelfSource.AllSeries) {
-                Spacer(Modifier.height(6.dp))
-                SectionCaption("Series always draw as rows, so their progress fits.")
-            }
+            if (readingNow != null) {
+                Spacer(Modifier.height(16.dp))
+                OverlineText("Book")
+                Spacer(Modifier.height(8.dp))
+                val pinned = readingNow.bookId
+                    ?.let { id -> state.items.firstOrNull { it.id == id } }
+                FukuroChip(
+                    label = pinned?.media?.metadata?.title ?: "Last listened to",
+                    selected = false,
+                    onClick = { choosingBook = !choosingBook },
+                )
+                if (choosingBook) {
+                    Spacer(Modifier.height(8.dp))
+                    FlatTextField(bookQuery, { bookQuery = it }, "Search books")
+                    Spacer(Modifier.height(4.dp))
+                    BookChoiceRow("Last listened to", readingNow.bookId == null) {
+                        draft = draft.copy(source = ShelfSource.ReadingNow(null))
+                        choosingBook = false
+                    }
+                    state.items
+                        .filter {
+                            bookQuery.isBlank() ||
+                                (it.media.metadata.title ?: "").contains(bookQuery.trim(), true)
+                        }
+                        .sortedBy { it.media.metadata.titleIgnorePrefix ?: it.media.metadata.title }
+                        .take(30)
+                        .forEach { book ->
+                            BookChoiceRow(
+                                label = book.media.metadata.title ?: book.relPath,
+                                selected = readingNow.bookId == book.id,
+                            ) {
+                                draft = draft.copy(source = ShelfSource.ReadingNow(book.id))
+                                choosingBook = false
+                            }
+                        }
+                }
+            } else {
+                Spacer(Modifier.height(16.dp))
+                OverlineText("Layout")
+                Spacer(Modifier.height(8.dp))
+                ChipGroup(
+                    options = listOf(
+                        ShelfLayout.CAROUSEL to "Carousel",
+                        ShelfLayout.ROWS to "Rows",
+                    ),
+                    selected = draft.layout,
+                    onSelect = { draft = draft.copy(layout = it) },
+                )
+                if (draft.source == ShelfSource.AllSeries) {
+                    Spacer(Modifier.height(6.dp))
+                    SectionCaption("Series always draw as rows, so their progress fits.")
+                }
 
-            Spacer(Modifier.height(16.dp))
-            OverlineText("Order")
-            Spacer(Modifier.height(8.dp))
-            ChipGroup(
-                options = SHELF_SORT_LABELS.toList(),
-                selected = draft.sort,
-                onSelect = { draft = draft.copy(sort = it) },
-            )
+                Spacer(Modifier.height(16.dp))
+                OverlineText("Order")
+                Spacer(Modifier.height(8.dp))
+                ChipGroup(
+                    options = SHELF_SORT_LABELS.toList(),
+                    selected = draft.sort,
+                    onSelect = { draft = draft.copy(sort = it) },
+                )
 
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OverlineText("Show at most", Modifier.weight(1f))
-                Text(
-                    draft.maxItems?.let { "$it item" + (if (it == 1) "" else "s") } ?: "No limit",
-                    style = Fukuro.type.chip,
-                    color = c.onBackground,
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OverlineText("Show at most", Modifier.weight(1f))
+                    Text(
+                        draft.maxItems?.let { "$it item" + (if (it == 1) "" else "s") } ?: "No limit",
+                        style = Fukuro.type.chip,
+                        color = c.onBackground,
+                    )
+                }
+                Slider(
+                    value = maxItemsToSlider(draft.maxItems),
+                    onValueChange = { draft = draft.copy(maxItems = sliderToMaxItems(it)) },
+                    valueRange = 1f..MAX_ITEMS_SLIDER_TOP.toFloat(),
+                    // one detent per whole number, so the value is picked exactly
+                    steps = MAX_ITEMS_SLIDER_TOP - 2,
                 )
             }
-            Slider(
-                value = maxItemsToSlider(draft.maxItems),
-                onValueChange = { draft = draft.copy(maxItems = sliderToMaxItems(it)) },
-                valueRange = 1f..MAX_ITEMS_SLIDER_TOP.toFloat(),
-                // one detent per whole number, so the value is picked exactly
-                steps = MAX_ITEMS_SLIDER_TOP - 2,
-            )
 
             if (draft.source == ShelfSource.CustomList) {
                 Spacer(Modifier.height(16.dp))
@@ -524,7 +566,7 @@ private fun ShelfPreview(
     }
     FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(14.dp)) {
         Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-            Text(
+            if (shelf.source !is ShelfSource.ReadingNow) Text(
                 shelf.title.ifBlank { "Untitled shelf" },
                 style = Fukuro.type.shelfTitle,
                 color = c.onBackground,
@@ -534,7 +576,19 @@ private fun ShelfPreview(
             )
             when (sample) {
                 is ShelfItems.Books ->
-                    if (effectiveLayout(shelf, sample) == ShelfLayout.CAROUSEL) {
+                    if (effectiveLayout(shelf, sample) == ShelfLayout.HERO) {
+                        val book = sample.books.first()
+                        val p = state.progress[book.id]
+                        HeroCard(
+                            overline = shelf.title.ifBlank { "Reading now" },
+                            title = book.media.metadata.title ?: book.relPath,
+                            subtitle = formatTimeLeft(timeLeftSeconds(book, p)),
+                            progress = p?.progress?.toFloat()?.coerceIn(0f, 1f) ?: 0f,
+                            cover = vm.coverModel(book.id),
+                            onOpen = {}, onPlay = {},
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    } else if (effectiveLayout(shelf, sample) == ShelfLayout.CAROUSEL) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(Fukuro.dims.carouselGap),
@@ -849,5 +903,19 @@ private fun CustomShelfEditorDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel", color = c.onSurfaceVariant) }
         },
+    )
+}
+
+/** One option in the hero shelf's book chooser. */
+@Composable
+private fun BookChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    val c = Fukuro.colors
+    Text(
+        label,
+        style = Fukuro.type.body,
+        color = if (selected) c.accent else c.onBackground,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
     )
 }
