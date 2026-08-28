@@ -50,7 +50,6 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Surface
@@ -266,7 +265,9 @@ fun AppNav(
                         onOpenBook = { id -> sheetItem = id },
                         onOpenSeries = { id -> nav.navigate("series/$id") },
                         onOpenAuthor = { name -> nav.navigate("author/${android.net.Uri.encode(name)}") },
-                        onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") })
+                        onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") },
+                        onPlayBook = { id -> playBook(id) },
+                        miniPlayerVisible = miniPlayerVisible)
                 }
                 composable("library") {
                     LibraryScreen(
@@ -308,7 +309,15 @@ fun AppNav(
                             }
                         },
                         onOpenUpload = { nav.navigate("upload") },
+                        onOpenShelves = { nav.navigate("home_shelves") },
                         onSignIn = { nav.navigate("login") }
+                    )
+                }
+                composable("home_shelves") {
+                    CustomiseHomeScreen(
+                        vm,
+                        onBack = { nav.popBackStack() },
+                        miniPlayerVisible = miniPlayerVisible,
                     )
                 }
                 composable("upload") {
@@ -317,17 +326,13 @@ fun AppNav(
             }
         }
 
+        val tokens = Fukuro.colors
         if (showChrome) Box(
             Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                // no bar background at all — just a black gradient rising from the bottom
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        0f to androidx.compose.ui.graphics.Color.Transparent,
-                        0.45f to androidx.compose.ui.graphics.Color(0x99000000),
-                        1f to androidx.compose.ui.graphics.Color(0xE8000000)
-                    )
-                )
+                // no bar background at all — just a black gradient rising from the bottom.
+                // Everything on it stays light-on-dark in both themes.
+                .background(tokens.bottomScrim)
         ) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
                 Spacer(Modifier.height(16.dp)) // lets the gradient fade in above the mini player
@@ -341,7 +346,7 @@ fun AppNav(
                     containerColor = androidx.compose.ui.graphics.Color.Transparent,
                     tonalElevation = 0.dp,
                     windowInsets = androidx.compose.foundation.layout.WindowInsets(0.dp),
-                    modifier = Modifier.height(60.dp)
+                    modifier = Modifier.height(FukuroDims.navHeight)
                 ) {
                     tabs.forEach { tab ->
                         val selected = route == tab.route
@@ -371,7 +376,7 @@ fun AppNav(
                             icon = {
                                 // bouncy scale-in on the active icon
                                 val scale by animateFloatAsState(
-                                    targetValue = if (selected) 1.18f else 1f,
+                                    targetValue = if (selected) FukuroDims.navActiveScale else 1f,
                                     animationSpec = spring(
                                         dampingRatio = Spring.DampingRatioMediumBouncy,
                                         stiffness = Spring.StiffnessMedium
@@ -379,17 +384,21 @@ fun AppNav(
                                     label = "navIconScale"
                                 )
                                 Box(Modifier.scale(scale)) {
-                                    Icon(if (selected) tab.iconSelected else tab.iconIdle, tab.label)
+                                    Icon(
+                                        if (selected) tab.iconSelected else tab.iconIdle,
+                                        tab.label,
+                                        Modifier.size(FukuroDims.navIcon)
+                                    )
                                 }
                             },
-                            label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                            label = { Text(tab.label, style = FukuroType.navLabel) },
                             colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
                                 indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                                 // white over the black gradient regardless of theme
-                                selectedIconColor = androidx.compose.ui.graphics.Color.White,
-                                selectedTextColor = androidx.compose.ui.graphics.Color.White,
-                                unselectedIconColor = androidx.compose.ui.graphics.Color(0x8CFFFFFF),
-                                unselectedTextColor = androidx.compose.ui.graphics.Color(0x8CFFFFFF),
+                                selectedIconColor = tokens.onScrim,
+                                selectedTextColor = tokens.onScrim,
+                                unselectedIconColor = tokens.onScrimDim,
+                                unselectedTextColor = tokens.onScrimDim,
                             )
                         )
                     }
@@ -507,16 +516,19 @@ private fun MiniPlayer(
         val model = artwork ?: currentItemId?.let { vm.coverModel(it) } ?: return@LaunchedEffect
         coverColor = extractCoverColor(ctx, model)
     }
-    val fallback = MaterialTheme.colorScheme.surfaceVariant
+    val tokens = Fukuro.colors
+    // No cover colour yet: a neutral dark chip, since the bar always sits on the scrim
+    // and its content is always light.
+    val fallback = Color(0xFF242826)
     val barColor by animateColorAsState(coverColor ?: fallback, tween(400), label = "miniBg")
-    val onBar = if (coverColor != null) Color.White else MaterialTheme.colorScheme.onSurface
-    val onBarDim = if (coverColor != null) Color(0xB3FFFFFF) else MaterialTheme.colorScheme.onSurfaceVariant
+    val onBar = tokens.onScrim
+    val onBarDim = tokens.onScrimMuted
 
     androidx.compose.foundation.layout.Box(
-        Modifier.fillMaxWidth().padding(horizontal = 6.dp).padding(bottom = 2.dp)
+        Modifier.fillMaxWidth().padding(horizontal = FukuroDims.miniPlayerMargin).padding(bottom = 2.dp)
     ) {
         Surface(
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(FukuroDims.miniPlayerRadius),
             color = barColor,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -549,7 +561,8 @@ private fun MiniPlayer(
                         model = artwork ?: currentItemId?.let { vm.coverModel(it) },
                         contentDescription = title,
                         // drawn above the text, so a swipe passes behind it
-                        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(6.dp)).zIndex(1f)
+                        modifier = Modifier.size(FukuroDims.miniPlayerCover)
+                            .clip(RoundedCornerShape(FukuroDims.coverRadius)).zIndex(1f)
                     )
                     Spacer(Modifier.width(8.dp))
                     // clipped to its own slot so the sliding text stays inside the bar
@@ -557,7 +570,7 @@ private fun MiniPlayer(
                     Box(Modifier.weight(1f).clipToBounds()) {
                     Column(Modifier.fillMaxWidth().swipeSlideVisual(slide)) {
                         Text(
-                            title, style = MaterialTheme.typography.bodyMedium, color = onBar,
+                            title, style = FukuroType.miniTitle, color = onBar,
                             maxLines = 1, softWrap = false,
                             // scrolls itself when the title is too long, like Spotify
                             modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
@@ -568,7 +581,7 @@ private fun MiniPlayer(
                             .filter { it.isNotBlank() }
                             .joinToString("  ·  ")
                         if (second.isNotBlank()) Text(
-                            second, style = MaterialTheme.typography.bodySmall,
+                            second, style = FukuroType.miniSubtitle,
                             color = onBarDim,
                             maxLines = 1, softWrap = false,
                             modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
@@ -580,19 +593,19 @@ private fun MiniPlayer(
                         FavoriteHeart(
                             favorite = fav,
                             onToggle = { vm.toggleFavorite(id) },
-                            tint = if (fav) MaterialTheme.colorScheme.primary else onBarDim,
-                            modifier = Modifier.size(44.dp),
+                            tint = if (fav) tokens.accent else onBarDim,
+                            modifier = Modifier.size(FukuroDims.touchTarget),
                             filled = Icons.Filled.Favorite,
                             outlined = Icons.Filled.FavoriteBorder
                         )
                     }
                     IconButton(
                         onClick = { if (isPlaying) controller?.pause() else controller?.play() },
-                        modifier = Modifier.size(46.dp)
+                        modifier = Modifier.size(FukuroDims.miniPlayerCover)
                     ) {
                         Icon(
                             if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            "Play/Pause", Modifier.size(32.dp), tint = onBar
+                            "Play/Pause", Modifier.size(FukuroDims.miniPlayerPlayIcon), tint = onBar
                         )
                     }
                     Spacer(Modifier.width(10.dp)) // breathing room to the right of play
@@ -600,14 +613,15 @@ private fun MiniPlayer(
                 // hand-drawn so the track is actually visible on this surface and the
                 // height isn't overridden by Material's own indicator sizing
                 Box(
-                    Modifier.fillMaxWidth().padding(horizontal = 6.dp)
-                        .height(3.dp).clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.28f))
+                    Modifier.fillMaxWidth().padding(horizontal = FukuroDims.miniPlayerMargin)
+                        .padding(bottom = FukuroDims.miniPlayerMargin)
+                        .height(FukuroDims.miniPlayerProgress).clip(RoundedCornerShape(2.dp))
+                        .background(tokens.miniPlayerTrack)
                 ) {
                     Box(
                         Modifier.fillMaxWidth(progress).fillMaxHeight()
                             .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White)
+                            .background(tokens.onScrim)
                     )
                 }
             }
@@ -669,8 +683,27 @@ private suspend fun extractCoverColor(context: android.content.Context, model: A
             hsl[2] = hsl[2].coerceIn(0.18f, 0.30f)
             val tamed = ColorUtils.HSLToColor(hsl)
             // A small neutral blend keeps every cover inside Fukuro's dark styling.
-            Color(ColorUtils.blendARGB(tamed, android.graphics.Color.rgb(22, 26, 24), 0.18f))
+            val blended = ColorUtils.blendARGB(tamed, android.graphics.Color.rgb(22, 26, 24), 0.18f)
+            Color(darkenForWhiteText(blended))
         } catch (_: Exception) {
             null
         }
     }
+
+/**
+ * The mini player's title and controls are white on the cover colour, so the colour
+ * has to earn that: darken it until white text clears WCAG AA (4.5:1). A bright
+ * yellow cover would otherwise produce an unreadable bar.
+ */
+private fun darkenForWhiteText(color: Int): Int {
+    // calculateContrast rejects a translucent background, and the bar is opaque anyway
+    var result = color or android.graphics.Color.BLACK
+    var steps = 0
+    while (
+        ColorUtils.calculateContrast(android.graphics.Color.WHITE, result) < 4.5 && steps < 24
+    ) {
+        result = ColorUtils.blendARGB(result, android.graphics.Color.BLACK, 0.06f)
+        steps++
+    }
+    return result
+}

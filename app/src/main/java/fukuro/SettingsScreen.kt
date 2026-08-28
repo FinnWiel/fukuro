@@ -41,7 +41,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -215,6 +214,7 @@ fun SettingsScreen(
     vm: ShelfViewModel,
     onLoggedOut: () -> Unit,
     onOpenUpload: () -> Unit = {},
+    onOpenShelves: () -> Unit = {},
     onSignIn: () -> Unit = {},
 ) {
     val theme by vm.store.themeFlow.collectAsState(initial = "system")
@@ -248,18 +248,13 @@ fun SettingsScreen(
         }
     }
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
-    val sectionsCsv by vm.store.homeSectionsFlow.collectAsState(initial = Store.DEFAULT_SECTIONS)
+    val shelves by vm.store.homeShelvesFlow.collectAsState(initial = emptyList())
     val customShelf by vm.store.customShelfFlow.collectAsState(initial = emptyList())
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
     var showCustomShelfEditor by remember { mutableStateOf(false) }
-
-    val enabled = sectionsCsv.split(',').filter { it.isNotBlank() }
-    val allKeys = Store.SECTION_LABELS.keys.toList()
-
-    fun save(newList: List<String>) = scope.launch { vm.store.setHomeSections(newList.joinToString(",")) }
 
     if (showCustomShelfEditor) {
         CustomShelfEditorDialog(
@@ -281,32 +276,29 @@ fun SettingsScreen(
         )
     }
 
-    Scaffold(topBar = {
+    Scaffold(
+        containerColor = Fukuro.colors.background,
         // no back arrow: Settings is a bottom-nav tab, not a pushed screen
-        TopAppBar(title = { Text("Settings") })
-    }) { pad ->
+        topBar = { FlatTopBar("Settings") },
+    ) { pad ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(pad),
             contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 140.dp),
         ) {
             item(key = "appearance") {
                 Column {
-            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+            SectionTitle("Appearance")
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
+            ChipGroup(
+                options = listOf(
                     "system" to "System", "light" to "Light",
                     "dark" to "Dark", "black" to "Pure black",
-                ).forEach { (key, label) ->
-                    FilterChip(
-                        selected = theme == key,
-                        onClick = { scope.launch { vm.store.setTheme(key) } },
-                        label = { Text(label) }
-                    )
-                }
-            }
+                ),
+                selected = theme,
+                onSelect = { key -> scope.launch { vm.store.setTheme(key) } },
+            )
             Spacer(Modifier.height(12.dp))
-            Text("Accent color", style = MaterialTheme.typography.bodyMedium)
+            OverlineText("Accent color")
             Spacer(Modifier.height(8.dp))
             val isCustom = accent.startsWith("#")
             FlowRow(
@@ -349,68 +341,41 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(12.dp))
-            Text("Cover size", style = MaterialTheme.typography.bodyMedium)
+            OverlineText("Cover size")
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                COVER_SIZE_LABELS.forEachIndexed { i, label ->
-                    FilterChip(
-                        selected = coverSize == i,
-                        onClick = { scope.launch { vm.store.setCoverSize(i) } },
-                        label = { Text(label) }
-                    )
-                }
-            }
+            ChipGroup(
+                options = COVER_SIZE_LABELS.mapIndexed { i, label -> i to label },
+                selected = coverSize,
+                onSelect = { i -> scope.launch { vm.store.setCoverSize(i) } },
+            )
                 }
             }
 
             item(key = "shelves") {
                 Column {
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
+            HorizontalDivider(color = Fukuro.colors.outline)
             Spacer(Modifier.height(16.dp))
 
-            Text("Shelves", style = MaterialTheme.typography.titleMedium)
-            Text("Listed in the order they appear on Home — use the arrows to reorder",
-                style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(8.dp))
-
-            // enabled sections first, in their real order; disabled ones after
-            val ordered = enabled + allKeys.filterNot { it in enabled }
-
-            ordered.forEach { key ->
-                val label = Store.SECTION_LABELS[key] ?: key
-                val isOn = key in enabled
-                Row(
-                    Modifier.fillMaxWidth().height(52.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = isOn, onCheckedChange = { on ->
-                        save(if (on) enabled + key else enabled - key)
-                    })
-                    Text(label, Modifier.weight(1f))
-                    if (key == "custom") {
-                        TextButton(onClick = { showCustomShelfEditor = true }) {
-                            Text(if (customShelf.isEmpty()) "Set up" else "Edit (${customShelf.size})")
-                        }
-                    }
-                    if (isOn) {
-                        val i = enabled.indexOf(key)
-                        IconButton(
-                            enabled = i > 0,
-                            modifier = Modifier.size(32.dp),
-                            onClick = {
-                                val l = enabled.toMutableList(); l.removeAt(i); l.add(i - 1, key); save(l)
-                            }
-                        ) { Icon(Icons.Rounded.KeyboardArrowUp, "Move up") }
-                        IconButton(
-                            enabled = i < enabled.size - 1,
-                            modifier = Modifier.size(32.dp),
-                            onClick = {
-                                val l = enabled.toMutableList(); l.removeAt(i); l.add(i + 1, key); save(l)
-                            }
-                        ) { Icon(Icons.Rounded.KeyboardArrowDown, "Move down") }
-                    }
-                }
+            SectionTitle("Home")
+            Spacer(Modifier.height(4.dp))
+            SectionCaption(
+                "Your shelves, in the order Home draws them — reorder them, switch " +
+                    "one off, or add one of your own."
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FukuroChip(
+                    label = shelvesSummary(shelves),
+                    selected = false,
+                    onClick = onOpenShelves,
+                )
+                FukuroChip(
+                    label = if (customShelf.isEmpty()) "Hand-picked shelf"
+                    else "Hand-picked (${customShelf.size})",
+                    selected = false,
+                    onClick = { showCustomShelfEditor = true },
+                )
             }
                 }
             }
@@ -418,39 +383,31 @@ fun SettingsScreen(
             item(key = "player") {
                 Column {
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
+            HorizontalDivider(color = Fukuro.colors.outline)
             Spacer(Modifier.height(16.dp))
 
-            Text("Player", style = MaterialTheme.typography.titleMedium)
+            SectionTitle("Player")
             Spacer(Modifier.height(8.dp))
-            Text("Player progress bars", style = MaterialTheme.typography.bodySmall)
+            OverlineText("Player progress bars")
             Spacer(Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                listOf(
+            ChipGroup(
+                options = listOf(
                     "book" to "Whole book",
                     "chapter" to "Current chapter",
                     "chapter_cover" to "Both · cover",
                     "chapter_stacked" to "Both · stacked",
-                ).forEach { (key, label) ->
-                    FilterChip(
-                        selected = trackScope == key,
-                        onClick = { scope.launch { vm.store.setTrackScope(key) } },
-                        label = { Text(label) }
-                    )
-                }
-            }
-            Text(
+                ),
+                selected = trackScope,
+                onSelect = { key -> scope.launch { vm.store.setTrackScope(key) } },
+            )
+            Spacer(Modifier.height(6.dp))
+            SectionCaption(
                 "Both modes use the chapter as the main seek bar and add total-book progress. " +
-                    "On the cover it takes the shape set under \"How progress shows on covers\".",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "On the cover it takes the shape set under \"How progress shows on covers\"."
             )
 
             Spacer(Modifier.height(12.dp))
-            Text("Swiping sideways on a player", style = MaterialTheme.typography.bodySmall)
+            OverlineText("Swiping sideways on a player")
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("chapter" to "Chapters", "book" to "Books in series").forEach { (key, label) ->
@@ -474,56 +431,46 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(12.dp))
-            Text("How progress shows on covers", style = MaterialTheme.typography.bodySmall)
+            OverlineText("How progress shows on covers")
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("circle" to "Circle", "bar" to "Bar on cover").forEach { (key, label) ->
-                    FilterChip(
-                        selected = progressStyle == key,
-                        onClick = { scope.launch { vm.store.setProgressStyle(key) } },
-                        label = { Text(label) }
-                    )
-                }
-            }
+            ChipGroup(
+                options = listOf("circle" to "Circle", "bar" to "Bar on cover"),
+                selected = progressStyle,
+                onSelect = { key -> scope.launch { vm.store.setProgressStyle(key) } },
+            )
 
             Spacer(Modifier.height(16.dp))
-            Text("Skip buttons", style = MaterialTheme.typography.titleMedium)
+            SectionTitle("Skip buttons")
             Spacer(Modifier.height(8.dp))
-            Text("Back", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(5, 10, 15, 30).forEach { s ->
-                    FilterChip(
-                        selected = skipBack == s,
-                        onClick = { scope.launch { vm.store.setSkipBack(s) } },
-                        label = { Text("${s}s") }
-                    )
-                }
-            }
+            OverlineText("Back")
             Spacer(Modifier.height(8.dp))
-            Text("Forward", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(15, 30, 45, 60).forEach { s ->
-                    FilterChip(
-                        selected = skipForward == s,
-                        onClick = { scope.launch { vm.store.setSkipForward(s) } },
-                        label = { Text("${s}s") }
-                    )
-                }
-            }
+            ChipGroup(
+                options = listOf(5, 10, 15, 30).map { it to "${it}s" },
+                selected = skipBack,
+                onSelect = { seconds -> scope.launch { vm.store.setSkipBack(seconds) } },
+            )
+            Spacer(Modifier.height(8.dp))
+            OverlineText("Forward")
+            Spacer(Modifier.height(8.dp))
+            ChipGroup(
+                options = listOf(15, 30, 45, 60).map { it to "${it}s" },
+                selected = skipForward,
+                onSelect = { seconds -> scope.launch { vm.store.setSkipForward(seconds) } },
+            )
                 }
             }
 
             item(key = "local-library") {
                 Column {
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
+            HorizontalDivider(color = Fukuro.colors.outline)
             Spacer(Modifier.height(16.dp))
 
-            Text("Books on this phone", style = MaterialTheme.typography.titleMedium)
-            Text(
+            SectionTitle("Books on this phone")
+            Spacer(Modifier.height(4.dp))
+            SectionCaption(
                 "Pick a folder and Fukuro will list the audiobooks inside it — no server needed. " +
-                    "Downloads are copied there too.",
-                style = MaterialTheme.typography.bodySmall
+                    "Downloads are copied there too."
             )
             Spacer(Modifier.height(8.dp))
             Text(
@@ -552,13 +499,14 @@ fun SettingsScreen(
             item(key = "server") {
                 Column {
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
+            HorizontalDivider(color = Fukuro.colors.outline)
             Spacer(Modifier.height(16.dp))
 
-            Text("Server", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "API key (optional) — used for uploading new books. Create one in the Audiobookshelf web UI under Settings → API Keys.",
-                style = MaterialTheme.typography.bodySmall
+            SectionTitle("Server")
+            Spacer(Modifier.height(4.dp))
+            SectionCaption(
+                "API key (optional) — used for uploading new books. Create one in the " +
+                    "Audiobookshelf web UI under Settings → API Keys."
             )
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
@@ -578,10 +526,10 @@ fun SettingsScreen(
             item(key = "account-and-updates") {
                 Column {
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
+            HorizontalDivider(color = Fukuro.colors.outline)
             Spacer(Modifier.height(16.dp))
 
-            Text("Account", style = MaterialTheme.typography.titleMedium)
+            SectionTitle("Account")
             Spacer(Modifier.height(4.dp))
             if (!state.loggedIn) {
                 Text(
@@ -728,7 +676,7 @@ private fun CustomShelfEditorDialog(
                 }
                 item {
                     Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
+                    HorizontalDivider(color = Fukuro.colors.outline)
                     Spacer(Modifier.height(10.dp))
                     Text("Add items", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(6.dp))
@@ -774,4 +722,11 @@ private fun CustomShelfEditorDialog(
         confirmButton = { TextButton(onClick = { onSave(selected) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** The chip that opens Customise home says how many shelves are switched on. */
+private fun shelvesSummary(shelves: List<Shelf>): String {
+    val on = shelves.count { it.enabled }
+    if (on == 0) return "Customise home"
+    return "Customise home · $on shelf" + (if (on == 1) "" else "s")
 }

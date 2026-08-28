@@ -41,7 +41,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -161,17 +160,11 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
+        color = Fukuro.colors.background,
+        contentColor = Fukuro.colors.onBackground,
     ) {
       Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Stats") },
-            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                titleContentColor = MaterialTheme.colorScheme.onBackground,
-            ),
-        )
+        FlatTopBar("Stats")
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -640,9 +633,6 @@ private fun RecentSessionsSection(sessions: List<DisplaySession>, onOpenBook: (S
         }
     }
 }
-
-@Composable private fun SectionTitle(text: String) =
-    Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
 
 @Composable
 private fun EmptyStats(text: String) {
