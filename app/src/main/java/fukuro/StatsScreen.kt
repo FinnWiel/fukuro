@@ -28,19 +28,13 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,15 +45,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -179,11 +169,7 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     StatsPeriod.entries.forEach { choice ->
-                        FilterChip(
-                            selected = period == choice,
-                            onClick = { period = choice },
-                            label = { Text(choice.label) },
-                        )
+                        FukuroChip(choice.label, period == choice, { period = choice })
                     }
                 }
             }
@@ -247,27 +233,39 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
             if (current != null && currentItem != null) item {
                 SectionTitle("Currently listening")
                 Spacer(Modifier.height(10.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable { onOpenBook(current.libraryItemId) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                FlatSurface(
+                    Modifier.fillMaxWidth().clickable { onOpenBook(current.libraryItemId) },
+                    RoundedCornerShape(Fukuro.dims.tileRadius),
                 ) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CoverImage(
+                        FlatCover(
                             vm.coverModel(current.libraryItemId),
                             currentItem.media.metadata.title,
-                            Modifier.size(68.dp).clip(RoundedCornerShape(8.dp)),
+                            Modifier.size(68.dp),
                         )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(currentItem.media.metadata.title ?: currentItem.relPath, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(currentItem.media.metadata.authorName.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                            Spacer(Modifier.height(9.dp))
-                            LinearProgressIndicator(
-                                progress = { current.progress.toFloat().coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
+                            Text(
+                                currentItem.media.metadata.title ?: currentItem.relPath,
+                                style = Fukuro.type.rowTitle,
+                                color = Fukuro.colors.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
+                            Text(
+                                currentItem.media.metadata.authorName.orEmpty(),
+                                style = Fukuro.type.body,
+                                color = Fukuro.colors.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.height(9.dp))
+                            TrackBar(current.progress.toFloat().coerceIn(0f, 1f))
                             Spacer(Modifier.height(5.dp))
-                            Text("${(current.progress * 100).roundToInt()}% complete", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                "${(current.progress * 100).roundToInt()}% complete",
+                                style = Fukuro.type.captionMeta,
+                                color = Fukuro.colors.tertiaryText,
+                            )
                         }
                     }
                 }
@@ -302,23 +300,25 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
 
 @Composable
 private fun SummaryTile(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    val c = Fukuro.colors
+    FlatSurface(modifier, RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Column(Modifier.padding(12.dp)) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Icon(icon, null, tint = c.accent, modifier = Modifier.size(22.dp))
             Spacer(Modifier.height(10.dp))
-            Text(value, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = Fukuro.type.greeting, color = c.onBackground, maxLines = 1)
+            Text(label, style = Fukuro.type.captionMeta, color = c.onSurfaceVariant, maxLines = 1)
         }
     }
 }
 
 @Composable
 private fun HabitTile(label: String, value: String, suffix: String, modifier: Modifier = Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    val c = Fukuro.colors
+    FlatSurface(modifier, RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Column(Modifier.padding(11.dp)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(suffix, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            Text(label, style = Fukuro.type.captionMeta, color = c.onSurfaceVariant, maxLines = 1)
+            Text(value, style = Fukuro.type.rowTitle, color = c.onBackground, maxLines = 1)
+            Text(suffix, style = Fukuro.type.captionMeta, color = c.tertiaryText, maxLines = 1)
         }
     }
 }
@@ -329,27 +329,32 @@ private fun WeekdayPattern(days: Map<LocalDate, Double>) {
         days.filterKeys { it.dayOfWeek.value == weekday }.values.sum()
     }
     val max = totals.values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+    val c = Fukuro.colors
     Column {
-        Text("Weekday pattern", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        OverlineText("Weekday pattern")
         Spacer(Modifier.height(7.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             totals.forEach { (weekday, seconds) ->
                 val intensity = if (seconds <= 0.0) 0.08f else (0.22f + 0.78f * (seconds / max).toFloat())
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
-                        Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = intensity)),
+                        Modifier.fillMaxWidth().aspectRatio(1f)
+                            .clip(RoundedCornerShape(Fukuro.dims.coverRadius))
+                            .background(c.accent.copy(alpha = intensity)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             if (seconds > 0) formatCompactDuration(seconds) else "–",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (intensity > .55f) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = Fukuro.type.captionMeta,
+                            color = if (intensity > .55f) c.onAccent else c.onSurfaceVariant,
                         )
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(java.time.DayOfWeek.of(weekday).getDisplayName(TextStyle.NARROW, Locale.getDefault()), style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        java.time.DayOfWeek.of(weekday).getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                        style = Fukuro.type.captionMeta,
+                        color = c.tertiaryText,
+                    )
                 }
             }
         }
@@ -366,11 +371,7 @@ private fun CompletionHighlights(books: List<LibraryItem>) {
         .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(3)
     if (authors.isEmpty() && narrators.isEmpty() && genres.isEmpty()) return
     SectionTitle("Completion highlights")
-    Text(
-        "Ranked by books finished, so longer books do not get an advantage",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    SectionCaption("Ranked by books finished, so longer books do not get an advantage")
     Spacer(Modifier.height(10.dp))
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (authors.isNotEmpty()) RankingCard("Authors", authors)
@@ -381,14 +382,31 @@ private fun CompletionHighlights(books: List<LibraryItem>) {
 
 @Composable
 private fun RankingCard(title: String, values: List<Map.Entry<String, Int>>) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    val c = Fukuro.colors
+    FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, fontWeight = FontWeight.Bold)
+            OverlineText(title)
             values.forEachIndexed { index, entry ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${index + 1}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black, modifier = Modifier.width(26.dp))
-                    Text(entry.key, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${entry.value} ${if (entry.value == 1) "book" else "books"}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "${index + 1}",
+                        style = Fukuro.type.rowTitle,
+                        color = c.accent,
+                        modifier = Modifier.width(26.dp),
+                    )
+                    Text(
+                        entry.key,
+                        Modifier.weight(1f),
+                        style = Fukuro.type.body,
+                        color = c.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "${entry.value} ${if (entry.value == 1) "book" else "books"}",
+                        style = Fukuro.type.captionMeta,
+                        color = c.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -402,10 +420,11 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
     val axisGap = 6.dp
     val barGap = 3.dp
     val axisLabels = listOf(formatCompactDuration(max), formatCompactDuration(max / 2), "0")
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    val c = Fukuro.colors
+    FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 16.dp)) {
             Row(
-                Modifier.fillMaxWidth().height(150.dp),
+                Modifier.fillMaxWidth().height(Fukuro.dims.chartHeight),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column(
@@ -416,19 +435,19 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
                     axisLabels.forEach { label ->
                         Text(
                             label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = Fukuro.type.captionMeta,
+                            color = c.tertiaryText,
                             maxLines = 1,
                         )
                     }
                 }
                 Spacer(Modifier.width(axisGap))
-                Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
+                Box(Modifier.width(1.dp).fillMaxHeight().background(c.outline))
                 Spacer(Modifier.width(axisGap))
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                         repeat(3) {
-                            Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)))
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(c.outline))
                         }
                     }
                     Row(
@@ -441,8 +460,13 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
                                 Box(
                                     Modifier.fillMaxWidth(0.7f)
                                         .fillMaxHeight((seconds / max).toFloat().coerceIn(0.025f, 1f))
-                                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                        .background(if (seconds > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                                        .clip(
+                                            RoundedCornerShape(
+                                                topStart = Fukuro.dims.chartBarRadius,
+                                                topEnd = Fukuro.dims.chartBarRadius,
+                                            )
+                                        )
+                                        .background(if (seconds > 0) c.accent else c.track)
                                 )
                             }
                         }
@@ -458,8 +482,8 @@ private fun ListeningChart(buckets: List<Pair<String, Double>>) {
                         Text(
                             if (show) label else "",
                             modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = Fukuro.type.captionMeta,
+                            color = c.tertiaryText,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                         )
@@ -502,24 +526,36 @@ private fun YearInReviewCard(
     }.filterKeys { it != null }.mapKeys { it.key!! }.mapValues { (_, values) -> values.sumOf { it.seconds } }
     val topAuthor = authorTotals.maxByOrNull { it.value }
     val topSeries = seriesTotals.maxByOrNull { it.value }
-    val orange = Color(0xFFFF6B35)
-    val purple = Color(0xFF7B2CBF)
-    Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-            .background(Brush.linearGradient(listOf(purple, Color(0xFFE13C79), orange)))
-            .padding(20.dp)
-    ) {
-        Column {
+    val c = Fukuro.colors
+    // The year in review used to be a purple-to-orange wash. The design language has
+    // no decorative colour, so the scale of the numbers carries it instead and the
+    // accent marks only the headline figure and the share action.
+    FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.heroRadius)) {
+        Column(Modifier.padding(20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("FUKURO", color = Color.White.copy(alpha = .8f), fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                    Text("Your year in stories", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    OverlineText("Fukuro")
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Your year in stories",
+                        style = Fukuro.type.greeting,
+                        color = c.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 Box {
-                    Button(onClick = { menuOpen = true }) {
-                        Text(selectedYear.toString())
-                        Icon(Icons.Rounded.ArrowDropDown, null)
-                    }
+                    FukuroChip(
+                        label = selectedYear.toString(),
+                        selected = false,
+                        onClick = { menuOpen = true },
+                        trailing = {
+                            Icon(
+                                Icons.Rounded.ArrowDropDown, null,
+                                Modifier.size(18.dp), tint = c.onSurfaceVariant,
+                            )
+                        },
+                    )
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         years.forEach { year ->
                             DropdownMenuItem(text = { Text(year.toString()) }, onClick = {
@@ -530,9 +566,9 @@ private fun YearInReviewCard(
                     }
                 }
             }
-            Spacer(Modifier.height(28.dp))
-            Text(formatDuration(yearDays.values.sum()), color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Black)
-            Text("spent listening", color = Color.White.copy(alpha = .85f))
+            Spacer(Modifier.height(24.dp))
+            Text(formatDuration(yearDays.values.sum()), style = Fukuro.type.display, color = c.accent)
+            Text("spent listening", style = Fukuro.type.body, color = c.onSurfaceVariant)
             Spacer(Modifier.height(24.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 WrappedNumber(yearFinished.toString(), "books finished")
@@ -543,8 +579,10 @@ private fun YearInReviewCard(
             WrappedHighlight("Most-listened author", topAuthor?.key)
             Spacer(Modifier.height(12.dp))
             WrappedHighlight("Most-listened series", topSeries?.key)
-            Spacer(Modifier.height(14.dp))
-            TextButton(
+            Spacer(Modifier.height(16.dp))
+            FukuroChip(
+                label = "Share year",
+                selected = true,
                 onClick = {
                     val summary = buildString {
                         append("My $selectedYear Fukuro stats: ")
@@ -562,12 +600,8 @@ private fun YearInReviewCard(
                         "Share year in review",
                     ))
                 },
-                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = Color.White),
-            ) {
-                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(7.dp))
-                Text("Share year")
-            }
+                leading = { Icon(Icons.Rounded.Share, null, Modifier.size(16.dp), tint = c.onAccent) },
+            )
         }
     }
 }
@@ -575,12 +609,11 @@ private fun YearInReviewCard(
 @Composable
 private fun WrappedHighlight(label: String, name: String?) {
     Column {
-        Text(label.uppercase(), color = Color.White.copy(alpha = .68f), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp)
+        OverlineText(label)
         Text(
             name ?: "No listening yet",
-            color = Color.White,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Black,
+            style = Fukuro.type.heroTitle,
+            color = Fukuro.colors.onBackground,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -590,39 +623,48 @@ private fun WrappedHighlight(label: String, name: String?) {
 @Composable
 private fun WrappedNumber(value: String, label: String) {
     Column {
-        Text(value, color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
-        Text(label, color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.labelSmall)
+        Text(value, style = Fukuro.type.statValue, color = Fukuro.colors.onBackground)
+        Text(label, style = Fukuro.type.captionMeta, color = Fukuro.colors.tertiaryText)
     }
 }
 
 @Composable
 private fun SessionRow(session: DisplaySession, onClick: () -> Unit) {
+    val c = Fukuro.colors
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 8.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(Fukuro.dims.tileRadius))
+            .clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.AutoStories, null, tint = MaterialTheme.colorScheme.primary)
+        Icon(Icons.Rounded.AutoStories, null, tint = c.accent, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(session.title.ifBlank { "Audiobook" }, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            Text(
+                session.title.ifBlank { "Audiobook" },
+                style = Fukuro.type.rowTitle,
+                color = c.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             val date = epochDay(session.startedAt)?.format(DateTimeFormatter.ofPattern("d MMM")) ?: ""
-            Text(listOf(session.author, date).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(
+                listOf(session.author, date).filter { it.isNotBlank() }.joinToString("  ·  "),
+                style = Fukuro.type.body,
+                color = c.onSurfaceVariant,
+                maxLines = 1,
+            )
         }
-        Text(formatDuration(session.seconds), fontWeight = FontWeight.SemiBold)
+        Text(formatDuration(session.seconds), style = Fukuro.type.rowTitle, color = c.onBackground)
     }
 }
 
 @Composable
 private fun RecentSessionsSection(sessions: List<DisplaySession>, onOpenBook: (String) -> Unit) {
     SectionTitle("Recent sessions")
-    Text(
-        "Sessions shorter than 15 minutes are hidden",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    SectionCaption("Sessions shorter than 15 minutes are hidden")
     Spacer(Modifier.height(8.dp))
     if (sessions.isEmpty()) {
-        Text("No sessions over 15 minutes in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SectionCaption("No sessions over 15 minutes in this period.")
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -636,11 +678,12 @@ private fun RecentSessionsSection(sessions: List<DisplaySession>, onOpenBook: (S
 
 @Composable
 private fun EmptyStats(text: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    val c = Fukuro.colors
+    FlatSurface(Modifier.fillMaxWidth(), RoundedCornerShape(Fukuro.dims.tileRadius)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.BarChart, null, tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Rounded.BarChart, null, tint = c.accent, modifier = Modifier.size(Fukuro.dims.icon))
             Spacer(Modifier.width(12.dp))
-            Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text, style = Fukuro.type.body, color = c.onSurfaceVariant)
         }
     }
 }

@@ -132,6 +132,7 @@ fun FukuroChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val c = Fukuro.colors
     val shape = CircleShape
@@ -152,6 +153,7 @@ fun FukuroChip(
             color = if (selected) c.onAccent else c.onBackground,
             maxLines = 1,
         )
+        trailing?.invoke()
     }
 }
 

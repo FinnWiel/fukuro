@@ -237,6 +237,11 @@ object FukuroDims {
     /** Smallest comfortable touch target. */
     val touchTarget = 44.dp
 
+    /* Stats is not in the design frames, so its tiles and chart borrow these. */
+    val tileRadius = 12.dp
+    val chartHeight = 150.dp
+    val chartBarRadius = 4.dp
+
     /** What a scrolling list must leave clear at the bottom for the floating chrome. */
     val chromeWithMiniPlayer = 140.dp
     val chromeNavOnly = 84.dp
@@ -262,6 +267,9 @@ object FukuroType {
     val miniSubtitle = TextStyle(fontSize = 12.sp, letterSpacing = 0.4.sp)
     /** Title printed on a cover placeholder, in the frames' cover-art position. */
     val coverLabel = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, lineHeight = 12.65.sp)
+    /* Stats headline figures — the one place numbers are the subject of the page. */
+    val display = TextStyle(fontSize = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+    val statValue = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
 }
 
 private fun darkTokens(accent: Color) = FukuroColors(
