@@ -120,7 +120,16 @@ class MainActivity : ComponentActivity() {
 
         val token = SessionToken(this, ComponentName(this, PlayerService::class.java))
         val future = MediaController.Builder(this, token).buildAsync()
-        future.addListener({ controller = future.get() }, MoreExecutors.directExecutor())
+        future.addListener({
+            val connected = future.get()
+            controller = connected
+            // Media3 reserves onPlaybackResumption for system playback requests; prepare()
+            // on an app controller with an empty queue only leaves it stopped. Ask the
+            // service explicitly to rebuild the saved queue, still without starting audio.
+            if (connected.mediaItemCount == 0) connected.sendCustomCommand(
+                SessionCommand(PlayerService.CMD_RESTORE_LAST, Bundle.EMPTY), Bundle.EMPTY
+            )
+        }, MoreExecutors.directExecutor())
 
         setContent {
             val themePref by vm.store.themeFlow.collectAsState(initial = "system")

@@ -358,6 +358,11 @@ class Store(private val context: Context) {
     suspend fun setLastItem(itemId: String) = context.dataStore.edit { it[K.LAST_ITEM] = itemId }
     suspend fun lastItem(): String? = context.dataStore.data.first()[K.LAST_ITEM]
 
+    /** Forget a missing book, but do not erase a newer selection made concurrently. */
+    suspend fun clearLastItem(itemId: String) = context.dataStore.edit { prefs ->
+        if (prefs[K.LAST_ITEM] == itemId) prefs.remove(K.LAST_ITEM)
+    }
+
     /* --- positions kept on the device ---
      *
      * Every position lands here, connected or not, and is pushed to the server when there
