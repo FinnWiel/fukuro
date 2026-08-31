@@ -266,21 +266,21 @@ class PlayerService : MediaLibraryService() {
         if (id == finishedItemId) return // ENDED can fire more than once
         finishedItemId = id
         scope.launch {
-            store.setLocalProgress(id, currentItemDuration)
+            store.setLocalProgress(id, currentItemDuration, finished = true)
             if (!LocalLibrary.isLocal(id)) {
                 runCatching { api.updateProgress(id, currentItemDuration, currentItemDuration) }
                 runCatching { api.markFinished(id, true) }
             }
             publishNowPlaying()
             // Opt-in only: rolling into the next book unasked is worse than stopping.
-            if (store.autoNextBlocking()) {
-                val next = nextInSeries(id)
-                if (next != null) {
-                    val playlist = buildPlaylist(next, 0.0)
-                    player.setMediaItems(playlist, 0, 0L)
-                    player.prepare()
-                    player.play()
-                }
+            val next = if (store.autoNextBlocking()) nextInSeries(id) else null
+            if (next != null) {
+                val playlist = buildPlaylist(next, 0.0)
+                player.setMediaItems(playlist, 0, 0L)
+                player.prepare()
+                player.play()
+            } else {
+                store.clearLastItem(id)
             }
         }
     }
@@ -502,7 +502,11 @@ class PlayerService : MediaLibraryService() {
     }
 
     /** Load a book: build the multi-track playlist. Prefers downloaded local files. */
-    private suspend fun buildPlaylist(itemId: String, startAtSec: Double?): List<MediaItem> {
+    private suspend fun buildPlaylist(
+        itemId: String,
+        startAtSec: Double?,
+        rememberAsLast: Boolean = true,
+    ): List<MediaItem> {
         // local copy first (instant), then cache, then network; offline fallback to local
         val item = try { fetchItem(itemId) } catch (e: Exception) {
             downloads.localItem(itemId) ?: throw e
@@ -510,7 +514,7 @@ class PlayerService : MediaLibraryService() {
         if (listenItemId != null && listenItemId != itemId) flushListening()
         currentItemId = itemId
         if (finishedItemId != itemId) finishedItemId = null // a fresh load can finish again
-        scope.launch { store.setLastItem(itemId) } // what onPlaybackResumption answers with
+        if (rememberAsLast) store.setLastItem(itemId) // what onPlaybackResumption answers with
         currentItemDuration = item.media.duration
         listenLibraryId = item.libraryId
         currentChapters = item.media.chapters.filter { it.end > it.start }
@@ -559,13 +563,18 @@ class PlayerService : MediaLibraryService() {
     private suspend fun restoreQueue(itemId: String): RestoredQueue {
         val saved = store.localProgress()[itemId]?.pos ?: 0.0
         val playlist = try {
-            buildPlaylist(itemId, saved)
+            buildPlaylist(itemId, saved, rememberAsLast = false)
         } catch (e: AbsApi.ApiException) {
             // Forget confirmed deletions, but retain temporary connectivity/auth failures.
             if (e.code == 404) store.clearLastItem(itemId)
             throw e
         }
         if (playlist.isEmpty()) throw IllegalStateException("nothing playable in $itemId")
+        val endRestoreThreshold = (currentItemDuration - 1.0).coerceAtLeast(currentItemDuration * 0.99)
+        if (currentItemDuration > 0.0 && saved >= endRestoreThreshold) {
+            store.clearLastItem(itemId)
+            throw IllegalStateException("last item already at end")
+        }
         val (idx, posMs) = locate(saved)
         return RestoredQueue(playlist, idx, posMs)
     }
