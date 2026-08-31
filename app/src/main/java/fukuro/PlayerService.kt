@@ -43,6 +43,7 @@ class PlayerService : MediaLibraryService() {
         const val CMD_BOOK_POSITION = "BOOK_POSITION"
         const val CMD_SEEK_ABS = "SEEK_ABS" // arg: posSec within the whole book
         const val CMD_SKIP_CHAPTER = "SKIP_CHAPTER" // arg: dir (+1 next, -1 previous)
+        const val CMD_RESTORE_LAST = "RESTORE_LAST"
         /**
          * How long onPlaybackResumption may take. Android's foreground-service window is
          * ~5s from the moment it starts us; staying under that is what keeps a slow or
@@ -265,21 +266,21 @@ class PlayerService : MediaLibraryService() {
         if (id == finishedItemId) return // ENDED can fire more than once
         finishedItemId = id
         scope.launch {
-            store.setLocalProgress(id, currentItemDuration)
+            store.setLocalProgress(id, currentItemDuration, finished = true)
             if (!LocalLibrary.isLocal(id)) {
                 runCatching { api.updateProgress(id, currentItemDuration, currentItemDuration) }
                 runCatching { api.markFinished(id, true) }
             }
             publishNowPlaying()
             // Opt-in only: rolling into the next book unasked is worse than stopping.
-            if (store.autoNextBlocking()) {
-                val next = nextInSeries(id)
-                if (next != null) {
-                    val playlist = buildPlaylist(next, 0.0)
-                    player.setMediaItems(playlist, 0, 0L)
-                    player.prepare()
-                    player.play()
-                }
+            val next = if (store.autoNextBlocking()) nextInSeries(id) else null
+            if (next != null) {
+                val playlist = buildPlaylist(next, 0.0)
+                player.setMediaItems(playlist, 0, 0L)
+                player.prepare()
+                player.play()
+            } else {
+                store.clearLastItem(id)
             }
         }
     }
@@ -501,7 +502,11 @@ class PlayerService : MediaLibraryService() {
     }
 
     /** Load a book: build the multi-track playlist. Prefers downloaded local files. */
-    private suspend fun buildPlaylist(itemId: String, startAtSec: Double?): List<MediaItem> {
+    private suspend fun buildPlaylist(
+        itemId: String,
+        startAtSec: Double?,
+        rememberAsLast: Boolean = true,
+    ): List<MediaItem> {
         // local copy first (instant), then cache, then network; offline fallback to local
         val item = try { fetchItem(itemId) } catch (e: Exception) {
             downloads.localItem(itemId) ?: throw e
@@ -509,7 +514,7 @@ class PlayerService : MediaLibraryService() {
         if (listenItemId != null && listenItemId != itemId) flushListening()
         currentItemId = itemId
         if (finishedItemId != itemId) finishedItemId = null // a fresh load can finish again
-        scope.launch { store.setLastItem(itemId) } // what onPlaybackResumption answers with
+        if (rememberAsLast) store.setLastItem(itemId) // what onPlaybackResumption answers with
         currentItemDuration = item.media.duration
         listenLibraryId = item.libraryId
         currentChapters = item.media.chapters.filter { it.end > it.start }
@@ -548,6 +553,32 @@ class PlayerService : MediaLibraryService() {
         }
     }
 
+    private data class RestoredQueue(
+        val items: List<MediaItem>,
+        val startIndex: Int,
+        val startPositionMs: Long,
+    )
+
+    /** Rebuild the last book at its durable local position for app and system resumption. */
+    private suspend fun restoreQueue(itemId: String): RestoredQueue {
+        val saved = store.localProgress()[itemId]?.pos ?: 0.0
+        val playlist = try {
+            buildPlaylist(itemId, saved, rememberAsLast = false)
+        } catch (e: AbsApi.ApiException) {
+            // Forget confirmed deletions, but retain temporary connectivity/auth failures.
+            if (e.code == 404) store.clearLastItem(itemId)
+            throw e
+        }
+        if (playlist.isEmpty()) throw IllegalStateException("nothing playable in $itemId")
+        val endRestoreThreshold = (currentItemDuration - 1.0).coerceAtLeast(currentItemDuration * 0.99)
+        if (currentItemDuration > 0.0 && saved >= endRestoreThreshold) {
+            store.clearLastItem(itemId)
+            throw IllegalStateException("last item already at end")
+        }
+        val (idx, posMs) = locate(saved)
+        return RestoredQueue(playlist, idx, posMs)
+    }
+
     /** Given a book start position in seconds, find (trackIndex, positionInTrackMs). */
     private fun locate(sec: Double): Pair<Int, Long> {
         var idx = 0
@@ -570,6 +601,7 @@ class PlayerService : MediaLibraryService() {
                 .add(SessionCommand(CMD_BOOK_POSITION, Bundle.EMPTY))
                 .add(SessionCommand(CMD_SEEK_ABS, Bundle.EMPTY))
                 .add(SessionCommand(CMD_SKIP_CHAPTER, Bundle.EMPTY))
+                .add(SessionCommand(CMD_RESTORE_LAST, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.accept(cmds, base.availablePlayerCommands)
         }
@@ -579,6 +611,17 @@ class PlayerService : MediaLibraryService() {
             customCommand: SessionCommand, args: Bundle
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
+                CMD_RESTORE_LAST -> return scope.future {
+                    // This command is sent only by the app UI after connecting to a fresh,
+                    // empty service. Populate and prepare the queue but keep it paused.
+                    if (player.mediaItemCount > 0) return@future SessionResult(SessionResult.RESULT_SUCCESS)
+                    val itemId = store.lastItem()
+                        ?: return@future SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE)
+                    val restored = restoreQueue(itemId)
+                    player.setMediaItems(restored.items, restored.startIndex, restored.startPositionMs)
+                    player.prepare()
+                    SessionResult(SessionResult.RESULT_SUCCESS)
+                }
                 CMD_SLEEP_TIMER -> {
                     val minutes = args.getInt("minutes", 0)
                     sleepJob?.cancel()
@@ -717,13 +760,12 @@ class PlayerService : MediaLibraryService() {
                 withTimeout(RESUMPTION_BUDGET_MS) {
                     val itemId = currentItemId ?: store.lastItem()
                         ?: throw IllegalStateException("no book to resume")
-                    // the locally cached position, written every 15s while playing and again
-                    // on pause; the server is not worth a round trip on this deadline
-                    val saved = store.localProgress()[itemId]?.pos ?: 0.0
-                    val playlist = buildPlaylist(itemId, saved)
-                    if (playlist.isEmpty()) throw IllegalStateException("nothing playable in $itemId")
-                    val (idx, posMs) = locate(saved)
-                    MediaSession.MediaItemsWithStartPosition(playlist, idx, posMs)
+                    // restoreQueue uses the durable local position, avoiding a server
+                    // round trip for progress while this callback is under a tight deadline.
+                    val restored = restoreQueue(itemId)
+                    MediaSession.MediaItemsWithStartPosition(
+                        restored.items, restored.startIndex, restored.startPositionMs
+                    )
                 }
             } catch (e: TimeoutCancellationException) {
                 // a failed future is an answer; a cancelled one is vaguer, and this future
