@@ -11,6 +11,8 @@ class ShelfApp : Application() {
         private set
     lateinit var local: LocalLibrary
         private set
+    lateinit var coverOverrides: CoverOverrides
+        private set
     lateinit var cache: LibraryCache
         private set
     lateinit var updater: Updater
@@ -37,6 +39,7 @@ class ShelfApp : Application() {
         store = Store(this)
         api = AbsApi(store)
         local = LocalLibrary(this, store)
+        coverOverrides = CoverOverrides(this)
         cache = LibraryCache(this)
         downloads = DownloadRepo(this, api, store, local)
         updater = Updater(this, api.http)

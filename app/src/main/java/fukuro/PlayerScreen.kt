@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
@@ -66,8 +67,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -167,7 +166,6 @@ fun PlayerScreen(
     var showSpeedDialog by remember { mutableStateOf(false) }
     var chaptersExpanded by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var showRename by remember { mutableStateOf(false) }
 
     LaunchedEffect(controller) {
         while (true) {
@@ -872,12 +870,8 @@ private fun Scrubber(
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .then(
                 if (!enabled) Modifier else Modifier.pointerInput(Unit) {
-                    // Claim a touch as soon as it starts on the track. Waiting for the
-                    // horizontal touch slop let a slightly diagonal scrub become the
-                    // parent's downward dismiss gesture instead.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
 
                         fun update(x: Float) {
                             val f = (x / size.width).coerceIn(0f, 1f)
@@ -885,8 +879,11 @@ private fun Scrubber(
                             onScrub(f)
                         }
 
-                        update(down.position.x)
-                        var change = down
+                        var change = awaitHorizontalTouchSlopOrCancellation(down.id) { c, _ ->
+                            c.consume()
+                            update(c.position.x)
+                        } ?: return@awaitEachGesture
+                        update(change.position.x)
                         while (change.pressed) {
                             val event = awaitPointerEvent()
                             change = event.changes.firstOrNull { it.id == down.id } ?: break

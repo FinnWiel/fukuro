@@ -1,5 +1,7 @@
 package fukuro
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,9 +49,11 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material.icons.rounded.RemoveDone
+import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -368,6 +372,15 @@ fun BookOptionsSheet(
     var confirmRemove by remember { mutableStateOf(false) }
     var renameText by remember(title) { mutableStateOf(title) }
     var renameError by remember { mutableStateOf<String?>(null) }
+    var coverError by remember { mutableStateOf<String?>(null) }
+    val hasCustomCover = remember(state, itemId) { vm.coverOverrides.hasCover(itemId) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            vm.editCover(itemId, uri) { err ->
+                if (err == null) onDismiss() else coverError = err
+            }
+        }
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
@@ -399,7 +412,22 @@ fun BookOptionsSheet(
             SheetRow(Icons.Rounded.AddToHomeScreen, "Add to home screen") {
                 vm.pinBookShortcut(itemId); onDismiss()
             }
-            SheetRow(Icons.Rounded.Edit, "Rename") { showRename = true }
+            SheetRow(Icons.Rounded.Edit, "Edit title") { showRename = true }
+            SheetRow(Icons.Rounded.Image, "Edit cover") { coverPicker.launch("image/*") }
+            if (hasCustomCover) {
+                SheetRow(Icons.Rounded.Restore, "Use original cover") {
+                    vm.resetCover(itemId)
+                    onDismiss()
+                }
+            }
+            coverError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
+                )
+            }
             SheetRow(
                 if (p?.isFinished == true) Icons.Rounded.RemoveDone else Icons.Rounded.DoneAll,
                 if (p?.isFinished == true) "Mark unfinished" else "Mark finished"
@@ -444,7 +472,7 @@ fun BookOptionsSheet(
     if (showRename) {
         AlertDialog(
             onDismissRequest = { showRename = false },
-            title = { Text("Rename book") },
+            title = { Text("Edit title") },
             text = {
                 Column {
                     OutlinedTextField(renameText, { renameText = it }, singleLine = true,

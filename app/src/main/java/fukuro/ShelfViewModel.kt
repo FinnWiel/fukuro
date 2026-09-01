@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import android.net.Uri
+import coil.request.ImageRequest
+import java.io.File
 
 data class UiState(
     val loggedIn: Boolean = false,      // has a server session
@@ -34,6 +36,7 @@ data class UiState(
     val continueHidden: Set<String> = emptySet(),
     val progressStyle: String = "circle", // "circle" | "bar"
     val coverSize: Int = 2, // 0..4, 2 = default
+    val coverRevision: Int = 0,
 ) {
     /**
      * Offline means the server was probed and wasn't there. Before the first probe it
@@ -115,6 +118,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     val store get() = shelf.store
     val downloads get() = shelf.downloads
     val downloadStates: kotlinx.coroutines.flow.StateFlow<Map<String, DownloadState>> get() = shelf.downloads.states
+    val coverOverrides get() = shelf.coverOverrides
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
@@ -133,13 +137,23 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
      * downloaded books the cover saved next to their audio — the server URL is only the
      * last resort, so a downloaded book still shows its art with no connection.
      */
-    fun coverModel(itemId: String): Any? = when {
-        LocalLibrary.isLocal(itemId) -> local.coverFile(itemId)
-        // covers are resolved while composing, so only touch the disk for books that
-        // are actually on it
-        itemId in _state.value.downloadedIds -> downloads.localCover(itemId) ?: api.coverUrl(itemId)
-        else -> api.coverUrl(itemId)
+    fun coverModel(itemId: String): Any? {
+        coverOverrides.coverFile(itemId)?.let { return coverOverrideModel(it) }
+        return when {
+            LocalLibrary.isLocal(itemId) -> local.coverFile(itemId)
+            // covers are resolved while composing, so only touch the disk for books that
+            // are actually on it
+            itemId in _state.value.downloadedIds -> downloads.localCover(itemId) ?: api.coverUrl(itemId)
+            else -> api.coverUrl(itemId)
+        }
     }
+
+    private fun coverOverrideModel(file: File): ImageRequest =
+        ImageRequest.Builder(getApplication<Application>())
+            .data(file)
+            .memoryCacheKey("${file.absolutePath}:${file.lastModified()}")
+            .diskCacheKey("${file.absolutePath}:${file.lastModified()}")
+            .build()
 
     init {
         viewModelScope.launch {
@@ -552,6 +566,19 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             refresh()
             onDone(null)
         } catch (e: Exception) { onDone(e.message ?: "Rename failed") }
+    }
+
+    fun editCover(itemId: String, uri: Uri, onDone: (String?) -> Unit) = viewModelScope.launch {
+        try {
+            withContext(Dispatchers.IO) { coverOverrides.setCover(itemId, uri) }
+            _state.value = _state.value.copy(coverRevision = _state.value.coverRevision + 1)
+            onDone(null)
+        } catch (e: Exception) { onDone(e.message ?: "Could not save cover") }
+    }
+
+    fun resetCover(itemId: String) = viewModelScope.launch {
+        withContext(Dispatchers.IO) { coverOverrides.clearCover(itemId) }
+        _state.value = _state.value.copy(coverRevision = _state.value.coverRevision + 1)
     }
 
     private val _upload = MutableStateFlow(UploadUi())
