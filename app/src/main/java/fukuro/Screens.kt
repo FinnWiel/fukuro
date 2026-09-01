@@ -934,7 +934,10 @@ fun BookGridCell(vm: ShelfViewModel, book: LibraryItem, state: UiState, onOpenBo
     if (showOptions) BookOptionsSheet(vm, book.id, onDismiss = { showOptions = false })
     Column(
         Modifier.padding(4.dp).combinedClickable(
-            onClick = { onOpenBook(book.id) },
+            onClick = {
+                vm.prefetchBook(book.id)
+                onOpenBook(book.id)
+            },
             onLongClick = { showOptions = true }
         )
     ) {
@@ -1057,7 +1060,10 @@ fun SeriesScreen(
         busy = busy,
         downloadedCount = downloadedCount,
         onBack = onBack,
-        onOpenBook = onOpenBook,
+        onOpenBook = { id ->
+            vm.prefetchBook(id)
+            onOpenBook(id)
+        },
         onToggleFavorite = { vm.toggleSeriesFavorite(allIds) },
         onPin = { vm.pinSeriesShortcut(seriesId) },
         onDownloadAll = { vm.downloadAll(ids) },

@@ -207,7 +207,11 @@ fun PlayerScreen(
         // works with no server. The server copy then replaces it when there is one.
         detail = withContext(Dispatchers.IO) { vm.downloads.localItem(id) }
         if (detail == null || vm.state.value.serverOnline) {
-            runCatching { vm.api.item(id) }.getOrNull()?.let { detail = it }
+            runCatching { vm.api.item(id) }.getOrNull()?.let {
+                detail = it
+                vm.cachePlayableItem(it)
+                vm.prefetchBook(id)
+            }
         }
     }
 
@@ -682,7 +686,12 @@ fun PlayerScreen(
                     item {
                         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp)) {
                             items(seriesOfBook.books, key = { it.id }) { b ->
-                                Column(Modifier.width(110.dp).padding(4.dp).clickable { onOpenBook(b.id) }) {
+                                Column(
+                                    Modifier.width(110.dp).padding(4.dp).clickable {
+                                        vm.prefetchBook(b.id)
+                                        onOpenBook(b.id)
+                                    }
+                                ) {
                                     CoverImage(
                                         vm.coverModel(b.id), b.media.metadata.title,
                                         Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))

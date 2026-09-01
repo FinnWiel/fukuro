@@ -383,11 +383,20 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(downloadedIds = downloads.downloadedIds().toSet())
     }
 
+    private suspend fun removeDownloadIfCompleted(itemId: String, finished: Boolean) {
+        if (!finished) return
+        if (!store.autoRemoveCompletedDownloadsFlow.first()) return
+        if (!downloads.isDownloaded(itemId)) return
+        downloads.delete(itemId)
+        _state.value = _state.value.copy(downloadedIds = downloads.downloadedIds().toSet())
+    }
+
     /** Marked finished on the device first, so it holds with no server and syncs after. */
     fun markFinished(itemId: String, finished: Boolean) = viewModelScope.launch {
         val duration = _state.value.allItems.firstOrNull { it.id == itemId }?.media?.duration ?: 0.0
         store.setLocalProgress(itemId, if (finished) duration else 0.0, finished = finished)
         try { api.markFinished(itemId, finished) } catch (_: Exception) {}
+        removeDownloadIfCompleted(itemId, finished)
         refresh()
     }
 
@@ -557,6 +566,37 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 // only warm the audio connection for the book most likely to be played
                 if (index == 0) full.media.audioFiles.firstOrNull()?.let { api.warmUp(item.id, it.ino) }
             }
+        }
+    }
+
+    /**
+     * Removes the metadata round trip from the Play tap where possible. This does not
+     * download the book; it fetches the playlist shape and opens the likely audio URL.
+     */
+    fun prefetchBook(itemId: String) = viewModelScope.launch {
+        if (LocalLibrary.isLocal(itemId) || downloads.isDownloaded(itemId) || !_state.value.serverOnline) return@launch
+        runCatching {
+            val full = shelf.itemCache[itemId]?.takeIf { it.media.audioFiles.isNotEmpty() }
+                ?: api.item(itemId).also {
+                    if (it.media.audioFiles.isNotEmpty()) shelf.itemCache[itemId] = it
+                }
+            val pos = _state.value.progress[itemId]?.takeIf { !it.isFinished }?.currentTime ?: 0.0
+            val target = audioFileAt(full, pos) ?: full.media.audioFiles.sortedBy { it.index }.firstOrNull()
+            target?.let { api.warmUp(itemId, it.ino) }
+        }
+    }
+
+    fun cachePlayableItem(item: LibraryItem) {
+        if (item.media.audioFiles.isNotEmpty()) shelf.itemCache[item.id] = item
+    }
+
+    private fun audioFileAt(item: LibraryItem, positionSec: Double): AudioFile? {
+        var start = 0.0
+        return item.media.audioFiles.sortedBy { it.index }.firstOrNull { file ->
+            val end = start + file.duration
+            val hit = positionSec >= start && positionSec < end
+            start = end
+            hit
         }
     }
 

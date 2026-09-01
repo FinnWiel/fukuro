@@ -219,8 +219,12 @@ fun AppNav(
         }
     }
 
+    // book sheet: null = closed, SHEET_CURRENT = whatever is playing, else an item id
+    var sheetItem by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+
     fun playBook(itemId: String, startAtSec: Double? = null) {
         val c = controller ?: return
+        vm.prefetchBook(itemId)
         // A chapter tap supplies an explicit start. Ordinary launches keep using the
         // saved position so the main play button still behaves as Resume.
         val saved = state.progress[itemId]?.takeIf { !it.isFinished && it.progress > 0.001 }?.currentTime
@@ -237,8 +241,10 @@ fun AppNav(
         // already on the book page — it switches to playing mode by itself
     }
 
-    // book sheet: null = closed, SHEET_CURRENT = whatever is playing, else an item id
-    var sheetItem by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+    fun openBook(itemId: String) {
+        vm.prefetchBook(itemId)
+        sheetItem = itemId
+    }
 
     // fukuro://book/<id> and fukuro://series/<id> from pinned shortcuts and widgets
     val ctx = LocalContext.current
@@ -253,7 +259,7 @@ fun AppNav(
         val missing = when (uri.host) {
             "book" -> {
                 val known = loaded?.items?.any { it.id == id } == true
-                if (known) sheetItem = id
+                if (known) openBook(id)
                 !known
             }
             "series" -> {
@@ -286,7 +292,7 @@ fun AppNav(
                 composable("home") {
                     HomeScreen(vm,
                         onOpenServer = { nav.navigate("login") },
-                        onOpenBook = { id -> sheetItem = id },
+                        onOpenBook = { id -> openBook(id) },
                         onOpenSeries = { id -> nav.navigate("series/$id") },
                         onOpenAuthor = { name -> nav.navigate("author/${android.net.Uri.encode(name)}") },
                         onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") },
@@ -302,12 +308,12 @@ fun AppNav(
                 composable("library") {
                     LibraryScreen(
                         vm,
-                        onOpenBook = { id -> sheetItem = id },
+                        onOpenBook = { id -> openBook(id) },
                         miniPlayerVisible = miniPlayerVisible
                     )
                 }
                 composable("stats") {
-                    StatsScreen(vm, onOpenBook = { id -> sheetItem = id })
+                    StatsScreen(vm, onOpenBook = { id -> openBook(id) })
                 }
                 composable("series/{id}") { entry ->
                     val id = entry.arguments?.getString("id") ?: return@composable
@@ -315,17 +321,17 @@ fun AppNav(
                         vm,
                         id,
                         playingBookId = playingBookId,
-                        onOpenBook = { b -> sheetItem = b },
+                        onOpenBook = { b -> openBook(b) },
                         onBack = { nav.popBackStack() },
                     )
                 }
                 composable("author/{name}") { entry ->
                     val name = entry.arguments?.getString("name") ?: return@composable
-                    AuthorGridScreen(vm, name, onOpenBook = { b -> sheetItem = b }, onBack = { nav.popBackStack() })
+                    AuthorGridScreen(vm, name, onOpenBook = { b -> openBook(b) }, onBack = { nav.popBackStack() })
                 }
                 composable("narrator/{name}") { entry ->
                     val name = entry.arguments?.getString("name") ?: return@composable
-                    NarratorGridScreen(vm, name, onOpenBook = { b -> sheetItem = b }, onBack = { nav.popBackStack() })
+                    NarratorGridScreen(vm, name, onOpenBook = { b -> openBook(b) }, onBack = { nav.popBackStack() })
                 }
                 // the book/now-playing page is not a destination — it is an overlay
                 // sheet (see below) so the page behind stays visible while dragging
@@ -432,7 +438,7 @@ fun AppNav(
                 itemId = sheetItem?.takeIf { it != SHEET_CURRENT },
                 onBack = { sheetItem = null },
                 onPlayBook = { b, startAt -> playBook(b, startAt) },
-                onOpenBook = { b -> sheetItem = b },
+                onOpenBook = { b -> openBook(b) },
                 onOpenSeries = { s -> sheetItem = null; nav.navigate("series/$s") },
                 onOpenAuthor = { name ->
                     sheetItem = null

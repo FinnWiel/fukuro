@@ -265,8 +265,14 @@ private fun LazyListScope.shelfBody(
                         ).joinToString("  ·  "),
                         progress = p?.progress?.toFloat()?.coerceIn(0f, 1f) ?: 0f,
                         cover = vm.coverModel(book.id),
-                        onOpen = { onOpenBook(book.id) },
-                        onPlay = { onPlayBook(book.id) },
+                        onOpen = {
+                            vm.prefetchBook(book.id)
+                            onOpenBook(book.id)
+                        },
+                        onPlay = {
+                            vm.prefetchBook(book.id)
+                            onPlayBook(book.id)
+                        },
                         isPlaying = playingBookId == book.id && isPlaying,
                         modifier = Modifier.padding(
                             start = Fukuro.dims.screenPadding,
@@ -392,7 +398,10 @@ private fun HomeBookCell(
         finished = p?.isFinished == true,
         progressStyle = state.progressStyle,
         coverSize = state.coverSize,
-        onClick = { onOpenBook(book.id) },
+        onClick = {
+            vm.prefetchBook(book.id)
+            onOpenBook(book.id)
+        },
         onLongClick = { showOptions = true },
     )
 }
@@ -422,7 +431,10 @@ private fun HomeBookRow(
         ).joinToString("  ·  "),
         cover = vm.coverModel(book.id),
         progress = if (p?.isFinished == true) 1f else p?.progress?.toFloat()?.coerceIn(0f, 1f) ?: 0f,
-        onClick = { onOpenBook(book.id) },
+        onClick = {
+            vm.prefetchBook(book.id)
+            onOpenBook(book.id)
+        },
         onLongClick = { showOptions = true },
         modifier = Modifier
             .padding(horizontal = Fukuro.dims.screenPadding)

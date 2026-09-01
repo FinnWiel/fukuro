@@ -274,6 +274,9 @@ class PlayerService : MediaLibraryService() {
             publishNowPlaying()
             // Opt-in only: rolling into the next book unasked is worse than stopping.
             val next = if (store.autoNextBlocking()) nextInSeries(id) else null
+            if (store.autoRemoveCompletedDownloadsBlocking() && downloads.isDownloaded(id)) {
+                downloads.delete(id)
+            }
             if (next != null) {
                 val playlist = buildPlaylist(next, 0.0)
                 player.setMediaItems(playlist, 0, 0L)

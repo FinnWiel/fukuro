@@ -228,6 +228,7 @@ fun SettingsScreen(
     val trackScope by vm.store.trackScopeFlow.collectAsState(initial = "book")
     val swipeAction by vm.store.swipeActionFlow.collectAsState(initial = "chapter")
     val autoNext by vm.store.autoNextFlow.collectAsState(initial = false)
+    val autoRemoveCompletedDownloads by vm.store.autoRemoveCompletedDownloadsFlow.collectAsState(initial = false)
     var showPicker by remember { mutableStateOf(false) }
     val state by vm.state.collectAsState()
     val localFolder by vm.store.localFolderFlow.collectAsState(initial = "")
@@ -368,6 +369,14 @@ fun SettingsScreen(
                 Checkbox(checked = autoNext, onCheckedChange = { on -> scope.launch { vm.store.setAutoNext(on) } })
                 Text("Start the next book when one finishes", Modifier.weight(1f))
                 SettingInfo("Automatically starts the next book when the current book belongs to a series.")
+            }
+            Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = autoRemoveCompletedDownloads,
+                    onCheckedChange = { on -> scope.launch { vm.store.setAutoRemoveCompletedDownloads(on) } },
+                )
+                Text("Remove downloads after finishing", Modifier.weight(1f))
+                SettingInfo("Deletes a downloaded book from this phone after it is marked finished or reaches the end. Server and progress data are kept.")
             }
 
             Spacer(Modifier.height(12.dp))

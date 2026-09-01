@@ -38,6 +38,7 @@ class Store(private val context: Context) {
     @Volatile private var mSkipForward: Int = 30
     @Volatile private var mTrackScope: String = "book"
     @Volatile private var mAutoNext: Boolean = false
+    @Volatile private var mAutoRemoveCompletedDownloads: Boolean = false
 
     private val mirrorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -52,6 +53,7 @@ class Store(private val context: Context) {
                 mSkipForward = p[K.SKIP_FORWARD]?.toIntOrNull() ?: 30
                 mTrackScope = p[K.TRACK_SCOPE] ?: "book"
                 mAutoNext = p[K.AUTO_NEXT] ?: false
+                mAutoRemoveCompletedDownloads = p[K.AUTO_REMOVE_COMPLETED_DOWNLOADS] ?: false
             }
         }
     }
@@ -77,6 +79,7 @@ class Store(private val context: Context) {
         val CONTINUE_HIDDEN = stringPreferencesKey("continue_hidden") // csv of ids kept out of the shelf
         val AUTO_UPDATE = booleanPreferencesKey("auto_update_check")
         val AUTO_NEXT = booleanPreferencesKey("auto_next_in_series") // off: finishing stops
+        val AUTO_REMOVE_COMPLETED_DOWNLOADS = booleanPreferencesKey("auto_remove_completed_downloads")
         val SWIPE_ACTION = stringPreferencesKey("swipe_action")      // "chapter" | "book"
         val UPDATE_LAST_CHECK = stringPreferencesKey("update_last_check") // epoch ms
         val API_KEY = stringPreferencesKey("abs_api_key")
@@ -105,6 +108,13 @@ class Store(private val context: Context) {
     val autoNextFlow: Flow<Boolean> = context.dataStore.data.map { it[K.AUTO_NEXT] ?: false }
     suspend fun setAutoNext(v: Boolean) = context.dataStore.edit { it[K.AUTO_NEXT] = v }
     fun autoNextBlocking(): Boolean = mAutoNext
+
+    /** Deletes the offline copy when a downloaded book is completed. */
+    val autoRemoveCompletedDownloadsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[K.AUTO_REMOVE_COMPLETED_DOWNLOADS] ?: false }
+    suspend fun setAutoRemoveCompletedDownloads(v: Boolean) =
+        context.dataStore.edit { it[K.AUTO_REMOVE_COMPLETED_DOWNLOADS] = v }
+    fun autoRemoveCompletedDownloadsBlocking(): Boolean = mAutoRemoveCompletedDownloads
 
     /** What a sideways swipe on either player does: "chapter" or "book". */
     val swipeActionFlow: Flow<String> = context.dataStore.data.map { it[K.SWIPE_ACTION] ?: "chapter" }
