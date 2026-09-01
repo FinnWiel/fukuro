@@ -370,14 +370,6 @@ fun SettingsScreen(
                 Text("Start the next book when one finishes", Modifier.weight(1f))
                 SettingInfo("Automatically starts the next book when the current book belongs to a series.")
             }
-            Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = autoRemoveCompletedDownloads,
-                    onCheckedChange = { on -> scope.launch { vm.store.setAutoRemoveCompletedDownloads(on) } },
-                )
-                Text("Remove downloads after finishing", Modifier.weight(1f))
-                SettingInfo("Deletes a downloaded book from this phone after it is marked finished or reaches the end. Server and progress data are kept.")
-            }
 
             Spacer(Modifier.height(12.dp))
             SettingLabel("Progress on covers", "Choose whether book progress is drawn as a circle or as a bar across the cover.")
@@ -426,6 +418,15 @@ fun SettingsScreen(
                 "Pick a folder and Fukuro will list the audiobooks inside it — no server needed. " +
                     "Downloads are copied there too."
             )
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = autoRemoveCompletedDownloads,
+                    onCheckedChange = { on -> scope.launch { vm.store.setAutoRemoveCompletedDownloads(on) } },
+                )
+                Text("Remove downloads after finishing", Modifier.weight(1f))
+                SettingInfo("Deletes a downloaded book from this phone after it is marked finished or reaches the end. Server and progress data are kept.")
+            }
             Spacer(Modifier.height(8.dp))
             Text(
                 if (localFolder.isBlank()) "No folder selected"
