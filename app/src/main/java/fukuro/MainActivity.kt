@@ -593,7 +593,7 @@ private fun MiniPlayer(
     // than the raw average: averages turn unrelated cover colours into muddy browns.
     val ctx = LocalContext.current
     var coverColor by androidx.compose.runtime.remember { mutableStateOf<Color?>(null) }
-    LaunchedEffect(artwork, currentItemId) {
+    LaunchedEffect(artwork, currentItemId, state.coverRevision) {
         coverColor = null
         val model = artwork ?: currentItemId?.let { vm.coverModel(it) } ?: return@LaunchedEffect
         coverColor = extractCoverColor(ctx, model)
@@ -717,7 +717,11 @@ private fun MiniPlayer(
 private suspend fun extractCoverColor(context: android.content.Context, model: Any): Color? =
     withContext(Dispatchers.IO) {
         try {
-            val req = ImageRequest.Builder(context).data(model).allowHardware(false).size(96).build()
+            val req = if (model is ImageRequest) {
+                model.newBuilder().allowHardware(false).size(96).build()
+            } else {
+                ImageRequest.Builder(context).data(model).allowHardware(false).size(96).build()
+            }
             val drawable = ImageLoader(context).execute(req).drawable ?: return@withContext null
             val source = (drawable as? BitmapDrawable)?.bitmap ?: return@withContext null
 

@@ -80,6 +80,7 @@ class CoverProvider : ContentProvider() {
     private fun fileFor(uri: Uri): File? {
         val app = context?.applicationContext as? ShelfApp ?: return null
         val itemId = uri.lastPathSegment?.takeIf { it.isNotBlank() } ?: return null
+        app.coverOverrides.coverFile(itemId)?.let { return it }
         if (LocalLibrary.isLocal(itemId)) return app.local.coverFile(itemId)
         app.downloads.localCover(itemId)?.let { return it }
         return fetchServerCover(app, itemId)
