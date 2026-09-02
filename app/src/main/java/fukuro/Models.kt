@@ -14,7 +14,24 @@ data class CustomShelfEntry(
 data class LoginResponse(val user: AbsUser)
 
 @Serializable
-data class AbsUser(val id: String, val username: String, val token: String)
+data class AbsUser(
+    val id: String,
+    val username: String,
+    val token: String,
+    val type: String = "user",
+    val permissions: AbsUserPermissions = AbsUserPermissions(),
+)
+
+@Serializable
+data class AbsUserPermissions(
+    val download: Boolean = true,
+    val update: Boolean = true,
+    val delete: Boolean = false,
+    val upload: Boolean = false,
+    val accessAllLibraries: Boolean = true,
+    val accessAllTags: Boolean = true,
+    val accessExplicitContent: Boolean = true,
+)
 
 @Serializable
 data class LibrariesResponse(val libraries: List<AbsLibrary>)
@@ -132,7 +149,13 @@ data class LocalProgress(
 )
 
 @Serializable
-data class MeResponse(val id: String = "", val username: String = "", val mediaProgress: List<MediaProgress> = emptyList())
+data class MeResponse(
+    val id: String = "",
+    val username: String = "",
+    val type: String = "user",
+    val permissions: AbsUserPermissions = AbsUserPermissions(),
+    val mediaProgress: List<MediaProgress> = emptyList(),
+)
 
 /** Aggregate returned by Audiobookshelf's /api/me/listening-stats endpoint. Times are seconds. */
 @Serializable

@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Colorize
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Info
@@ -217,6 +218,7 @@ fun SettingsScreen(
     onLoggedOut: () -> Unit,
     onOpenUpload: () -> Unit = {},
     onOpenShelves: () -> Unit = {},
+    onOpenAdminSettings: () -> Unit = {},
     onSignIn: () -> Unit = {},
 ) {
     val theme by vm.store.themeFlow.collectAsState(initial = "system")
@@ -266,7 +268,24 @@ fun SettingsScreen(
     Scaffold(
         containerColor = Fukuro.colors.background,
         // no back arrow: Settings is a bottom-nav tab, not a pushed screen
-        topBar = { FlatTopBar("Settings") },
+        topBar = {
+            FlatTopBar("Settings") {
+                if (state.canOpenAdminSettings) {
+                    TextButton(
+                        onClick = onOpenAdminSettings,
+                        shape = FukuroButtonShape,
+                    ) {
+                        Icon(
+                            Icons.Rounded.AdminPanelSettings,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Admin")
+                    }
+                }
+            }
+        },
     ) { pad ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(pad),
@@ -532,6 +551,64 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun AdminSettingsScreen(
+    vm: ShelfViewModel,
+    onBack: () -> Unit,
+) {
+    val state by vm.state.collectAsState()
+    val permissions = state.currentUserPermissions
+
+    Scaffold(
+        containerColor = Fukuro.colors.background,
+        topBar = { FlatTopBar("Admin settings", onBack) },
+    ) { pad ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(pad),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 140.dp),
+        ) {
+            item {
+                if (!state.canOpenAdminSettings) {
+                    SectionTitle("Unavailable")
+                    Spacer(Modifier.height(4.dp))
+                    SectionCaption("The connected Audiobookshelf account is not an admin account.")
+                } else {
+                    SectionTitle("Audiobookshelf account")
+                    Spacer(Modifier.height(4.dp))
+                    SectionCaption("Role: ${state.currentUserRole ?: "unknown"}")
+
+                    if (permissions != null) {
+                        Spacer(Modifier.height(24.dp))
+                        HorizontalDivider(color = Fukuro.colors.outline)
+                        Spacer(Modifier.height(16.dp))
+                        SectionTitle("Permissions")
+                        Spacer(Modifier.height(8.dp))
+                        PermissionLine("Download", permissions.download)
+                        PermissionLine("Update items", permissions.update)
+                        PermissionLine("Delete items", permissions.delete)
+                        PermissionLine("Upload", permissions.upload)
+                        PermissionLine("All libraries", permissions.accessAllLibraries)
+                        PermissionLine("All tags", permissions.accessAllTags)
+                        PermissionLine("Explicit content", permissions.accessExplicitContent)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PermissionLine(label: String, allowed: Boolean) {
+    Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            if (allowed) "Allowed" else "Blocked",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (allowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

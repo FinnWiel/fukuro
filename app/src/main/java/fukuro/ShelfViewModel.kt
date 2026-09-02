@@ -37,7 +37,13 @@ data class UiState(
     val progressStyle: String = "circle", // "circle" | "bar"
     val coverSize: Int = 2, // 0..4, 2 = default
     val coverRevision: Int = 0,
+    val currentUserRole: String? = null,
+    val currentUserPermissions: AbsUserPermissions? = null,
 ) {
+    /** ABS admin areas are role-gated; never infer them from a hardcoded username. */
+    val canOpenAdminSettings: Boolean
+        get() = currentUserRole == "root" || currentUserRole == "admin"
+
     /**
      * Offline means the server was probed and wasn't there. Before the first probe it
      * is simply unknown, so nothing is hidden on the way in — the cached library keeps
@@ -213,11 +219,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                     val wasOffline = !_state.value.serverOnline
                     val ok = api.ping()
                     // refresh just the progress map so list progress bars track live playback
-                    val progress = if (ok) try {
-                        api.me().mediaProgress.associateBy { it.libraryItemId }
-                    } catch (_: Exception) { _state.value.serverProgress } else _state.value.serverProgress
+                    val me = if (ok) try { api.me() } catch (_: Exception) { null } else null
+                    val progress = me?.mediaProgress?.associateBy { it.libraryItemId }
+                        ?: _state.value.serverProgress
                     _state.value = _state.value.copy(
-                        serverOnline = ok, serverChecked = true, serverProgress = progress
+                        serverOnline = ok,
+                        serverChecked = true,
+                        serverProgress = progress,
+                        currentUserRole = me?.type ?: _state.value.currentUserRole,
+                        currentUserPermissions = me?.permissions ?: _state.value.currentUserPermissions,
                     )
                     // the connection just came back: hand over anything listened to without it
                     if (ok && wasOffline) {
@@ -233,9 +243,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, error = null)
             try {
-                api.login(server.trim(), username.trim(), password)
+                val user = api.login(server.trim(), username.trim(), password)
                 _state.value = _state.value.copy(
-                    loggedIn = true, loading = false, serverOnline = true, serverChecked = true
+                    loggedIn = true,
+                    loading = false,
+                    serverOnline = true,
+                    serverChecked = true,
+                    currentUserRole = user.type,
+                    currentUserPermissions = user.permissions,
                 )
                 refresh()
                 onDone(true)
@@ -268,7 +283,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             if (!hasServer) {
                 _state.value = _state.value.copy(
                     loading = false, serverOnline = false, serverChecked = true,
-                    allItems = offlineItems(), downloadedIds = downloaded, localCount = localItems.size
+                    allItems = offlineItems(), downloadedIds = downloaded, localCount = localItems.size,
+                    currentUserRole = null, currentUserPermissions = null
                 )
                 return@launch
             }
@@ -291,13 +307,16 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 val items = if (lib != null) api.libraryItems(lib.id) else emptyList()
                 val series = if (lib != null) try { api.librarySeries(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
                 val authors = if (lib != null) try { api.libraryAuthors(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
-                val progress = api.me().mediaProgress.associateBy { it.libraryItemId }
+                val me = api.me()
+                val progress = me.mediaProgress.associateBy { it.libraryItemId }
                 cache.write(CachedLibrary(items, series, authors, progress.values.toList()))
                 _state.value = _state.value.copy(
                     allItems = (items + localItems).unique(), series = series, authors = authors,
                     libraries = libraries, serverProgress = progress,
                     loading = false, serverOnline = true, serverChecked = true, downloadedIds = downloaded,
-                    localCount = localItems.size
+                    localCount = localItems.size,
+                    currentUserRole = me.type,
+                    currentUserPermissions = me.permissions,
                 )
                 prefetchContinue()
                 pushLocalProgress(progress)
@@ -659,6 +678,6 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun logout() = viewModelScope.launch {
         store.logout()
-        _state.value = UiState(loggedIn = false)
+        _state.value = UiState(loggedIn = false, serverChecked = true)
     }
 }
