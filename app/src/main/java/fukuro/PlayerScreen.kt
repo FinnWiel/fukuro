@@ -161,6 +161,7 @@ fun PlayerScreen(
     var livePosSec by remember { mutableStateOf<Double?>(null) }
     var liveDurSec by remember { mutableStateOf(0.0) }
     var sleepRemaining by remember { mutableLongStateOf(0L) }
+    var sleepChaptersRemaining by remember { mutableIntStateOf(0) }
     var showSleepDialog by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1.0f) }
     var showSpeedDialog by remember { mutableStateOf(false) }
@@ -189,7 +190,11 @@ fun PlayerScreen(
                     SessionCommand(PlayerService.CMD_SLEEP_REMAINING, Bundle.EMPTY), Bundle.EMPTY
                 )
                 f.addListener({
-                    try { sleepRemaining = f.get().extras.getLong("remainingSec", 0) } catch (_: Exception) {}
+                    try {
+                        val b = f.get().extras
+                        sleepRemaining = b.getLong("remainingSec", 0)
+                        sleepChaptersRemaining = b.getInt("remainingChapters", 0)
+                    } catch (_: Exception) {}
                 }, java.util.concurrent.Executor { it.run() })
             }
             delay(1000)
@@ -435,9 +440,14 @@ fun PlayerScreen(
                             )
                             DownloadIconButton(vm, displayId)
                         }
-                        if (sleepRemaining > 0) {
+                        if (sleepRemaining > 0 || sleepChaptersRemaining > 0) {
                             Spacer(Modifier.height(4.dp))
-                            Text("Sleep in ${sleepRemaining / 60}:${"%02d".format(sleepRemaining % 60)}",
+                            Text(
+                                if (sleepRemaining > 0) {
+                                    "Sleep in ${sleepRemaining / 60}:${"%02d".format(sleepRemaining % 60)}"
+                                } else {
+                                    "Sleep after $sleepChaptersRemaining ${if (sleepChaptersRemaining == 1) "chapter" else "chapters"}"
+                                },
                                 color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                         }
                         Spacer(Modifier.height(12.dp))
@@ -578,7 +588,7 @@ fun PlayerScreen(
                             ) {
                                 Icon(
                                     Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
-                                    tint = if (sleepRemaining > 0) MaterialTheme.colorScheme.primary
+                                    tint = if (sleepRemaining > 0 || sleepChaptersRemaining > 0) MaterialTheme.colorScheme.primary
                                     else TxtSecondary
                                 )
                             }
@@ -805,11 +815,18 @@ fun PlayerScreen(
 
     if (showSleepDialog) {
         var customSleep by remember { mutableStateOf("") }
+        var customChapters by remember { mutableStateOf("") }
         val customMin = customSleep.toIntOrNull()
+        val customChapterCount = customChapters.toIntOrNull()
         fun setTimer(minutes: Int) {
             controller?.sendCustomCommand(
                 SessionCommand(PlayerService.CMD_SLEEP_TIMER, Bundle.EMPTY),
                 Bundle().apply { putInt("minutes", minutes) })
+        }
+        fun setChapterTimer(chapters: Int) {
+            controller?.sendCustomCommand(
+                SessionCommand(PlayerService.CMD_SLEEP_TIMER, Bundle.EMPTY),
+                Bundle().apply { putInt("chapters", chapters) })
         }
         ModalBottomSheet(onDismissRequest = { showSleepDialog = false }) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 32.dp)) {
@@ -818,12 +835,19 @@ fun PlayerScreen(
                     if (sleepRemaining > 0) {
                         Text("${sleepRemaining / 60}:${"%02d".format(sleepRemaining % 60)} left",
                             style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    } else if (sleepChaptersRemaining > 0) {
+                        Text(
+                            "$sleepChaptersRemaining ${if (sleepChaptersRemaining == 1) "chapter" else "chapters"} left",
+                            style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("Playback fades out and pauses when the timer ends.",
+                Text("Playback fades out and pauses when the timer or chapter count ends.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
+                Text("Time", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(10, 20, 30, 45, 60, 90, 120).forEach { min ->
                         FilterChip(selected = false, onClick = { setTimer(min); showSleepDialog = false },
@@ -844,7 +868,38 @@ fun PlayerScreen(
                         shape = FukuroButtonShape,
                     ) { Text("Start") }
                 }
-                if (sleepRemaining > 0) {
+                Spacer(Modifier.height(20.dp))
+                Text("Chapters", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(1, 2, 3, 5).forEach { count ->
+                        FilterChip(
+                            selected = false,
+                            onClick = { setChapterTimer(count); showSleepDialog = false },
+                            label = { Text("$count ${if (count == 1) "chapter" else "chapters"}") }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        customChapters, { customChapters = it }, singleLine = true,
+                        label = { Text("Custom chapters") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = {
+                            customChapterCount?.let { count ->
+                                setChapterTimer(count.coerceIn(1, 99))
+                                showSleepDialog = false
+                            }
+                        },
+                        enabled = customChapterCount != null && customChapterCount > 0,
+                        shape = FukuroButtonShape,
+                    ) { Text("Start") }
+                }
+                if (sleepRemaining > 0 || sleepChaptersRemaining > 0) {
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(onClick = { setTimer(0); showSleepDialog = false },
                         modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) { Text("Cancel timer") }

@@ -36,7 +36,7 @@ import java.util.UUID
 class PlayerService : MediaLibraryService() {
 
     companion object {
-        const val CMD_SLEEP_TIMER = "SLEEP_TIMER" // arg: minutes (0 = cancel)
+        const val CMD_SLEEP_TIMER = "SLEEP_TIMER" // args: minutes or chapters (0 = cancel)
         const val CMD_SLEEP_REMAINING = "SLEEP_REMAINING"
         const val CMD_SEEK_BACK_10 = "SEEK_BACK_10"
         const val CMD_SEEK_FWD_30 = "SEEK_FWD_30"
@@ -67,6 +67,9 @@ class PlayerService : MediaLibraryService() {
     // sleep timer state
     private var sleepJob: Job? = null
     private var sleepEndsAt: Long = 0L
+    private var sleepChapterEndSec: Double? = null
+    private var sleepChapterCount: Int = 0
+    private var sleepFadeJob: Job? = null
 
     // progress sync state
     private var currentItemId: String? = null
@@ -174,6 +177,7 @@ class PlayerService : MediaLibraryService() {
             while (isActive) {
                 delay(1000)
                 if (currentChapters.isEmpty()) continue
+                checkChapterSleepTimer()
                 // Both dual-progress layouts keep the controller/notification scoped to
                 // the chapter; their second bar is book progress drawn by the app.
                 val perChapter = store.trackScopeBlocking() != "book"
@@ -265,6 +269,7 @@ class PlayerService : MediaLibraryService() {
         val id = currentItemId ?: return
         if (id == finishedItemId) return // ENDED can fire more than once
         finishedItemId = id
+        val sleepStopsHere = sleepChapterEndSec?.let { currentItemDuration >= it - 0.25 } == true
         scope.launch {
             store.setLocalProgress(id, currentItemDuration, finished = true)
             if (!LocalLibrary.isLocal(id)) {
@@ -273,7 +278,7 @@ class PlayerService : MediaLibraryService() {
             }
             publishNowPlaying()
             // Opt-in only: rolling into the next book unasked is worse than stopping.
-            val next = if (store.autoNextBlocking()) nextInSeries(id) else null
+            val next = if (!sleepStopsHere && store.autoNextBlocking()) nextInSeries(id) else null
             if (store.autoRemoveCompletedDownloadsBlocking() && downloads.isDownloaded(id)) {
                 downloads.delete(id)
             }
@@ -283,6 +288,7 @@ class PlayerService : MediaLibraryService() {
                 player.prepare()
                 player.play()
             } else {
+                if (sleepStopsHere) clearSleepTimer()
                 store.clearLastItem(id)
             }
         }
@@ -316,6 +322,57 @@ class PlayerService : MediaLibraryService() {
 
     private fun chapterAt(sec: Double): Chapter? =
         currentChapters.firstOrNull { sec >= it.start && sec < it.end } ?: currentChapters.lastOrNull()
+
+    private fun chapterSleepEndFor(count: Int): Double? {
+        if (count <= 0 || currentChapters.isEmpty()) return null
+        val pos = bookPositionSec()
+        val chapterIndex = currentChapters.indexOf(chapterAt(pos)).coerceAtLeast(0)
+        return currentChapters.getOrNull(chapterIndex + count - 1)?.end ?: currentItemDuration
+    }
+
+    private fun remainingSleepChapters(): Int {
+        val target = sleepChapterEndSec ?: return 0
+        val pos = bookPositionSec()
+        if (pos >= target - 0.25) return 0
+        return currentChapters.count { it.end > pos + 0.25 && it.end <= target + 0.25 }
+            .coerceAtLeast(1)
+    }
+
+    private fun clearSleepTimer() {
+        sleepJob?.cancel()
+        sleepJob = null
+        sleepFadeJob?.cancel()
+        sleepFadeJob = null
+        sleepEndsAt = 0L
+        sleepChapterEndSec = null
+        sleepChapterCount = 0
+    }
+
+    private fun startSleepFade(cancelSleepJob: Boolean = true) {
+        if (sleepFadeJob?.isActive == true) return
+        if (cancelSleepJob) sleepJob?.cancel()
+        sleepJob = null
+        sleepEndsAt = 0L
+        sleepChapterEndSec = null
+        sleepChapterCount = 0
+        sleepFadeJob = scope.launch {
+            val v0 = player.volume
+            try {
+                for (step in 10 downTo 1) {
+                    player.volume = v0 * step / 10f
+                    delay(1000)
+                }
+                player.pause()
+            } finally {
+                player.volume = v0
+            }
+        }
+    }
+
+    private fun checkChapterSleepTimer() {
+        val target = sleepChapterEndSec ?: return
+        if (player.isPlaying && bookPositionSec() >= target - 0.25) startSleepFade()
+    }
 
     /**
      * The stretch of the book the progress bar represents: the whole thing, or just the
@@ -515,6 +572,9 @@ class PlayerService : MediaLibraryService() {
             downloads.localItem(itemId) ?: throw e
         }
         if (listenItemId != null && listenItemId != itemId) flushListening()
+        if (currentItemId != null && currentItemId != itemId && sleepChapterEndSec != null) {
+            clearSleepTimer()
+        }
         currentItemId = itemId
         if (finishedItemId != itemId) finishedItemId = null // a fresh load can finish again
         if (rememberAsLast) store.setLastItem(itemId) // what onPlaybackResumption answers with
@@ -627,22 +687,29 @@ class PlayerService : MediaLibraryService() {
                 }
                 CMD_SLEEP_TIMER -> {
                     val minutes = args.getInt("minutes", 0)
-                    sleepJob?.cancel()
-                    if (minutes > 0) {
+                    val chapters = args.getInt("chapters", 0)
+                    clearSleepTimer()
+                    if (chapters > 0) {
+                        chapterSleepEndFor(chapters)?.let { target ->
+                            sleepChapterEndSec = target
+                            sleepChapterCount = chapters
+                        }
+                    } else if (minutes > 0) {
                         sleepEndsAt = System.currentTimeMillis() + minutes * 60_000L
                         sleepJob = scope.launch {
                             delay(minutes * 60_000L - 10_000L)
-                            // gentle 10s fade
-                            val v0 = player.volume
-                            for (step in 10 downTo 1) { player.volume = v0 * step / 10f; delay(1000) }
-                            player.pause(); player.volume = v0; sleepEndsAt = 0L
+                            startSleepFade(cancelSleepJob = false)
                         }
-                    } else sleepEndsAt = 0L
+                    }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 CMD_SLEEP_REMAINING -> {
                     val remaining = ((sleepEndsAt - System.currentTimeMillis()) / 1000L).coerceAtLeast(0)
-                    val out = Bundle().apply { putLong("remainingSec", if (sleepEndsAt == 0L) 0 else remaining) }
+                    val out = Bundle().apply {
+                        putLong("remainingSec", if (sleepEndsAt == 0L) 0 else remaining)
+                        putInt("remainingChapters", remainingSleepChapters())
+                        putInt("chapterCount", sleepChapterCount)
+                    }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, out))
                 }
                 CMD_BOOK_POSITION -> {
