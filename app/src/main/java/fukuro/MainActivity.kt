@@ -346,8 +346,12 @@ fun AppNav(
                         },
                         onOpenUpload = { nav.navigate("upload") },
                         onOpenShelves = { nav.navigate("home_shelves") },
+                        onOpenAdminSettings = { nav.navigate("admin_settings") },
                         onSignIn = { nav.navigate("login") }
                     )
+                }
+                composable("admin_settings") {
+                    AdminSettingsScreen(vm, onBack = { nav.popBackStack() })
                 }
                 composable("home_shelves") {
                     CustomiseHomeScreen(
