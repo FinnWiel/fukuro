@@ -31,6 +31,36 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UploadScreen(vm: ShelfViewModel, onBack: () -> Unit) {
+    val state by vm.state.collectAsState()
+    if (!state.canOpenAdminSettings) {
+        Scaffold(
+            containerColor = Fukuro.colors.background,
+            topBar = { FlatTopBar("Upload a book", onBack) },
+        ) { pad ->
+            Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
+                Text(
+                    "The connected Audiobookshelf account is not an admin account.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        return
+    }
+
+    Scaffold(
+        containerColor = Fukuro.colors.background,
+        topBar = { FlatTopBar("Upload a book", onBack) },
+    ) { pad ->
+        Column(
+            Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState())
+        ) {
+            UploadBookPanel(vm)
+        }
+    }
+}
+
+@Composable
+fun UploadBookPanel(vm: ShelfViewModel) {
     val upload by vm.upload.collectAsState()
     var title by remember { mutableStateOf("") }
     var author by remember { mutableStateOf("") }
@@ -41,55 +71,46 @@ fun UploadScreen(vm: ShelfViewModel, onBack: () -> Unit) {
         ActivityResultContracts.GetMultipleContents()
     ) { uris -> if (uris.isNotEmpty()) picked = uris }
 
-    Scaffold(
-        containerColor = Fukuro.colors.background,
-        topBar = { FlatTopBar("Upload a book", onBack) },
-    ) { pad ->
-        Column(
-            Modifier.fillMaxSize().padding(pad).padding(16.dp).verticalScroll(rememberScrollState())
-        ) {
-            Text(
-                "Uploads go to your Audiobookshelf server and appear in the library after its scan.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(title, { title = it }, label = { Text("Title *") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(author, { author = it }, label = { Text("Author") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(series, { series = it }, label = { Text("Series (optional)") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(16.dp))
-            OutlinedButton(onClick = { picker.launch("audio/*") }, modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) {
-                Text(if (picked.isEmpty()) "Pick audio file(s)" else "${picked.size} file(s) selected — tap to change")
-            }
-            Spacer(Modifier.height(16.dp))
-            if (upload.running) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(8.dp))
-            }
-            upload.message?.let {
-                Text(
-                    it,
-                    color = if (upload.success) MaterialTheme.colorScheme.primary
-                    else if (upload.running) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-            Button(
-                onClick = { vm.uploadBook(title, author, series, picked) },
-                enabled = !upload.running && title.isNotBlank() && picked.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape,
-            ) { Text(if (upload.running) "Uploading…" else "Upload") }
-            if (upload.success) {
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { vm.resetUpload(); title = ""; author = ""; series = ""; picked = emptyList() },
-                    modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) { Text("Upload another") }
-            }
-        }
+    Text(
+        "Uploads go to your Audiobookshelf server and appear in the library after its scan.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.height(16.dp))
+    OutlinedTextField(title, { title = it }, label = { Text("Title *") }, singleLine = true,
+        modifier = Modifier.fillMaxWidth())
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(author, { author = it }, label = { Text("Author") }, singleLine = true,
+        modifier = Modifier.fillMaxWidth())
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(series, { series = it }, label = { Text("Series (optional)") }, singleLine = true,
+        modifier = Modifier.fillMaxWidth())
+    Spacer(Modifier.height(16.dp))
+    OutlinedButton(onClick = { picker.launch("audio/*") }, modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) {
+        Text(if (picked.isEmpty()) "Pick audio file(s)" else "${picked.size} file(s) selected - tap to change")
+    }
+    Spacer(Modifier.height(16.dp))
+    if (upload.running) {
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+    }
+    upload.message?.let {
+        Text(
+            it,
+            color = if (upload.success) MaterialTheme.colorScheme.primary
+            else if (upload.running) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+    Button(
+        onClick = { vm.uploadBook(title, author, series, picked) },
+        enabled = !upload.running && title.isNotBlank() && picked.isNotEmpty(),
+        modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape,
+    ) { Text(if (upload.running) "Uploading..." else "Upload") }
+    if (upload.success) {
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = { vm.resetUpload(); title = ""; author = ""; series = ""; picked = emptyList() },
+            modifier = Modifier.fillMaxWidth(), shape = FukuroButtonShape) { Text("Upload another") }
     }
 }

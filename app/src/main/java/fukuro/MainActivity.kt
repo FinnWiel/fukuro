@@ -344,7 +344,6 @@ fun AppNav(
                                 launchSingleTop = true
                             }
                         },
-                        onOpenUpload = { nav.navigate("upload") },
                         onOpenShelves = { nav.navigate("home_shelves") },
                         onOpenAdminSettings = { nav.navigate("admin_settings") },
                         onSignIn = { nav.navigate("login") }

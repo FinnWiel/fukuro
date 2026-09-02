@@ -15,9 +15,9 @@ data class LoginResponse(val user: AbsUser)
 
 @Serializable
 data class AbsUser(
-    val id: String,
-    val username: String,
-    val token: String,
+    val id: String = "",
+    val username: String = "",
+    val token: String = "",
     val type: String = "user",
     val permissions: AbsUserPermissions = AbsUserPermissions(),
 )
@@ -31,6 +31,33 @@ data class AbsUserPermissions(
     val accessAllLibraries: Boolean = true,
     val accessAllTags: Boolean = true,
     val accessExplicitContent: Boolean = true,
+)
+
+@Serializable
+data class UsersResponse(val users: List<AbsUser> = emptyList())
+
+@Serializable
+data class OnlineUsersResponse(
+    val usersOnline: List<AbsOnlineUser> = emptyList(),
+    val openSessions: List<AbsOpenSession> = emptyList(),
+)
+
+@Serializable
+data class AbsOnlineUser(
+    val id: String = "",
+    val username: String = "",
+    val type: String = "user",
+    val lastSeen: Long? = null,
+)
+
+@Serializable
+data class AbsOpenSession(
+    val id: String = "",
+    val userId: String = "",
+    val libraryItemId: String = "",
+    val displayTitle: String = "",
+    val displayAuthor: String = "",
+    val updatedAt: Long = 0L,
 )
 
 @Serializable

@@ -105,6 +105,15 @@ private fun mergeProgress(
 /** Upload page state. */
 data class UploadUi(val running: Boolean = false, val message: String? = null, val success: Boolean = false)
 
+data class AdminUi(
+    val runningAction: String? = null,
+    val message: String? = null,
+    val success: Boolean = false,
+    val users: List<AbsUser> = emptyList(),
+    val onlineUsers: List<AbsOnlineUser> = emptyList(),
+    val openSessions: List<AbsOpenSession> = emptyList(),
+)
+
 /** Where the app has got to with a newer release. */
 data class UpdateUi(
     val checking: Boolean = false,
@@ -131,6 +140,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _update = MutableStateFlow(UpdateUi())
     val update: StateFlow<UpdateUi> = _update
+
+    private val _admin = MutableStateFlow(AdminUi())
+    val admin: StateFlow<AdminUi> = _admin
 
     /** Lazy lists key on item id, and a repeat key is a hard crash — never allow one. */
     private fun List<LibraryItem>.unique() = distinctBy { it.id }
@@ -643,7 +655,58 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     private val _upload = MutableStateFlow(UploadUi())
     val upload: StateFlow<UploadUi> = _upload
 
+    private fun isAdmin() = _state.value.canOpenAdminSettings
+
+    private fun adminOnlyMessage() = "Admin account required"
+
+    private fun runAdminAction(action: String, block: suspend () -> String) = viewModelScope.launch {
+        if (!isAdmin()) {
+            _admin.value = _admin.value.copy(message = adminOnlyMessage(), success = false)
+            return@launch
+        }
+        _admin.value = _admin.value.copy(runningAction = action, message = null, success = false)
+        try {
+            val message = block()
+            _admin.value = _admin.value.copy(runningAction = null, message = message, success = true)
+        } catch (e: Exception) {
+            _admin.value = _admin.value.copy(
+                runningAction = null,
+                message = e.message?.take(200) ?: "Admin action failed",
+                success = false,
+            )
+        }
+    }
+
+    fun scanLibrary(libraryId: String, force: Boolean = false) = runAdminAction(
+        if (force) "force-scan-$libraryId" else "scan-$libraryId"
+    ) {
+        api.scanLibrary(libraryId, force)
+        refresh()
+        if (force) "Force rescan started" else "Library scan started"
+    }
+
+    fun matchLibrary(libraryId: String) = runAdminAction("match-$libraryId") {
+        api.matchLibrary(libraryId)
+        refresh()
+        "Metadata quick match started"
+    }
+
+    fun loadAdminUsers() = runAdminAction("users") {
+        val users = api.users()
+        val online = api.onlineUsers()
+        _admin.value = _admin.value.copy(
+            users = users,
+            onlineUsers = online.usersOnline,
+            openSessions = online.openSessions,
+        )
+        "Loaded ${users.size} user(s)"
+    }
+
     fun uploadBook(title: String, author: String, series: String, uris: List<Uri>) = viewModelScope.launch {
+        if (!isAdmin()) {
+            _upload.value = UploadUi(message = adminOnlyMessage())
+            return@launch
+        }
         if (title.isBlank() || uris.isEmpty()) {
             _upload.value = UploadUi(message = "Pick at least one file and enter a title"); return@launch
         }

@@ -216,7 +216,6 @@ private fun AccentPickerDialog(initial: Color, onDismiss: () -> Unit, onPick: (S
 fun SettingsScreen(
     vm: ShelfViewModel,
     onLoggedOut: () -> Unit,
-    onOpenUpload: () -> Unit = {},
     onOpenShelves: () -> Unit = {},
     onOpenAdminSettings: () -> Unit = {},
     onSignIn: () -> Unit = {},
@@ -252,11 +251,9 @@ fun SettingsScreen(
             vm.setLocalFolder(uri.toString())
         }
     }
-    val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
-    var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
     if (showPicker) {
         AccentPickerDialog(
             initial = accentColorOf(accent),
@@ -470,33 +467,6 @@ fun SettingsScreen(
                 }
             }
 
-            item(key = "server") {
-                Column {
-            Spacer(Modifier.height(24.dp))
-            HorizontalDivider(color = Fukuro.colors.outline)
-            Spacer(Modifier.height(16.dp))
-
-            SectionTitle("Server")
-            Spacer(Modifier.height(4.dp))
-            SectionCaption(
-                "API key (optional) — used for uploading new books. Create one in the " +
-                    "Audiobookshelf web UI under Settings → API Keys."
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                apiKeyText, { apiKeyText = it }, singleLine = true,
-                label = { Text("Audiobookshelf API key") },
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsButton(onClick = { scope.launch { vm.store.setApiKey(apiKeyText.trim()) } }) { Text("Save key") }
-                SettingsButton(onClick = onOpenUpload) { Text("Upload a book") }
-            }
-                }
-            }
-
             item(key = "account-and-updates") {
                 Column {
             Spacer(Modifier.height(24.dp))
@@ -560,7 +530,12 @@ fun AdminSettingsScreen(
     onBack: () -> Unit,
 ) {
     val state by vm.state.collectAsState()
+    val admin by vm.admin.collectAsState()
     val permissions = state.currentUserPermissions
+    val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
+    val scope = rememberCoroutineScope()
+    var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
+    val onlineUserIds = remember(admin.onlineUsers) { admin.onlineUsers.map { it.id }.toSet() }
 
     Scaffold(
         containerColor = Fukuro.colors.background,
@@ -594,9 +569,145 @@ fun AdminSettingsScreen(
                         PermissionLine("All tags", permissions.accessAllTags)
                         PermissionLine("Explicit content", permissions.accessExplicitContent)
                     }
+
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = Fukuro.colors.outline)
+                    Spacer(Modifier.height(16.dp))
+                    SectionTitle("API key")
+                    Spacer(Modifier.height(4.dp))
+                    SectionCaption(
+                        "Optional. Fukuro will use this key for admin actions and uploads; otherwise it uses your login session."
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        apiKeyText,
+                        { apiKeyText = it },
+                        singleLine = true,
+                        label = { Text("Audiobookshelf API key") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SettingsButton(onClick = { scope.launch { vm.store.setApiKey(apiKeyText.trim()) } }) {
+                        Text("Save key")
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = Fukuro.colors.outline)
+                    Spacer(Modifier.height(16.dp))
+                    SectionTitle("Upload")
+                    Spacer(Modifier.height(8.dp))
+                    UploadBookPanel(vm)
+
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = Fukuro.colors.outline)
+                    Spacer(Modifier.height(16.dp))
+                    SectionTitle("Library maintenance")
+                    Spacer(Modifier.height(4.dp))
+                    SectionCaption("Start the same server-side scans and metadata matching available in Audiobookshelf.")
+                    Spacer(Modifier.height(8.dp))
+                    if (state.libraries.isEmpty()) {
+                        SectionCaption("No server libraries are loaded.")
+                    } else {
+                        state.libraries.forEach { library ->
+                            AdminLibraryActions(
+                                library = library,
+                                runningAction = admin.runningAction,
+                                onScan = { vm.scanLibrary(library.id) },
+                                onForceScan = { vm.scanLibrary(library.id, force = true) },
+                                onMatch = { vm.matchLibrary(library.id) },
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    admin.message?.let { message ->
+                        Text(
+                            message,
+                            color = if (admin.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    HorizontalDivider(color = Fukuro.colors.outline)
+                    Spacer(Modifier.height(16.dp))
+                    SectionTitle("Users")
+                    Spacer(Modifier.height(8.dp))
+                    SettingsButton(
+                        onClick = { vm.loadAdminUsers() },
+                        enabled = admin.runningAction != "users",
+                    ) {
+                        Text(if (admin.runningAction == "users") "Loading..." else "Load users")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (admin.users.isNotEmpty()) {
+                        admin.users.forEach { user ->
+                            AdminUserLine(user, user.id in onlineUserIds)
+                        }
+                    }
+                    if (admin.openSessions.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        SectionTitle("Open sessions")
+                        Spacer(Modifier.height(8.dp))
+                        admin.openSessions.take(5).forEach { session ->
+                            Text(
+                                session.displayTitle.ifBlank { session.libraryItemId.ifBlank { session.id } },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AdminLibraryActions(
+    library: AbsLibrary,
+    runningAction: String?,
+    onScan: () -> Unit,
+    onForceScan: () -> Unit,
+    onMatch: () -> Unit,
+) {
+    Text(library.name, style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsButton(
+            onClick = onScan,
+            modifier = Modifier.weight(1f),
+            enabled = runningAction == null,
+        ) { Text(if (runningAction == "scan-${library.id}") "Scanning..." else "Scan") }
+        SettingsButton(
+            onClick = onForceScan,
+            modifier = Modifier.weight(1f),
+            enabled = runningAction == null,
+        ) { Text(if (runningAction == "force-scan-${library.id}") "Scanning..." else "Force rescan") }
+    }
+    Spacer(Modifier.height(8.dp))
+    SettingsButton(
+        onClick = onMatch,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = runningAction == null,
+    ) { Text(if (runningAction == "match-${library.id}") "Matching..." else "Match metadata") }
+}
+
+@Composable
+private fun AdminUserLine(user: AbsUser, online: Boolean) {
+    Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(user.username, style = MaterialTheme.typography.bodyMedium)
+            Text(user.type, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(
+            if (online) "Online" else if (user.permissions.upload) "Upload" else "User",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

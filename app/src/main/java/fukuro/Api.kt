@@ -54,13 +54,25 @@ class AbsApi(private val store: Store) {
 
     class ApiException(val code: Int, message: String) : Exception(message)
 
-    private suspend fun raw(method: String, path: String, body: String? = null, auth: Boolean = true): String =
+    private suspend fun bearer(preferApiKey: Boolean = false): String {
+        if (preferApiKey) {
+            store.apiKey()?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return store.token() ?: throw ApiException(401, "Not logged in")
+    }
+
+    private suspend fun raw(
+        method: String,
+        path: String,
+        body: String? = null,
+        auth: Boolean = true,
+        preferApiKey: Boolean = false,
+    ): String =
         withContext(Dispatchers.IO) {
             val base = store.serverUrl() ?: throw ApiException(0, "No server configured")
             val b = Request.Builder().url(base.trimEnd('/') + path)
             if (auth) {
-                val token = store.token() ?: throw ApiException(401, "Not logged in")
-                b.header("Authorization", "Bearer $token")
+                b.header("Authorization", "Bearer ${bearer(preferApiKey)}")
             }
             when (method) {
                 "GET" -> b.get()
@@ -91,6 +103,20 @@ class AbsApi(private val store: Store) {
 
     suspend fun libraries(): List<AbsLibrary> =
         json.decodeFromString<LibrariesResponse>(raw("GET", "/api/libraries")).libraries
+
+    suspend fun scanLibrary(libraryId: String, force: Boolean = false) {
+        raw("POST", "/api/libraries/$libraryId/scan?force=${if (force) 1 else 0}", preferApiKey = true)
+    }
+
+    suspend fun matchLibrary(libraryId: String) {
+        raw("GET", "/api/libraries/$libraryId/matchall", preferApiKey = true)
+    }
+
+    suspend fun users(): List<AbsUser> =
+        json.decodeFromString<UsersResponse>(raw("GET", "/api/users", preferApiKey = true)).users
+
+    suspend fun onlineUsers(): OnlineUsersResponse =
+        json.decodeFromString(raw("GET", "/api/users/online", preferApiKey = true))
 
     suspend fun libraryItems(libraryId: String): List<LibraryItem> =
         json.decodeFromString<ItemsResponse>(
