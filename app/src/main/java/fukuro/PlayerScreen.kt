@@ -702,10 +702,13 @@ fun PlayerScreen(
                                         onOpenBook(b.id)
                                     }
                                 ) {
-                                    CoverImage(
-                                        vm.coverModel(b.id), b.media.metadata.title,
-                                        Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
-                                    )
+                                    Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                                        CoverImage(
+                                            vm.coverModel(b.id), b.media.metadata.title,
+                                            Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
+                                        )
+                                        if (state.progress[b.id]?.isFinished == true) CoverFinishedBadge(this)
+                                    }
                                     Text(
                                         b.media.metadata.title ?: "", style = MaterialTheme.typography.bodySmall,
                                         color = TxtPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
