@@ -30,8 +30,8 @@ android {
         // versionCode must never go down or Android refuses to install over the
         // existing app, so it stays a plain counter; the human-facing build number
         // is the commit count below.
-        versionCode = 94
-        versionName = "1.10.23"
+        versionCode = 95
+        versionName = "1.10.24"
         buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
         // where the in-app update check looks for releases; change it in a fork
         buildConfigField("String", "UPDATE_REPO", "\"FinnWiel/fukuro\"")
