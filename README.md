@@ -2,7 +2,12 @@
 
 Fukuro is a personal Android client for [Audiobookshelf](https://www.audiobookshelf.org/), built for sideloading and daily listening. It focuses on fast library browsing, reliable playback, offline access, Android Auto, and local-first listening state.
 
-![Fukuro app overview](docs/images/readme-overview.svg)
+<p>
+  <img src="docs/images/home.jpg" alt="Fukuro home screen" width="220">
+  <img src="docs/images/stats-line.jpg" alt="Fukuro stats screen with line chart" width="220">
+  <img src="docs/images/stats-bars.jpg" alt="Fukuro stats screen with bar chart" width="220">
+  <img src="docs/images/player.jpg" alt="Fukuro player screen" width="220">
+</p>
 
 ## What It Does
 
@@ -26,8 +31,6 @@ Downloaded books stay playable without a server connection. Fukuro also exposes 
 ### Stats that survive outages
 
 The Stats page combines Audiobookshelf listening history with local sessions recorded on the phone. Recent server stats are cached, so the page still has useful history while offline. Pull down on the Stats page to refresh server stats and library state.
-
-![Fukuro listening stats](docs/images/readme-stats.svg)
 
 ### Designed for a personal server
 
