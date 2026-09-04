@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -88,11 +89,16 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
     var liveServerSessions by remember { mutableStateOf<List<ListeningSession>?>(null) }
     var loading by remember { mutableStateOf(false) }
     var loadFailed by remember { mutableStateOf(false) }
+    var refreshRequest by remember { mutableStateOf(0) }
+    var pullRefreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.loggedIn, state.serverOnline) {
-        if (!state.loggedIn || !state.serverOnline) return@LaunchedEffect
+    LaunchedEffect(state.loggedIn, state.serverOnline, refreshRequest) {
+        if (!state.loggedIn || !state.serverOnline) {
+            pullRefreshing = false
+            return@LaunchedEffect
+        }
         while (true) {
-            loading = liveServerStats == null && cachedServerStats == null
+            loading = pullRefreshing || (liveServerStats == null && cachedServerStats == null)
             loadFailed = false
             try {
                 val stats = vm.api.listeningStats()
@@ -106,6 +112,7 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                 loadFailed = true
             } finally {
                 loading = false
+                pullRefreshing = false
             }
             delay(60_000)
         }
@@ -178,33 +185,42 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
       Column(Modifier.fillMaxSize()) {
         FlatTopBar("Stats")
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = loading || state.loading,
+            onRefresh = {
+                pullRefreshing = true
+                refreshRequest += 1
+                vm.refresh()
+            },
             modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 16.dp, end = 16.dp, top = 8.dp, bottom = 150.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            item {
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    StatsPeriod.entries.forEach { choice ->
-                        FukuroChip(choice.label, period == choice, { period = choice })
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 16.dp, end = 16.dp, top = 8.dp, bottom = 150.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        StatsPeriod.entries.forEach { choice ->
+                            FukuroChip(choice.label, period == choice, { period = choice })
+                        }
                     }
                 }
-            }
 
-            item { TodayTile(todaySeconds) }
+                item { TodayTile(todaySeconds) }
 
-            if (!state.loggedIn && allDays.isEmpty()) item {
-                EmptyStats("Start listening in Fukuro to build your stats. Sign in to include your Audiobookshelf history.")
-            } else if (!state.serverOnline && allDays.isEmpty()) item {
-                EmptyStats("Connect to your Audiobookshelf server to load listening history.")
-            } else if (loadFailed && allDays.isEmpty()) item {
-                EmptyStats("Listening history could not be loaded. Your local stats will still be recorded.")
-            }
+                if (!state.loggedIn && allDays.isEmpty()) item {
+                    EmptyStats("Start listening in Fukuro to build your stats. Sign in to include your Audiobookshelf history.")
+                } else if (!state.serverOnline && allDays.isEmpty()) item {
+                    EmptyStats("Connect to your Audiobookshelf server to load listening history.")
+                } else if (loadFailed && allDays.isEmpty()) item {
+                    EmptyStats("Listening history could not be loaded. Your local stats will still be recorded.")
+                }
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
