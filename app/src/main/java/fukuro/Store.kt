@@ -89,6 +89,8 @@ class Store(private val context: Context) {
         val CUSTOM_SHELF = stringPreferencesKey("custom_shelf") // json ordered mixed entries
         val LISTENING_DAYS = stringPreferencesKey("listening_days") // json {yyyy-MM-dd: seconds}
         val LISTENING_SESSIONS = stringPreferencesKey("listening_sessions") // most recent local sessions
+        val SERVER_LISTENING_STATS = stringPreferencesKey("server_listening_stats")
+        val SERVER_LISTENING_SESSIONS = stringPreferencesKey("server_listening_sessions")
     }
 
     val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
@@ -230,6 +232,28 @@ class Store(private val context: Context) {
         prefs[K.LISTENING_SESSIONS]?.let {
             runCatching { Json.decodeFromString<List<LocalListeningSession>>(it) }.getOrDefault(emptyList())
         } ?: emptyList()
+    }
+
+    private val statsJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
+
+    val serverListeningStatsFlow: Flow<ListeningStats?> = context.dataStore.data.map { prefs ->
+        prefs[K.SERVER_LISTENING_STATS]?.let {
+            runCatching { statsJson.decodeFromString<ListeningStats>(it) }.getOrNull()
+        }
+    }
+
+    val serverListeningSessionsFlow: Flow<List<ListeningSession>> = context.dataStore.data.map { prefs ->
+        prefs[K.SERVER_LISTENING_SESSIONS]?.let {
+            runCatching { statsJson.decodeFromString<List<ListeningSession>>(it) }.getOrDefault(emptyList())
+        } ?: emptyList()
+    }
+
+    suspend fun cacheServerListeningStats(
+        stats: ListeningStats,
+        sessions: List<ListeningSession>,
+    ) = context.dataStore.edit { prefs ->
+        prefs[K.SERVER_LISTENING_STATS] = statsJson.encodeToString(stats)
+        prefs[K.SERVER_LISTENING_SESSIONS] = statsJson.encodeToString(sessions)
     }
 
     /** Adds real elapsed playback time to a day and to one resumable local session. */

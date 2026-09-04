@@ -249,6 +249,9 @@ class AbsApi(private val store: Store) {
             }.toMap()
             store.markListeningSessionsSynced(acknowledged)
         }
+        runCatching {
+            store.cacheServerListeningStats(listeningStats(), listeningSessions(1000))
+        }
     }
 
     suspend fun updateProgress(itemId: String, currentTime: Double, duration: Double) {

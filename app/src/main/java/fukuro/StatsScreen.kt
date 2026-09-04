@@ -59,6 +59,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private enum class StatsPeriod(val label: String) {
@@ -81,26 +82,37 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
     val state by vm.state.collectAsState()
     val localDays by vm.store.listeningDaysFlow.collectAsState(initial = emptyMap())
     val localSessions by vm.store.listeningSessionsFlow.collectAsState(initial = emptyList())
-    var serverStats by remember { mutableStateOf<ListeningStats?>(null) }
-    var serverSessions by remember { mutableStateOf<List<ListeningSession>>(emptyList()) }
+    val cachedServerStats by vm.store.serverListeningStatsFlow.collectAsState(initial = null)
+    val cachedServerSessions by vm.store.serverListeningSessionsFlow.collectAsState(initial = emptyList())
+    var liveServerStats by remember { mutableStateOf<ListeningStats?>(null) }
+    var liveServerSessions by remember { mutableStateOf<List<ListeningSession>?>(null) }
     var loading by remember { mutableStateOf(false) }
     var loadFailed by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.loggedIn, state.serverOnline) {
         if (!state.loggedIn || !state.serverOnline) return@LaunchedEffect
-        loading = true
-        loadFailed = false
-        try {
-            serverStats = vm.api.listeningStats()
-            // A wider history is needed for yearly author/series totals. Only five
-            // sessions are ever rendered in the Recent Sessions section below.
-            serverSessions = vm.api.listeningSessions(1000)
-        } catch (_: Exception) {
-            loadFailed = true
-        } finally {
-            loading = false
+        while (true) {
+            loading = liveServerStats == null && cachedServerStats == null
+            loadFailed = false
+            try {
+                val stats = vm.api.listeningStats()
+                // A wider history is needed for yearly author/series totals. Only five
+                // sessions are ever rendered in the Recent Sessions section below.
+                val sessions = vm.api.listeningSessions(1000)
+                liveServerStats = stats
+                liveServerSessions = sessions
+                vm.store.cacheServerListeningStats(stats, sessions)
+            } catch (_: Exception) {
+                loadFailed = true
+            } finally {
+                loading = false
+            }
+            delay(60_000)
         }
     }
+
+    val serverStats = liveServerStats ?: cachedServerStats
+    val serverSessions = liveServerSessions ?: cachedServerSessions
 
     val allDays = remember(serverStats, localDays) {
         buildMap<String, Double> {
@@ -186,9 +198,9 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
 
             item { TodayTile(todaySeconds) }
 
-            if (!state.loggedIn && localDays.isEmpty()) item {
+            if (!state.loggedIn && allDays.isEmpty()) item {
                 EmptyStats("Start listening in Fukuro to build your stats. Sign in to include your Audiobookshelf history.")
-            } else if (!state.serverOnline && localDays.isEmpty()) item {
+            } else if (!state.serverOnline && allDays.isEmpty()) item {
                 EmptyStats("Connect to your Audiobookshelf server to load listening history.")
             } else if (loadFailed && allDays.isEmpty()) item {
                 EmptyStats("Listening history could not be loaded. Your local stats will still be recorded.")
