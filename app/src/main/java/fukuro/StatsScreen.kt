@@ -330,6 +330,7 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
       }
     }
 }
+}
 
 @Composable
 private fun SummaryTile(value: String, label: String, modifier: Modifier = Modifier) {

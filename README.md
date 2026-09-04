@@ -1,98 +1,140 @@
-# Fukuro 🦉
+# Fukuro
 
-A personal Android client for [Audiobookshelf](https://www.audiobookshelf.org/), built for sideloading.
+Fukuro is a personal Android client for [Audiobookshelf](https://www.audiobookshelf.org/), built for sideloading and daily listening. It focuses on fast library browsing, reliable playback, offline access, Android Auto, and local-first listening state.
 
-## Features
+![Fukuro app overview](docs/images/readme-overview.svg)
 
-- **Streaming + background playback** — Media3/ExoPlayer foreground service with notification & lock-screen controls (−10 s / +30 s instead of prev/next)
-- **Android Auto** — browse *Continue Listening*, *Downloaded* and *Library* from the car screen
-- **Offline downloads** — books stored on-device; playable with no server connection, including in Android Auto
-- **Progress sync** — position syncs to the server every 15 s and on pause; resumes anywhere; cached locally when offline
-- **Series & authors** — real series grouping from the server, author portraits, tap through to a grid of their books
-- **Chapters** — collapsible chapter list in the player, current chapter always visible, tap to seek
-- **Favorites** — heart any book (stored on-device) and get a Favorites shelf
-- **Mark finished / reset progress / rename** — per book, synced to the server
-- **Upload books** — add an Audiobookshelf API key in Settings, then upload audio files straight from the phone
-- **Sleep timer & playback speed** — bottom sheets with presets plus custom values (speed up to 10×)
-- **Customizable home screen** — toggle & reorder: Continue Listening, Favorites, Downloaded, Series, Authors, All Books
-- **Theming** — light / dark / system, eight accent colors (default: Fukuro orange) or Material You
-- **Server connection indicator** — green/red dot in the top bar
-- **Listening statistics** — period summaries and charts, listening habits, completed-book
-  highlights, five meaningful recent sessions, and a shareable year-in-review card
-- **Local listening history** — Fukuro records elapsed playback time on-device and combines it
-  with Audiobookshelf history, including offline and on-device books
+## What It Does
 
-## Project layout
+- Streams audiobooks from an Audiobookshelf server with Media3/ExoPlayer.
+- Plays in the background with notification, lock-screen, headset, and Android Auto controls.
+- Downloads books for offline listening, including offline Android Auto browsing.
+- Saves playback position locally first, then syncs progress back to Audiobookshelf.
+- Keeps listening stats available offline by caching server stats and merging them with local sessions.
+- Supports series, authors, narrators, favorites, chapters, sleep timers, playback speed, uploads, and home-screen customization.
 
-Everything lives in one flat `fukuro` package — no deep `com/example/...` nesting, no sub-packages:
+## Highlights
 
-```
-build.gradle.kts          plugin versions
-settings.gradle.kts       repositories
-app/build.gradle.kts      android config + all dependencies
-app/src/main/
-  AndroidManifest.xml
-  res/                    icon, colors, strings, Android Auto descriptor
-  java/fukuro/
-    ShelfApp.kt           app singleton (store, api, downloads)
-    Api.kt                Audiobookshelf REST client
-    Models.kt             API data classes
-    Store.kt              settings + favorites (DataStore)
-    Downloads.kt          offline downloads
-    PlayerService.kt      Media3 playback + Android Auto browse tree
-    MainActivity.kt       navigation, bottom bar, mini player
-    ShelfViewModel.kt     UI state
-    Screens.kt            login, home, library, series, author, book
-    PlayerScreen.kt       full player
-    StatsScreen.kt        listening charts, habits, recent sessions, year in review
-    SettingsScreen.kt     settings
-    UploadScreen.kt       upload a book
-    Theme.kt              color schemes / dark mode
-    CoverImage.kt         cover & author images with placeholders
-```
+### Local-first playback
+
+Playback position is written to the device during listening, whether the server is reachable or not. When the connection returns, Fukuro pushes local progress and listening sessions back to Audiobookshelf.
+
+### Offline library access
+
+Downloaded books stay playable without a server connection. Fukuro also exposes downloaded and continue-listening shelves to Android Auto, so offline listening still works from the car screen.
+
+### Stats that survive outages
+
+The Stats page combines Audiobookshelf listening history with local sessions recorded on the phone. Recent server stats are cached, so the page still has useful history while offline. Pull down on the Stats page to refresh server stats and library state.
+
+![Fukuro listening stats](docs/images/readme-stats.svg)
+
+### Designed for a personal server
+
+Fukuro assumes a self-hosted Audiobookshelf setup and keeps LAN HTTP support enabled for home use. For remote access, put Audiobookshelf behind HTTPS or connect through a VPN.
+
+## Feature Overview
+
+| Area | Details |
+| --- | --- |
+| Playback | Streaming, background service, notification controls, lock-screen controls, headset support, chapter seeking |
+| Sync | Progress sync every 15 seconds and on pause, local fallback while offline, local listening session upload |
+| Offline | Downloaded books, on-device library support, offline playback, Android Auto access to downloaded items |
+| Library | Home shelves, full library grid, series pages, author and narrator pages, cover caching |
+| Organization | Favorites, custom home shelves, continue-listening hiding, sort and filter controls |
+| Player | Chapter list, sleep timer, playback speed up to 10x, configurable chapter/book progress display |
+| Stats | Period summaries, activity chart, streaks, recent sessions, completion highlights, year-in-review card |
+| Server tools | Rename, mark finished, reset progress, upload books with an Audiobookshelf API key |
+| Appearance | Light, dark, system theme, Material You, and fixed accent colors |
+
+## Installation
+
+Download the latest APK from [Releases](../../releases), copy it to your Android device, and open it to install.
+
+If Android blocks the install, allow installs from the app you used to open the APK. For Android Auto with a sideloaded app, enable `Developer settings -> Unknown sources` in Android Auto.
+
+## First Run
+
+1. Enter your Audiobookshelf server URL, for example `http://192.168.x.x:13378`.
+2. Log in with your Audiobookshelf username and password.
+3. Optional: add an Audiobookshelf API key in Settings to enable uploads.
+4. Optional: download books you want available away from the server.
 
 ## Building
 
-Requirements: JDK 17, Android SDK (platform 35, build-tools 35).
+Requirements:
 
+- JDK 17
+- Android SDK platform 35
+- Android build tools 35
+
+Build a debug APK:
+
+```sh
+./gradlew assembleDebug
 ```
-gradle assembleDebug
+
+The APK is written to:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Prebuilt APKs are attached to each
-[release](../../releases) — download one on the phone and open it to install.
+Debug builds use the `nl.codefin.fukuro.glassdev` application ID and the name `Fukuro Test`, so they can live next to the published sideload build.
 
-## Publishing a release
+## Project Layout
 
-Pushing a version tag such as `v1.10.7` automatically builds a signed release APK, creates the
-matching GitHub Release, and attaches the APK and its SHA-256 checksum. Before tagging the first
-release, add these repository Actions secrets under **Settings → Secrets and variables → Actions**:
+The Android code intentionally lives in one flat `fukuro` package.
 
-- `ANDROID_KEYSTORE_BASE64` — the release keystore encoded as Base64
-- `ANDROID_KEYSTORE_PASSWORD` — the keystore password
-- `ANDROID_KEY_ALIAS` — the signing key alias
-- `ANDROID_KEY_PASSWORD` — the signing key password
+```text
+build.gradle.kts          Plugin versions
+settings.gradle.kts       Repositories
+app/build.gradle.kts      Android config and dependencies
+app/src/main/
+  AndroidManifest.xml
+  res/                    Icon, colors, strings, Android Auto descriptor
+  java/fukuro/
+    ShelfApp.kt           App singleton
+    Api.kt                Audiobookshelf REST client
+    Models.kt             API data classes
+    Store.kt              DataStore settings, local progress, cached stats
+    Downloads.kt          Offline downloads
+    PlayerService.kt      Media3 playback and Android Auto browse tree
+    MainActivity.kt       Navigation, bottom bar, mini player
+    ShelfViewModel.kt     UI state and sync coordination
+    Screens.kt            Login, library, series, author, narrator, book sheets
+    HomeScreen.kt         Home shelves
+    PlayerScreen.kt       Full player
+    StatsScreen.kt        Listening charts, habits, recent sessions
+    SettingsScreen.kt     Settings and admin settings
+    UploadScreen.kt       Upload a book
+    Theme.kt              Color schemes and dark mode
+    CoverImage.kt         Cover and author images
+```
 
-Keep the keystore and its passwords backed up. All future APKs must use the same signing key in
-order to install as updates. To encode a keystore in PowerShell, run:
+## Release Process
+
+Pushing a version tag such as `v1.10.21` triggers the GitHub Actions release workflow. The workflow builds a signed release APK, creates the matching GitHub Release, and attaches the APK plus its SHA-256 checksum.
+
+Before publishing releases, configure these repository Actions secrets:
+
+- `ANDROID_KEYSTORE_BASE64`: release keystore encoded as Base64
+- `ANDROID_KEYSTORE_PASSWORD`: keystore password
+- `ANDROID_KEY_ALIAS`: signing key alias
+- `ANDROID_KEY_PASSWORD`: signing key password
+
+Keep the keystore and passwords backed up. Android requires future updates to be signed with the same key.
+
+PowerShell keystore encoding helper:
 
 ```powershell
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("fukuro-release.jks")) |
     Set-Clipboard
 ```
 
-Debug builds use the `nl.codefin.fukuro.glassdev` application ID and the name **Fukuro Test**,
-so they update the test installation without replacing the published app.
-
-## First run
-
-1. Open the app and enter your Audiobookshelf server URL (e.g. `http://192.168.x.x:13378`).
-2. Log in with your Audiobookshelf username/password.
-3. Cleartext HTTP is enabled for LAN use; for access outside your home network put the server behind
-   HTTPS (reverse proxy) or use a VPN.
-
 ## Notes
 
-- Debug-signed: fine for personal sideloading; new builds update **Fukuro Test** and keep its data.
-- Android Auto with sideloaded apps: in the Android Auto app, enable *Developer settings → Unknown sources*.
-- Favorites are stored on the device (Audiobookshelf has no favorites concept), so they don't appear in the web UI.
+- Favorites are stored locally because Audiobookshelf does not provide a favorites concept.
+- Cleartext HTTP is enabled for local network use.
+- Release builds use the `nl.codefin.fukuro` application ID.
+- Debug builds install separately as `Fukuro Test`.
