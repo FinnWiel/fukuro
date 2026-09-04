@@ -696,25 +696,21 @@ fun PlayerScreen(
                     item {
                         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp)) {
                             items(seriesOfBook.books, key = { it.id }) { b ->
-                                Column(
-                                    Modifier.width(110.dp).padding(4.dp).clickable {
+                                val progress = state.progress[b.id]
+                                CarouselCell(
+                                    title = b.media.metadata.title ?: "",
+                                    meta = null,
+                                    cover = vm.coverModel(b.id),
+                                    progress = progress?.progress?.toFloat() ?: 0f,
+                                    finished = progress?.isFinished == true,
+                                    coverSize = state.coverSize,
+                                    onClick = {
                                         vm.prefetchBook(b.id)
                                         onOpenBook(b.id)
-                                    }
-                                ) {
-                                    Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-                                        CoverImage(
-                                            vm.coverModel(b.id), b.media.metadata.title,
-                                            Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
-                                        )
-                                        if (state.progress[b.id]?.isFinished == true) CoverFinishedBadge(this)
-                                    }
-                                    Text(
-                                        b.media.metadata.title ?: "", style = MaterialTheme.typography.bodySmall,
-                                        color = TxtPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(top = 4.dp)
-                                    )
-                                }
+                                    },
+                                    modifier = Modifier.padding(4.dp),
+                                    progressStyle = state.progressStyle,
+                                )
                             }
                         }
                     }
