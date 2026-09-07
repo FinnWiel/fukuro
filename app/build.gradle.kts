@@ -16,6 +16,20 @@ val buildNumber: Int = try {
     0
 }
 
+val fallbackVersionName = "1.10.28"
+val releaseTagVersion = providers.environmentVariable("GITHUB_REF_NAME").orNull
+    ?.takeIf { it.matches(Regex("""v\d+(\.\d+)*""")) }
+    ?.removePrefix("v")
+val appVersionName = releaseTagVersion ?: fallbackVersionName
+
+fun androidVersionCode(versionName: String): Int {
+    val parts = versionName.split('.').map { it.toIntOrNull() ?: 0 }
+    val major = parts.getOrElse(0) { 0 }
+    val minor = parts.getOrElse(1) { 0 }
+    val patch = parts.getOrElse(2) { 0 }
+    return major * 1_000_000 + minor * 1_000 + patch
+}
+
 android {
     namespace = "fukuro"
     compileSdk = 35
@@ -27,11 +41,10 @@ android {
         applicationId = "nl.codefin.fukuro"
         minSdk = 26
         targetSdk = 35
-        // versionCode must never go down or Android refuses to install over the
-        // existing app, so it stays a plain counter; the human-facing build number
-        // is the commit count below.
-        versionCode = 95
-        versionName = "1.10.24"
+        // Android installs are gated by versionCode, not versionName. Deriving it
+        // from the release tag prevents tagged APKs from reusing a stale code.
+        versionCode = androidVersionCode(appVersionName)
+        versionName = appVersionName
         buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
         // where the in-app update check looks for releases; change it in a fork
         buildConfigField("String", "UPDATE_REPO", "\"FinnWiel/fukuro\"")
