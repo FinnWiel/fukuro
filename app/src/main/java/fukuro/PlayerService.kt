@@ -369,9 +369,37 @@ class PlayerService : MediaLibraryService() {
         }
     }
 
+    private fun stopAtChapterSleepEnd(target: Double) {
+        if (sleepChapterEndSec != target) return
+        sleepJob?.cancel()
+        sleepJob = null
+        sleepEndsAt = 0L
+        seekBookTo(target)
+        player.pause()
+        if (target >= currentItemDuration - 0.25) {
+            onBookFinished()
+        } else {
+            sleepChapterEndSec = null
+            sleepChapterCount = 0
+            publishNowPlaying()
+        }
+    }
+
     private fun checkChapterSleepTimer() {
         val target = sleepChapterEndSec ?: return
-        if (player.isPlaying && bookPositionSec() >= target - 0.25) startSleepFade()
+        if (!player.isPlaying) return
+        val remainingMs = ((target - bookPositionSec()) * 1000.0 /
+            player.playbackParameters.speed.coerceAtLeast(0.1f)).toLong()
+        if (remainingMs <= 0) {
+            stopAtChapterSleepEnd(target)
+        } else if (remainingMs <= 1000 && sleepJob?.isActive != true) {
+            sleepJob = scope.launch {
+                delay(remainingMs)
+                if (player.isPlaying && bookPositionSec() >= target - 0.25) {
+                    stopAtChapterSleepEnd(target)
+                }
+            }
+        }
     }
 
     /**

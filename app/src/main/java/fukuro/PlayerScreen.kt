@@ -842,7 +842,7 @@ fun PlayerScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("Playback fades out and pauses when the timer or chapter count ends.",
+                Text("Time timers fade out before pausing. Chapter timers pause at the chapter end.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
                 Text("Time", style = MaterialTheme.typography.titleSmall)
