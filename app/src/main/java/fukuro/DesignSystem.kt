@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material3.Icon
@@ -506,23 +505,6 @@ fun CarouselCell(
             color = c.tertiaryText,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** Small accent disc with a tick, for a book that has been finished. */
-@Composable
-fun FinishedTick(modifier: Modifier = Modifier, size: Dp = 16.dp) {
-    val c = Fukuro.colors
-    Box(
-        modifier.size(size).clip(CircleShape).background(c.accent),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            Icons.Rounded.Check,
-            contentDescription = "Finished",
-            tint = c.onAccent,
-            modifier = Modifier.size(size * 0.72f),
         )
     }
 }

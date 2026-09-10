@@ -237,7 +237,7 @@ private fun SeriesBookRow(
         Box {
             FlatCover(cover, book.media.metadata.title, Modifier.width(d.rowCoverWidth).height(d.rowCoverHeight))
             if (progress?.isFinished == true) {
-                FinishedTick(Modifier.align(Alignment.BottomEnd).padding(4.dp))
+                CoverFinishedBadge(this)
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
