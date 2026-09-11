@@ -945,7 +945,7 @@ fun BookGridCell(vm: ShelfViewModel, book: LibraryItem, state: UiState, onOpenBo
             CoverImage(
                 model = vm.coverModel(book.id),
                 contentDescription = book.media.metadata.title,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f)
+                modifier = Modifier.fillMaxWidth().aspectRatio(BOOK_COVER_ASPECT_RATIO)
                     .clip(RoundedCornerShape(FukuroDims.coverRadius))
             )
             CoverProgressOverlay(p, state.progressStyle, this)

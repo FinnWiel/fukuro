@@ -48,7 +48,7 @@ fun CoverImage(
 /**
  * Several covers packed into the footprint of one, for series cards.
  *
- * One book is just its cover. Two split the square down the middle. Three — the shape a
+ * One book is just its cover. Two split the frame down the middle. Three — the shape a
  * trilogy takes — give the first book the whole left half and stack the other two beside
  * it, so nothing is left empty and the tiles stay a sensible shape. Four or more fill a
  * 2x2. Covers keep their full height wherever possible, since cropping a book cover's

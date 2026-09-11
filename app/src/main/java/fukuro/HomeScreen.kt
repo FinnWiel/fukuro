@@ -496,7 +496,7 @@ private fun CustomShelfCell(
 }
 
 /**
- * A series, author or narrator in a carousel: a square of covers and the same
+ * A series, author or narrator in a carousel: book-shaped artwork and the same
  * two-line caption a book cell uses, so the row reads as one shelf.
  */
 @Composable
@@ -513,7 +513,7 @@ private fun CollectionCell(
         Modifier.width(carouselCellWidth(coverSize))
             .combinedClickable(onClick = onClick, onLongClick = null),
     ) {
-        val shape = Modifier.fillMaxWidth().aspectRatio(1f)
+        val shape = Modifier.fillMaxWidth().aspectRatio(BOOK_COVER_ASPECT_RATIO)
             .clip(RoundedCornerShape(Fukuro.dims.coverRadius))
         if (covers.size > 1) CoverMosaic(covers, title, shape)
         else CoverImage(covers.firstOrNull(), title, shape, placeholder)

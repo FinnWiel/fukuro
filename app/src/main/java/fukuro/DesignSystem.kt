@@ -50,10 +50,14 @@ val FukuroButtonShape = RoundedCornerShape(10.dp)
 /** Carousel cell width per cover-size setting; index 2 (M, the default) is the design's 96dp. */
 private val CAROUSEL_CELL_WIDTHS = listOf(72, 84, 96, 116, 140)
 
+/** The portrait shape used by physical books and by the existing series rows. */
+const val BOOK_COVER_ASPECT_RATIO = 2f / 3f
+
 fun carouselCellWidth(coverSize: Int): Dp = CAROUSEL_CELL_WIDTHS[coverSize.coerceIn(0, 4)].dp
 
-/** Covers keep the design's 96:108 cell proportions at every size. */
-fun carouselCoverHeight(coverSize: Int): Dp = (CAROUSEL_CELL_WIDTHS[coverSize.coerceIn(0, 4)] * 108 / 96).dp
+/** Covers keep the same 2:3 book proportions at every size. */
+fun carouselCoverHeight(coverSize: Int): Dp =
+    (CAROUSEL_CELL_WIDTHS[coverSize.coerceIn(0, 4)] / BOOK_COVER_ASPECT_RATIO).dp
 
 /** "6h 51m left" — the shape the frames use under a cover and in the hero. */
 fun formatTimeLeft(seconds: Double): String = "${formatSpan(seconds)} left"

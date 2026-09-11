@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -613,13 +614,17 @@ private fun MiniPlayer(
     val author = currentItemId?.let { id ->
         state.items.firstOrNull { it.id == id }?.media?.metadata?.authorName
     } ?: ""
+    // The session artwork URI is stable for the lifetime of the queue and Android's
+    // provider caches it. Prefer the library model so a refreshed server cover also
+    // refreshes the mini player; keep the URI as a fallback during queue restoration.
+    val miniCover = currentItemId?.let { vm.coverModel(it) } ?: artwork
     // Background pulled from the cover art. Prefer a strong, repeated colour rather
     // than the raw average: averages turn unrelated cover colours into muddy browns.
     val ctx = LocalContext.current
     var coverColor by androidx.compose.runtime.remember { mutableStateOf<Color?>(null) }
-    LaunchedEffect(artwork, currentItemId, state.coverRevision) {
+    LaunchedEffect(miniCover, state.coverRevision) {
         coverColor = null
-        val model = artwork ?: currentItemId?.let { vm.coverModel(it) } ?: return@LaunchedEffect
+        val model = miniCover ?: return@LaunchedEffect
         coverColor = extractCoverColor(ctx, model)
     }
     val tokens = Fukuro.colors
@@ -664,10 +669,10 @@ private fun MiniPlayer(
                 ) {
                     CoverImage(
                         // on-device books have no artwork uri from the session
-                        model = artwork ?: currentItemId?.let { vm.coverModel(it) },
+                        model = miniCover,
                         contentDescription = title,
                         // drawn above the text, so a swipe passes behind it
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.height(38.dp).aspectRatio(BOOK_COVER_ASPECT_RATIO)
                             .clip(RoundedCornerShape(FukuroDims.coverRadius)).zIndex(1f)
                     )
                     Spacer(Modifier.width(8.dp))

@@ -295,7 +295,7 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                         FlatCover(
                             vm.coverModel(current.libraryItemId),
                             currentItem.media.metadata.title,
-                            Modifier.size(68.dp),
+                            Modifier.width(46.dp).height(68.dp),
                         )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {

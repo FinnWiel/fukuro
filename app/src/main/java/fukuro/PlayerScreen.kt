@@ -375,7 +375,7 @@ fun PlayerScreen(
                 item {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Box(
-                            modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(1f)
+                            modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(BOOK_COVER_ASPECT_RATIO)
                                 // Chapter/book navigation belongs to the artwork only.
                                 // Keeping this before the visual transform also gives the
                                 // cover a stable hit area while it follows the finger.

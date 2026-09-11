@@ -161,10 +161,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             LocalLibrary.isLocal(itemId) -> local.coverFile(itemId)
             // covers are resolved while composing, so only touch the disk for books that
             // are actually on it
-            itemId in _state.value.downloadedIds -> downloads.localCover(itemId) ?: api.coverUrl(itemId)
-            else -> api.coverUrl(itemId)
+            itemId in _state.value.downloadedIds -> downloads.localCover(itemId) ?: serverCoverModel(itemId)
+            else -> serverCoverModel(itemId)
         }
     }
+
+    /** A successful library refresh may include replaced artwork at the same server URL. */
+    private fun serverCoverModel(itemId: String): String =
+        "${api.coverUrl(itemId)}&revision=${_state.value.coverRevision}"
 
     private fun coverOverrideModel(file: File): ImageRequest =
         ImageRequest.Builder(getApplication<Application>())
@@ -329,6 +333,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                     localCount = localItems.size,
                     currentUserRole = me.type,
                     currentUserPermissions = me.permissions,
+                    coverRevision = _state.value.coverRevision + 1,
                 )
                 prefetchContinue()
                 pushLocalProgress(progress)

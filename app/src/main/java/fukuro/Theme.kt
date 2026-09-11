@@ -199,7 +199,7 @@ object FukuroDims {
     val heroHeight = 120.dp
     val heroRadius = 20.dp
     val heroPadding = 16.dp
-    val heroCoverWidth = 88.dp
+    val heroCoverWidth = 59.dp
     val heroCoverHeight = 88.dp
     val heroCoverRadius = 8.dp
     val heroCoverElevation = 10.dp
@@ -208,7 +208,7 @@ object FukuroDims {
 
     val coverRadius = 6.dp
     val carouselCellWidth = 96.dp
-    val carouselCoverHeight = 108.dp
+    val carouselCoverHeight = 144.dp
     val carouselGap = 12.dp
 
     val rowHeight = 86.dp
