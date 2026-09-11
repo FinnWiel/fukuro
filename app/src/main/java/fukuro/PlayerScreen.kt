@@ -342,8 +342,11 @@ fun PlayerScreen(
                 )
             )
             .background(
+                // the tint from the artwork is only a short wash at the very top;
+                // the rest of the page stays on the darker base colour
                 Brush.verticalGradient(
                     0f to playerBackground,
+                    0.18f to playerBackgroundBottom,
                     1f to playerBackgroundBottom,
                 )
             )
@@ -371,9 +374,30 @@ fun PlayerScreen(
             LazyColumn(Modifier.fillMaxSize().padding(pad)) {
                 item {
                     Column(Modifier.fillMaxWidth()) {
+                        if (showCoverBookProgress) {
+                            // whole-book timings sit above the artwork: on the cover they
+                            // collided with the title block and were easy to miss
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(fmtMs((absolutePosSec * 1000).toLong()),
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                Text(
+                                    "${chapters.indexOf(currentChapter) + 1} / ${chapters.size}",
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary,
+                                )
+                                Text("-${fmtMs(((totalBookSec - absolutePosSec).coerceAtLeast(0.0) * 1000).toLong())}",
+                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                            }
+                        }
                         Box(
                             modifier = Modifier.fillMaxWidth()
+                                .padding(horizontal = 16.dp)
                                 .aspectRatio(BOOK_COVER_ASPECT_RATIO)
+                                .clip(RoundedCornerShape(20.dp))
                                 // Chapter/book navigation belongs to the artwork only.
                                 // Keeping this before the visual transform also gives the
                                 // cover a stable hit area while it follows the finger.
@@ -431,22 +455,6 @@ fun PlayerScreen(
                                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 14.dp)
                             ) {
-                                if (showCoverBookProgress) {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                    ) {
-                                        Text(fmtMs((absolutePosSec * 1000).toLong()),
-                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
-                                        Text(
-                                            "${chapters.indexOf(currentChapter) + 1} / ${chapters.size}",
-                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary,
-                                        )
-                                        Text("-${fmtMs(((totalBookSec - absolutePosSec).coerceAtLeast(0.0) * 1000).toLong())}",
-                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
-                                    }
-                                }
-
                                 val fav = displayId in state.favorites
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -460,6 +468,7 @@ fun PlayerScreen(
                                         softWrap = false,
                                         modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE),
                                     )
+                                    Spacer(Modifier.width(12.dp))
                                     FavoriteHeart(
                                         favorite = fav,
                                         onToggle = { vm.toggleFavorite(displayId) },
