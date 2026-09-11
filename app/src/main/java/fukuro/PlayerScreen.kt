@@ -168,13 +168,28 @@ fun PlayerScreen(
     var chaptersExpanded by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
+    androidx.compose.runtime.DisposableEffect(controller) {
+        val activeController = controller
+        if (activeController == null) {
+            onDispose { }
+        } else {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onIsPlayingChanged(value: Boolean) {
+                    isPlaying = value
+                }
+            }
+            activeController.addListener(listener)
+            isPlaying = activeController.isPlaying
+            onDispose { activeController.removeListener(listener) }
+        }
+    }
+
     LaunchedEffect(controller) {
         while (true) {
             controller?.let { c ->
                 playingId = c.currentMediaItem?.mediaId
                     ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
                     ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
-                isPlaying = c.isPlaying
                 speed = c.playbackParameters.speed
                 val p = c.sendCustomCommand(
                     SessionCommand(PlayerService.CMD_BOOK_POSITION, Bundle.EMPTY), Bundle.EMPTY
@@ -566,7 +581,11 @@ fun PlayerScreen(
                                     isPlaying = isCurrent && isPlaying,
                                     onClick = {
                                         if (!isCurrent) onPlayBook(displayId, null)
-                                        else if (isPlaying) controller?.pause() else controller?.play()
+                                        else {
+                                            val shouldPlay = !isPlaying
+                                            isPlaying = shouldPlay
+                                            if (shouldPlay) controller?.play() else controller?.pause()
+                                        }
                                     }
                                 )
                                 IconButton(

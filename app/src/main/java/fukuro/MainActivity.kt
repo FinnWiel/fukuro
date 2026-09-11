@@ -552,6 +552,22 @@ private fun MiniPlayer(
     // the cover stays put; only the text travels with a swipe
     val slide = rememberSwipeSlide(currentItemId to swipeAction)
 
+    androidx.compose.runtime.DisposableEffect(controller) {
+        val activeController = controller
+        if (activeController == null) {
+            onDispose { }
+        } else {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onIsPlayingChanged(value: Boolean) {
+                    isPlaying = value
+                }
+            }
+            activeController.addListener(listener)
+            isPlaying = activeController.isPlaying
+            onDispose { activeController.removeListener(listener) }
+        }
+    }
+
     // lightweight 1s poll of the shared controller
     LaunchedEffect(controller) {
         while (true) {
@@ -562,7 +578,6 @@ private fun MiniPlayer(
                     ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
                     ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
                 artwork = c.mediaMetadata.artworkUri?.toString()
-                isPlaying = c.isPlaying
                 // progress straight from the service: it already spans whatever the
                 // setting says (whole book or current chapter)
                 val f = c.sendCustomCommand(
@@ -696,7 +711,11 @@ private fun MiniPlayer(
                         iconSize = 22.dp,
                     )
                     IconButton(
-                        onClick = { if (isPlaying) controller?.pause() else controller?.play() },
+                        onClick = {
+                            val shouldPlay = !isPlaying
+                            isPlaying = shouldPlay
+                            if (shouldPlay) controller?.play() else controller?.pause()
+                        },
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
