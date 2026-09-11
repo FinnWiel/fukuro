@@ -438,6 +438,7 @@ fun PlayerScreen(
                                 onToggle = { vm.toggleFavorite(displayId) },
                                 tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
                             )
+                            PlaybackOutputButton(tint = TxtPrimary)
                             DownloadIconButton(vm, displayId)
                         }
                         if (sleepRemaining > 0 || sleepChaptersRemaining > 0) {

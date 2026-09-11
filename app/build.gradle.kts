@@ -16,7 +16,7 @@ val buildNumber: Int = try {
     0
 }
 
-val fallbackVersionName = "1.10.28"
+val fallbackVersionName = "1.10.31"
 val releaseTagVersion = providers.environmentVariable("GITHUB_REF_NAME").orNull
     ?.takeIf { it.matches(Regex("""v\d+(\.\d+)*""")) }
     ?.removePrefix("v")
@@ -105,6 +105,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.6.1")
     implementation("androidx.media3:media3-session:1.6.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.6.1")
+    implementation("androidx.mediarouter:mediarouter:1.8.1")
 
     // Networking, storage, images
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

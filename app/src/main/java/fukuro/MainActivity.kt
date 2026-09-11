@@ -644,7 +644,7 @@ private fun MiniPlayer(
                                 )
                             }
                         )
-                        .padding(start = 7.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
+                        .padding(start = 7.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CoverImage(
@@ -652,7 +652,7 @@ private fun MiniPlayer(
                         model = artwork ?: currentItemId?.let { vm.coverModel(it) },
                         contentDescription = title,
                         // drawn above the text, so a swipe passes behind it
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(38.dp)
                             .clip(RoundedCornerShape(FukuroDims.coverRadius)).zIndex(1f)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -685,26 +685,31 @@ private fun MiniPlayer(
                             favorite = fav,
                             onToggle = { vm.toggleFavorite(id) },
                             tint = if (fav) tokens.accent else onBarDim,
-                            modifier = Modifier.size(FukuroDims.touchTarget),
+                            modifier = Modifier.size(38.dp),
                             filled = Icons.Filled.Favorite,
                             outlined = Icons.Filled.FavoriteBorder
                         )
                     }
+                    PlaybackOutputButton(
+                        tint = onBarDim,
+                        modifier = Modifier.size(38.dp),
+                        iconSize = 22.dp,
+                    )
                     IconButton(
                         onClick = { if (isPlaying) controller?.pause() else controller?.play() },
-                        modifier = Modifier.size(FukuroDims.miniPlayerCover)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             "Play/Pause", Modifier.size(FukuroDims.miniPlayerPlayIcon), tint = onBar
                         )
                     }
-                    Spacer(Modifier.width(10.dp)) // breathing room to the right of play
+                    Spacer(Modifier.width(4.dp))
                 }
                 // hand-drawn so the track is actually visible on this surface and the
                 // height isn't overridden by Material's own indicator sizing
                 Box(
-                    Modifier.fillMaxWidth().padding(horizontal = FukuroDims.miniPlayerMargin)
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                         .height(FukuroDims.miniPlayerProgress)
                         .background(tokens.miniPlayerTrack)
                 ) {
