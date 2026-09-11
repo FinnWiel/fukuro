@@ -256,6 +256,12 @@ private fun LazyListScope.shelfBody(
                 val book = content.books.first()
                 item(key = "hero-${shelf.id}") {
                     val p = state.progress[book.id]
+                    val cover = vm.coverModel(book.id)
+                    val artworkColor = rememberArtworkUiColor(
+                        mediaId = book.id,
+                        artworkRevision = state.coverRevision,
+                        model = cover,
+                    )
                     HeroCard(
                         overline = shelf.title,
                         title = book.media.metadata.title ?: book.relPath,
@@ -264,7 +270,8 @@ private fun LazyListScope.shelfBody(
                             formatTimeLeft(timeLeftSeconds(book, p)),
                         ).joinToString("  ·  "),
                         progress = p?.progress?.toFloat()?.coerceIn(0f, 1f) ?: 0f,
-                        cover = vm.coverModel(book.id),
+                        cover = cover,
+                        artworkColor = artworkColor,
                         onOpen = {
                             vm.prefetchBook(book.id)
                             onOpenBook(book.id)

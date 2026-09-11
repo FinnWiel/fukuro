@@ -17,6 +17,8 @@ class ShelfApp : Application() {
         private set
     lateinit var updater: Updater
         private set
+    lateinit var artworkColors: ArtworkColorService
+        private set
 
     /**
      * Full item details shared between the UI and the player service. Continue
@@ -43,6 +45,7 @@ class ShelfApp : Application() {
         cache = LibraryCache(this)
         downloads = DownloadRepo(this, api, store, local)
         updater = Updater(this, api.http)
+        artworkColors = ArtworkColorService(this)
     }
 
     /**

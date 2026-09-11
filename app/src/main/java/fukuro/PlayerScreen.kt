@@ -10,6 +10,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -85,7 +87,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
@@ -98,6 +99,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -113,7 +115,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
-import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -245,6 +246,13 @@ fun PlayerScreen(
     val title = meta?.title ?: ""
     val author = meta?.authorName ?: ""
     val coverUrl = vm.coverModel(displayId)
+    val artworkBackground = rememberArtworkUiColor(displayId, state.coverRevision, coverUrl)
+    val playerBackground by androidx.compose.animation.animateColorAsState(
+        artworkBackground ?: PlayerBg,
+        animationSpec = tween(500),
+        label = "playerArtworkBackground",
+    )
+    val playerBackgroundBottom = lerp(playerBackground, Color.Black, 0.52f)
     val saved = state.progress[displayId]
     val bookDuration = detail?.media?.duration ?: libItem?.media?.duration ?: 0.0
 
@@ -334,23 +342,13 @@ fun PlayerScreen(
                     topEnd = (dragPx / dismissPx * 28f).coerceIn(0f, 28f).dp
                 )
             )
-            .background(PlayerBg)
-    ) {
-        AsyncImage(
-            model = coverUrl, contentDescription = null,
-            modifier = Modifier.fillMaxSize().blur(28.dp),
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-        )
-        Box(
-            Modifier.fillMaxSize().background(
+            .background(
                 Brush.verticalGradient(
-                    0f to Color(0x8C000000),
-                    0.5f to Color(0x99000000),
-                    1f to Color(0xE6000000)
+                    0f to playerBackground,
+                    1f to playerBackgroundBottom,
                 )
             )
-        )
-
+    ) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -375,7 +373,8 @@ fun PlayerScreen(
                 item {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Box(
-                            modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(BOOK_COVER_ASPECT_RATIO)
+                            modifier = Modifier.heightIn(max = 320.dp)
+                                .aspectRatio(BOOK_COVER_ASPECT_RATIO)
                                 // Chapter/book navigation belongs to the artwork only.
                                 // Keeping this before the visual transform also gives the
                                 // cover a stable hit area while it follows the finger.
@@ -435,26 +434,31 @@ fun PlayerScreen(
                             }
                         }
                         Spacer(Modifier.height(24.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis, color = TxtPrimary)
-                                if (author.isNotBlank()) {
-                                    Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
-                                }
-                                if (saved?.isFinished == true) {
-                                    Text("Finished ✓", style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                            val fav = displayId in state.favorites
+                        val fav = displayId in state.favorites
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = TxtPrimary,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE),
+                            )
                             FavoriteHeart(
                                 favorite = fav,
                                 onToggle = { vm.toggleFavorite(displayId) },
                                 tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
                             )
-                            PlaybackOutputButton(tint = TxtPrimary)
-                            DownloadIconButton(vm, displayId)
+                        }
+                        if (author.isNotBlank()) {
+                            Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
+                        }
+                        if (saved?.isFinished == true) {
+                            Text("Finished ✓", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary)
                         }
                         if (sleepRemaining > 0 || sleepChaptersRemaining > 0) {
                             Spacer(Modifier.height(4.dp))
@@ -612,6 +616,15 @@ fun PlayerScreen(
                                     else TxtSecondary
                                 )
                             }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            PlaybackOutputButton(tint = TxtPrimary)
+                            DownloadIconButton(vm, displayId)
                         }
                         Spacer(Modifier.height(24.dp))
                     }

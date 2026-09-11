@@ -5,7 +5,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -81,14 +80,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.graphics.ColorUtils
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
-import coil.ImageLoader
-import coil.request.ImageRequest
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.navigation.NavHostController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -618,20 +612,13 @@ private fun MiniPlayer(
     // provider caches it. Prefer the library model so a refreshed server cover also
     // refreshes the mini player; keep the URI as a fallback during queue restoration.
     val miniCover = currentItemId?.let { vm.coverModel(it) } ?: artwork
-    // Background pulled from the cover art. Prefer a strong, repeated colour rather
-    // than the raw average: averages turn unrelated cover colours into muddy browns.
-    val ctx = LocalContext.current
-    var coverColor by androidx.compose.runtime.remember { mutableStateOf<Color?>(null) }
-    LaunchedEffect(miniCover, state.coverRevision) {
-        coverColor = null
-        val model = miniCover ?: return@LaunchedEffect
-        coverColor = extractCoverColor(ctx, model)
-    }
     val tokens = Fukuro.colors
+    // Background pulled from the shared artwork palette pipeline.
+    val coverColor = rememberArtworkUiColor(currentItemId, state.coverRevision, miniCover)
     // No cover colour yet: a neutral dark chip, since the bar always sits on the scrim
     // and its content is always light.
     val fallback = Color(0xFF242826)
-    val barColor by animateColorAsState(coverColor ?: fallback, tween(400), label = "miniBg")
+    val barColor by animateColorAsState(coverColor ?: fallback, tween(500), label = "miniBg")
     val onBar = tokens.onScrim
     val onBarDim = tokens.onScrimMuted
 
@@ -747,87 +734,4 @@ private fun MiniPlayer(
             }
         }
     }
-}
-
-/**
- * Spotify-like cover colour: quantize usable pixels, choose the most common vivid
- * bucket, then tame its saturation/lightness. Near-black, near-white and grey pixels
- * are ignored so borders, paper and typography do not create muddy mini-player bars.
- */
-private suspend fun extractCoverColor(context: android.content.Context, model: Any): Color? =
-    withContext(Dispatchers.IO) {
-        try {
-            val req = if (model is ImageRequest) {
-                model.newBuilder().allowHardware(false).size(96).build()
-            } else {
-                ImageRequest.Builder(context).data(model).allowHardware(false).size(96).build()
-            }
-            val drawable = ImageLoader(context).execute(req).drawable ?: return@withContext null
-            val source = (drawable as? BitmapDrawable)?.bitmap ?: return@withContext null
-
-            val w = 32
-            val h = 32
-            val small = android.graphics.Bitmap.createScaledBitmap(source, w, h, true)
-            val pixels = IntArray(w * h)
-            small.getPixels(pixels, 0, w, 0, 0, w, h)
-            // value = count, red total, green total, blue total
-            val buckets = mutableMapOf<Int, LongArray>()
-            for (p in pixels) {
-                if ((p ushr 24) < 200) continue
-                val r = (p shr 16) and 0xFF
-                val g = (p shr 8) and 0xFF
-                val b = p and 0xFF
-                val hsl = FloatArray(3)
-                ColorUtils.RGBToHSL(r, g, b, hsl)
-                if (hsl[1] < 0.12f || hsl[2] < 0.08f || hsl[2] > 0.88f) continue
-                val key = ((r shr 5) shl 6) or ((g shr 5) shl 3) or (b shr 5)
-                val bucket = buckets.getOrPut(key) { LongArray(4) }
-                bucket[0]++
-                bucket[1] += r.toLong()
-                bucket[2] += g.toLong()
-                bucket[3] += b.toLong()
-            }
-
-            val chosen = buckets.values.maxByOrNull { bucket ->
-                val n = bucket[0].coerceAtLeast(1)
-                val hsl = FloatArray(3)
-                ColorUtils.RGBToHSL(
-                    (bucket[1] / n).toInt(), (bucket[2] / n).toInt(), (bucket[3] / n).toInt(), hsl
-                )
-                bucket[0] * (0.65 + hsl[1]) * (1.0 - kotlin.math.abs(hsl[2] - 0.45f))
-            } ?: return@withContext null
-            val n = chosen[0].coerceAtLeast(1)
-            val dominant = android.graphics.Color.rgb(
-                (chosen[1] / n).toInt(), (chosen[2] / n).toInt(), (chosen[3] / n).toInt()
-            )
-
-            val hsl = FloatArray(3)
-            ColorUtils.colorToHSL(dominant, hsl)
-            hsl[1] = hsl[1].coerceIn(0.30f, 0.62f)
-            hsl[2] = hsl[2].coerceIn(0.18f, 0.30f)
-            val tamed = ColorUtils.HSLToColor(hsl)
-            // A small neutral blend keeps every cover inside Fukuro's dark styling.
-            val blended = ColorUtils.blendARGB(tamed, android.graphics.Color.rgb(22, 26, 24), 0.18f)
-            Color(darkenForWhiteText(blended))
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-/**
- * The mini player's title and controls are white on the cover colour, so the colour
- * has to earn that: darken it until white text clears WCAG AA (4.5:1). A bright
- * yellow cover would otherwise produce an unreadable bar.
- */
-private fun darkenForWhiteText(color: Int): Int {
-    // calculateContrast rejects a translucent background, and the bar is opaque anyway
-    var result = color or android.graphics.Color.BLACK
-    var steps = 0
-    while (
-        ColorUtils.calculateContrast(android.graphics.Color.WHITE, result) < 4.5 && steps < 24
-    ) {
-        result = ColorUtils.blendARGB(result, android.graphics.Color.BLACK, 0.06f)
-        steps++
-    }
-    return result
 }
