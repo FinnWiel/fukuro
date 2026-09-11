@@ -659,7 +659,7 @@ private fun MiniPlayer(
                                 )
                             }
                         )
-                        .padding(start = 7.dp, top = 4.dp, bottom = 8.dp, end = 2.dp),
+                        .padding(start = 7.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CoverImage(

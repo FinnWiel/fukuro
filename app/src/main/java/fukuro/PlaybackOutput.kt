@@ -35,6 +35,8 @@ fun PlaybackOutputButton(
     val context = LocalContext.current
     val router = remember(context) { MediaRouter.getInstance(context) }
     var route by remember(router) { mutableStateOf(router.selectedRoute) }
+    val connected = !route.isDefault &&
+        route.deviceType != MediaRouter.RouteInfo.DEVICE_TYPE_SMARTPHONE
 
     DisposableEffect(router) {
         val callback = object : MediaRouter.Callback() {
@@ -74,7 +76,7 @@ fun PlaybackOutputButton(
             playbackOutputIcon(route),
             contentDescription = "Listening on ${route.name}",
             modifier = Modifier.size(iconSize),
-            tint = tint,
+            tint = if (connected) Fukuro.colors.accent else tint,
         )
     }
 }
@@ -93,10 +95,12 @@ private fun playbackOutputIcon(route: MediaRouter.RouteInfo): ImageVector {
 
         MediaRouter.RouteInfo.DEVICE_TYPE_BLUETOOTH_A2DP -> {
             val name = route.name.toString().lowercase()
-            if (listOf("headphone", "headset", "earbud", "buds", "airpods").any(name::contains)) {
-                Icons.Rounded.Headphones
-            } else {
+            if (listOf("speaker", "soundbar", "homepod", "sonos", "nest audio").any(name::contains)) {
                 Icons.Rounded.Speaker
+            } else {
+                // Android reports both classic Bluetooth headsets and speakers as
+                // A2DP, so prefer headphones unless the route identifies a speaker.
+                Icons.Rounded.Headphones
             }
         }
 
