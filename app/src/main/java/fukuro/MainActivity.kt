@@ -659,7 +659,7 @@ private fun MiniPlayer(
                                 )
                             }
                         )
-                        .padding(start = 7.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
+                        .padding(start = 7.dp, top = 4.dp, bottom = 8.dp, end = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CoverImage(
@@ -730,10 +730,12 @@ private fun MiniPlayer(
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                         .height(FukuroDims.miniPlayerProgress)
+                        .clip(RoundedCornerShape(1.dp))
                         .background(tokens.miniPlayerTrack)
                 ) {
                     Box(
                         Modifier.fillMaxWidth(progress).fillMaxHeight()
+                            .clip(RoundedCornerShape(1.dp))
                             .background(tokens.onScrim)
                     )
                 }

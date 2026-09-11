@@ -16,7 +16,7 @@ val buildNumber: Int = try {
     0
 }
 
-val fallbackVersionName = "1.10.33"
+val fallbackVersionName = "1.10.34"
 val releaseTagVersion = providers.environmentVariable("GITHUB_REF_NAME").orNull
     ?.takeIf { it.matches(Regex("""v\d+(\.\d+)*""")) }
     ?.removePrefix("v")
