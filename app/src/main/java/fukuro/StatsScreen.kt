@@ -67,6 +67,11 @@ private enum class StatsPeriod(val label: String) {
     WEEK("7 days"), MONTH("30 days"), YEAR("This year"), ALL("All time")
 }
 
+private const val MIN_ACTIVE_LISTENING_SECONDS = 60.0
+
+private fun isActiveListening(seconds: Double): Boolean =
+    seconds >= MIN_ACTIVE_LISTENING_SECONDS
+
 private data class DisplaySession(
     val id: String,
     val itemId: String,
@@ -159,7 +164,11 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
     // Today stands outside the period filter: it is always today.
     val todaySeconds = allDays.entries.firstOrNull { parseDay(it.key) == today }?.value ?: 0.0
     val listeningSeconds = selectedDays.values.sum()
-    val activeDays = selectedDays.count { it.value > 0.0 }
+    val activeDays = selectedDays.count { isActiveListening(it.value) }
+    val activeListeningSeconds = selectedDays.values.filter(::isActiveListening).sum()
+    val chartDays = selectedDays.mapValues { (_, seconds) ->
+        seconds.takeIf(::isActiveListening) ?: 0.0
+    }
     val finishedProgress = state.progress.values.filter { progress ->
         progress.isFinished && epochDay(progress.lastUpdate)?.let { inPeriod(it, period, today) } == true
     }
@@ -246,7 +255,7 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                     ) { chartStyle = ChartStyle.LINE }
                 }
                 Spacer(Modifier.height(10.dp))
-                ListeningChart(chartBuckets(selectedDays, period, today), chartStyle)
+                ListeningChart(chartBuckets(chartDays, period, today), chartStyle)
             }
 
             item {
@@ -262,8 +271,10 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
             item {
                 SectionTitle("Listening habits")
                 Spacer(Modifier.height(10.dp))
-                val activeAverage = if (activeDays == 0) 0.0 else listeningSeconds / activeDays
-                val allActive = allDays.mapNotNull { (d, s) -> parseDay(d)?.takeIf { s > 0 } }.toSet()
+                val activeAverage = if (activeDays == 0) 0.0 else activeListeningSeconds / activeDays
+                val allActive = allDays.mapNotNull { (d, s) ->
+                    parseDay(d)?.takeIf { isActiveListening(s) }
+                }.toSet()
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SummaryTile(formatDuration(activeAverage), "Daily average", Modifier.weight(1f))
                     SummaryTile("${currentStreak(allActive, today)} days", "Current streak", Modifier.weight(1f))
@@ -352,7 +363,7 @@ private fun SummaryTile(value: String, label: String, modifier: Modifier = Modif
 
 /** How full one day's square is, on a 0..4 scale like GitHub's contribution graph. */
 private fun heatLevel(seconds: Double, max: Double): Int = when {
-    seconds <= 0.0 || max <= 0.0 -> 0
+    !isActiveListening(seconds) || max <= 0.0 -> 0
     else -> kotlin.math.ceil((seconds / max) * 4.0).toInt().coerceIn(1, 4)
 }
 
@@ -808,6 +819,7 @@ private fun chartBuckets(days: Map<LocalDate, Double>, period: StatsPeriod, toda
 }
 
 private fun formatDuration(seconds: Double): String {
+    if (seconds > 0.0 && seconds < MIN_ACTIVE_LISTENING_SECONDS) return "<1 min"
     val minutes = (seconds / 60).roundToInt()
     return when {
         minutes < 60 -> "$minutes min"
