@@ -905,10 +905,11 @@ fun CoverProgressRing(
     boxScope: androidx.compose.foundation.layout.BoxScope,
     size: androidx.compose.ui.unit.Dp = 26.dp,
     padding: androidx.compose.ui.unit.Dp = 6.dp,
+    alignment: Alignment = Alignment.BottomEnd,
 ) {
     with(boxScope) {
         Box(
-            Modifier.align(Alignment.BottomEnd).padding(padding).size(size)
+            Modifier.align(alignment).padding(padding).size(size)
                 .clip(CircleShape).background(Color(0xB3000000)),
             contentAlignment = Alignment.Center
         ) {

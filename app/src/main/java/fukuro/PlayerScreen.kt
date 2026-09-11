@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -371,9 +370,9 @@ fun PlayerScreen(
         ) { pad ->
             LazyColumn(Modifier.fillMaxSize().padding(pad)) {
                 item {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Column(Modifier.fillMaxWidth()) {
                         Box(
-                            modifier = Modifier.heightIn(max = 320.dp)
+                            modifier = Modifier.fillMaxWidth()
                                 .aspectRatio(BOOK_COVER_ASPECT_RATIO)
                                 // Chapter/book navigation belongs to the artwork only.
                                 // Keeping this before the visual transform also gives the
@@ -385,8 +384,6 @@ fun PlayerScreen(
                                     travelPx = swipePx * 1.6f,
                                     onCommit = { forward -> onSwipe(forward) }
                                 )
-                                .clip(RoundedCornerShape(14.dp))
-                                .align(Alignment.CenterHorizontally)
                                 .swipeSlideVisual(slide)
                         ) {
                             CoverImage(
@@ -404,229 +401,234 @@ fun PlayerScreen(
                                         // artwork here fills the screen, where the shelves'
                                         // 26dp ring would read as a speck
                                         size = 48.dp,
-                                        padding = 10.dp,
+                                        padding = 16.dp,
+                                        alignment = Alignment.TopEnd,
                                     )
                                 } else {
                                     LinearProgressIndicator(
                                         progress = { bookFraction },
                                         modifier = Modifier.fillMaxWidth().height(5.dp)
-                                            .align(Alignment.BottomCenter),
+                                            .align(Alignment.TopCenter),
                                         color = MaterialTheme.colorScheme.primary,
                                         trackColor = Color(0x66000000),
                                     )
                                 }
                             }
-                        }
-                        if (showCoverBookProgress) {
-                            Row(
-                                Modifier.fillMaxWidth(0.94f).align(Alignment.CenterHorizontally)
-                                    .padding(top = 5.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(fmtMs((absolutePosSec * 1000).toLong()),
-                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
-                                Text(
-                                    "${chapters.indexOf(currentChapter) + 1} / ${chapters.size}",
-                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary,
+                            // All now-playing controls live on the cover. The gradual black
+                            // scrim preserves the artwork above while keeping every label and
+                            // touch target readable, even on a very bright cover.
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Brush.verticalGradient(
+                                        0f to Color.Transparent,
+                                        0.28f to Color.Transparent,
+                                        0.58f to Color(0x99000000),
+                                        1f to Color(0xF5000000),
+                                    )
                                 )
-                                Text("-${fmtMs(((totalBookSec - absolutePosSec).coerceAtLeast(0.0) * 1000).toLong())}",
-                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                            )
+                            Column(
+                                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                            ) {
+                                if (showCoverBookProgress) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text(fmtMs((absolutePosSec * 1000).toLong()),
+                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                        Text(
+                                            "${chapters.indexOf(currentChapter) + 1} / ${chapters.size}",
+                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary,
+                                        )
+                                        Text("-${fmtMs(((totalBookSec - absolutePosSec).coerceAtLeast(0.0) * 1000).toLong())}",
+                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                    }
+                                }
+
+                                val fav = displayId in state.favorites
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        title,
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = TxtPrimary,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE),
+                                    )
+                                    FavoriteHeart(
+                                        favorite = fav,
+                                        onToggle = { vm.toggleFavorite(displayId) },
+                                        tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
+                                    )
+                                }
+                                if (author.isNotBlank()) {
+                                    Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
+                                }
+                                if (saved?.isFinished == true) {
+                                    Text("Finished ✓", style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary)
+                                }
+                                if (sleepRemaining > 0 || sleepChaptersRemaining > 0) {
+                                    Text(
+                                        if (sleepRemaining > 0) {
+                                            "Sleep in ${sleepRemaining / 60}:${"%02d".format(sleepRemaining % 60)}"
+                                        } else {
+                                            "Sleep after $sleepChaptersRemaining ${if (sleepChaptersRemaining == 1) "chapter" else "chapters"}"
+                                        },
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                Spacer(Modifier.height(8.dp))
+
+                                // The scrubber spans either the whole book or just the current
+                                // chapter, per the Settings choice. Positions stay absolute.
+                                val perChapter = trackScope != "book" && currentChapter != null
+                                val spanStart = if (perChapter) currentChapter!!.start else 0.0
+                                val spanLen = if (perChapter) {
+                                    (currentChapter!!.end - currentChapter.start).coerceAtLeast(1.0)
+                                } else totalBookSec
+                                val accent = MaterialTheme.colorScheme.primary
+                                var dragSec by remember { mutableStateOf<Float?>(null) }
+                                val shownSec = (dragSec?.toDouble() ?: (absolutePosSec - spanStart))
+                                    .coerceIn(0.0, spanLen)
+                                val frac = (shownSec / spanLen).toFloat().coerceIn(0f, 1f)
+
+                                if (trackScope == "chapter_stacked" && currentChapter != null) {
+                                    var bookDragSec by remember(displayId) { mutableStateOf<Float?>(null) }
+                                    val bookShownSec = (bookDragSec?.toDouble() ?: absolutePosSec)
+                                        .coerceIn(0.0, totalBookSec)
+                                    Scrubber(
+                                        fraction = (bookShownSec / totalBookSec).toFloat(),
+                                        enabled = isCurrent,
+                                        accent = accent,
+                                        onScrub = { f -> bookDragSec = f * totalBookSec.toFloat() },
+                                        onScrubEnd = { f -> seekAbsolute(f * totalBookSec); bookDragSec = null },
+                                    )
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(fmtMs((bookShownSec * 1000).toLong()),
+                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                        Text("-${fmtMs(((totalBookSec - bookShownSec) * 1000).toLong())}",
+                                            style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                }
+
+                                currentChapter?.title?.takeIf { it.isNotBlank() }?.let { chapterNow ->
+                                    Text(
+                                        chapterNow,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = TxtSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                Scrubber(
+                                    fraction = frac,
+                                    enabled = isCurrent,
+                                    accent = accent,
+                                    onScrub = { f -> dragSec = f * spanLen.toFloat() },
+                                    onScrubEnd = { f -> seekAbsolute(spanStart + f * spanLen); dragSec = null }
+                                )
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(fmtMs((shownSec * 1000).toLong()),
+                                        style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
+                                    Text(
+                                        if (perChapter) "-${fmtMs(((spanLen - shownSec) * 1000).toLong())}"
+                                        else fmtMs((spanLen * 1000).toLong()),
+                                        style = MaterialTheme.typography.bodySmall, color = TxtSecondary
+                                    )
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    TextButton(
+                                        onClick = { showSpeedDialog = true },
+                                        contentPadding = PaddingValues(horizontal = 4.dp),
+                                        shape = FukuroButtonShape,
+                                    ) {
+                                        Text(
+                                            "${fmtSpeed(speed)}x",
+                                            maxLines = 1, softWrap = false,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = if (abs(speed - 1f) > 0.01f) MaterialTheme.colorScheme.primary
+                                            else TxtSecondary
+                                        )
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        IconButton(
+                                            enabled = isCurrent,
+                                            modifier = Modifier.size(56.dp),
+                                            onClick = {
+                                                controller?.let {
+                                                    it.seekTo((it.currentPosition - skipBack * 1000L).coerceAtLeast(0))
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Replay10, "Back $skipBack seconds", Modifier.size(44.dp),
+                                                tint = if (isCurrent) TxtPrimary else TxtPrimary.copy(alpha = 0.35f)
+                                            )
+                                        }
+                                        PlayPauseKnockout(
+                                            isPlaying = isCurrent && isPlaying,
+                                            onClick = {
+                                                if (!isCurrent) onPlayBook(displayId, null)
+                                                else {
+                                                    val shouldPlay = !isPlaying
+                                                    isPlaying = shouldPlay
+                                                    if (shouldPlay) controller?.play() else controller?.pause()
+                                                }
+                                            }
+                                        )
+                                        IconButton(
+                                            enabled = isCurrent,
+                                            modifier = Modifier.size(56.dp),
+                                            onClick = {
+                                                controller?.let { it.seekTo(it.currentPosition + skipFwd * 1000L) }
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Forward30, "Forward $skipFwd seconds", Modifier.size(44.dp),
+                                                tint = if (isCurrent) TxtPrimary else TxtPrimary.copy(alpha = 0.35f)
+                                            )
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { showSleepDialog = true },
+                                        modifier = Modifier.size(52.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
+                                            tint = if (sleepRemaining > 0 || sleepChaptersRemaining > 0) MaterialTheme.colorScheme.primary
+                                            else TxtSecondary
+                                        )
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    PlaybackOutputButton(tint = TxtPrimary)
+                                    DownloadIconButton(vm, displayId)
+                                }
                             }
-                        }
-                        Spacer(Modifier.height(24.dp))
-                        val fav = displayId in state.favorites
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = TxtPrimary,
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE),
-                            )
-                            FavoriteHeart(
-                                favorite = fav,
-                                onToggle = { vm.toggleFavorite(displayId) },
-                                tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
-                            )
-                        }
-                        if (author.isNotBlank()) {
-                            Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
-                        }
-                        if (saved?.isFinished == true) {
-                            Text("Finished ✓", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary)
-                        }
-                        if (sleepRemaining > 0 || sleepChaptersRemaining > 0) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                if (sleepRemaining > 0) {
-                                    "Sleep in ${sleepRemaining / 60}:${"%02d".format(sleepRemaining % 60)}"
-                                } else {
-                                    "Sleep after $sleepChaptersRemaining ${if (sleepChaptersRemaining == 1) "chapter" else "chapters"}"
-                                },
-                                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                         }
                         Spacer(Modifier.height(12.dp))
-
-                        // The scrubber spans either the whole book or just the current
-                        // chapter, per the Settings choice. Positions stay absolute
-                        // underneath; only the window shown on the track changes.
-                        val perChapter = trackScope != "book" && currentChapter != null
-                        val spanStart = if (perChapter) currentChapter!!.start else 0.0
-                        val spanLen = if (perChapter) {
-                            (currentChapter!!.end - currentChapter.start).coerceAtLeast(1.0)
-                        } else totalBookSec
-
-                        val accent = MaterialTheme.colorScheme.primary
-                        // while dragging, follow the finger; otherwise follow playback
-                        var dragSec by remember { mutableStateOf<Float?>(null) }
-                        val shownSec = (dragSec?.toDouble() ?: (absolutePosSec - spanStart))
-                            .coerceIn(0.0, spanLen)
-                        val frac = (shownSec / spanLen).toFloat().coerceIn(0f, 1f)
-
-                        // Audiobookshelf-style dual layout: total book first, then the
-                        // chapter scrubber below it. Both remain seekable.
-                        if (trackScope == "chapter_stacked" && currentChapter != null) {
-                            var bookDragSec by remember(displayId) { mutableStateOf<Float?>(null) }
-                            val bookShownSec = (bookDragSec?.toDouble() ?: absolutePosSec)
-                                .coerceIn(0.0, totalBookSec)
-                            Scrubber(
-                                fraction = (bookShownSec / totalBookSec).toFloat(),
-                                enabled = isCurrent,
-                                accent = accent,
-                                onScrub = { f -> bookDragSec = f * totalBookSec.toFloat() },
-                                onScrubEnd = { f -> seekAbsolute(f * totalBookSec); bookDragSec = null },
-                            )
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(fmtMs((bookShownSec * 1000).toLong()),
-                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
-                                Text("-${fmtMs(((totalBookSec - bookShownSec) * 1000).toLong())}",
-                                    style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
-                            }
-                            Spacer(Modifier.height(10.dp))
-                        }
-
-                        // The chapter belongs with the position, not the title: this sits
-                        // directly above the track it describes, and the collapsed chapter
-                        // list below is the only other place it appears.
-                        currentChapter?.title?.takeIf { it.isNotBlank() }?.let { chapterNow ->
-                            Text(
-                                chapterNow,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TxtSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                            )
-                        }
-
-                        Scrubber(
-                            fraction = frac,
-                            enabled = isCurrent,
-                            accent = accent,
-                            onScrub = { f -> dragSec = f * spanLen.toFloat() },
-                            onScrubEnd = { f -> seekAbsolute(spanStart + f * spanLen); dragSec = null }
-                        )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(fmtMs((shownSec * 1000).toLong()),
-                                style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
-                            Text(
-                                if (perChapter) "-${fmtMs(((spanLen - shownSec) * 1000).toLong())}"
-                                else fmtMs((spanLen * 1000).toLong()),
-                                style = MaterialTheme.typography.bodySmall, color = TxtSecondary
-                            )
-                        }
-                        Spacer(Modifier.height(28.dp))
-                        // sleep and speed pinned to the edges, transport centred with room
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // speed on the left, accent when it isn't 1x
-                            TextButton(
-                                onClick = { showSpeedDialog = true },
-                                contentPadding = PaddingValues(horizontal = 4.dp),
-                                shape = FukuroButtonShape,
-                            ) {
-                                Text(
-                                    "${fmtSpeed(speed)}x",
-                                    maxLines = 1, softWrap = false,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (abs(speed - 1f) > 0.01f) MaterialTheme.colorScheme.primary
-                                    else TxtSecondary
-                                )
-                            }
-                            // skip buttons are always visible; dimmed until the book is loaded
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                IconButton(
-                                    enabled = isCurrent,
-                                    modifier = Modifier.size(56.dp),
-                                    onClick = {
-                                        controller?.let {
-                                            it.seekTo((it.currentPosition - skipBack * 1000L).coerceAtLeast(0))
-                                        }
-                                    }
-                                ) {
-                                    Icon(
-                                        Icons.Rounded.Replay10, "Back $skipBack seconds", Modifier.size(44.dp),
-                                        tint = if (isCurrent) TxtPrimary else TxtPrimary.copy(alpha = 0.35f)
-                                    )
-                                }
-                                PlayPauseKnockout(
-                                    isPlaying = isCurrent && isPlaying,
-                                    onClick = {
-                                        if (!isCurrent) onPlayBook(displayId, null)
-                                        else {
-                                            val shouldPlay = !isPlaying
-                                            isPlaying = shouldPlay
-                                            if (shouldPlay) controller?.play() else controller?.pause()
-                                        }
-                                    }
-                                )
-                                IconButton(
-                                    enabled = isCurrent,
-                                    modifier = Modifier.size(56.dp),
-                                    onClick = {
-                                        controller?.let { it.seekTo(it.currentPosition + skipFwd * 1000L) }
-                                    }
-                                ) {
-                                    Icon(
-                                        Icons.Rounded.Forward30, "Forward $skipFwd seconds", Modifier.size(44.dp),
-                                        tint = if (isCurrent) TxtPrimary else TxtPrimary.copy(alpha = 0.35f)
-                                    )
-                                }
-                            }
-                            // sleep timer on the right, accent when running
-                            IconButton(
-                                onClick = { showSleepDialog = true },
-                                modifier = Modifier.size(52.dp),
-                            ) {
-                                Icon(
-                                    Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
-                                    tint = if (sleepRemaining > 0 || sleepChaptersRemaining > 0) MaterialTheme.colorScheme.primary
-                                    else TxtSecondary
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            PlaybackOutputButton(tint = TxtPrimary)
-                            DownloadIconButton(vm, displayId)
-                        }
-                        Spacer(Modifier.height(24.dp))
                     }
                 }
 
