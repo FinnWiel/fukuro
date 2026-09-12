@@ -19,6 +19,7 @@ import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellati
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -375,9 +376,6 @@ fun PlayerScreen(
             LazyColumn(Modifier.fillMaxSize().padding(pad)) {
                 item {
                     Column(Modifier.fillMaxWidth()) {
-                        // Let the artwork and its controls sit lower in the initial
-                        // viewport instead of crowding the app bar.
-                        Spacer(Modifier.height(64.dp))
                         if (showCoverBookProgress) {
                             // whole-book timings sit above the artwork: on the cover they
                             // collided with the title block and were easy to miss
@@ -397,10 +395,15 @@ fun PlayerScreen(
                                     style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
                             }
                         }
-                        Box(
-                            modifier = Modifier.fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .aspectRatio(BOOK_COVER_ASPECT_RATIO)
+                        BoxWithConstraints(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        ) {
+                            val artworkHeight = maxWidth / BOOK_COVER_ASPECT_RATIO
+                            Box(
+                                modifier = Modifier.fillMaxWidth()
+                                // Preserve the controls' current screen position while
+                                // returning the artwork itself to its original top edge.
+                                .height(artworkHeight + 64.dp)
                                 .clip(RoundedCornerShape(20.dp))
                                 // Chapter/book navigation belongs to the artwork only.
                                 // Keeping this before the visual transform also gives the
@@ -413,11 +416,11 @@ fun PlayerScreen(
                                     onCommit = { forward -> onSwipe(forward) }
                                 )
                                 .swipeSlideVisual(slide)
-                        ) {
+                            ) {
                             CoverImage(
                                 model = coverUrl,
                                 contentDescription = title,
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier.fillMaxWidth().height(artworkHeight).align(Alignment.TopCenter),
                             )
                             if (showCoverBookProgress) {
                                 // book progress on the cover follows the same choice the
@@ -459,7 +462,6 @@ fun PlayerScreen(
                                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                                     .padding(16.dp)
                             ) {
-                                val fav = displayId in state.favorites
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -473,12 +475,7 @@ fun PlayerScreen(
                                         modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE),
                                     )
                                     Spacer(Modifier.width(12.dp))
-                                    FavoriteHeart(
-                                        favorite = fav,
-                                        onToggle = { vm.toggleFavorite(displayId) },
-                                        tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary,
-                                        modifier = Modifier.size(32.dp),
-                                    )
+                                    PlaybackOutputButton(tint = TxtPrimary)
                                 }
                                 if (author.isNotBlank()) {
                                     Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
@@ -497,14 +494,6 @@ fun PlayerScreen(
                                         color = MaterialTheme.colorScheme.primary,
                                         style = MaterialTheme.typography.bodySmall,
                                     )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    PlaybackOutputButton(tint = TxtPrimary)
-                                    DownloadIconButton(vm, displayId)
                                 }
                                 Spacer(Modifier.height(4.dp))
 
@@ -645,9 +634,22 @@ fun PlayerScreen(
                                 }
                             }
                         }
+                        }
                         // Keep every section below the player out of the initial
                         // viewport; scrolling deliberately reveals chapter details.
                         Spacer(Modifier.height(72.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FavoriteHeart(
+                                favorite = displayId in state.favorites,
+                                onToggle = { vm.toggleFavorite(displayId) },
+                                tint = if (displayId in state.favorites) MaterialTheme.colorScheme.primary else TxtPrimary,
+                            )
+                            DownloadIconButton(vm, displayId)
+                        }
                     }
                 }
 
