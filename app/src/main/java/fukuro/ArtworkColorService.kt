@@ -182,9 +182,11 @@ fun rememberArtworkUiColor(
     mediaId: String?,
     artworkRevision: Int,
     model: Any?,
+    /** What the colour is blended into. Defaults to the page background. */
+    surface: ComposeColor? = null,
 ): ComposeColor? {
     val context = LocalContext.current
-    val surfaceColor = Fukuro.colors.background
+    val surfaceColor = surface ?: Fukuro.colors.background
     var color by remember { mutableStateOf<ComposeColor?>(null) }
     LaunchedEffect(mediaId, artworkRevision, surfaceColor) {
         if (mediaId == null || model == null) {

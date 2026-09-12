@@ -128,8 +128,8 @@ private val TxtSecondary = Color(0xB3FFFFFF)
 private val PanelBg = Color(0x59000000)
 
 // what the blurred artwork sits on. Books with no cover used to leave the page
-// see-through onto the screen behind it; this keeps it solid either way.
-private val PlayerBg = Color(0xFF101312)
+// see-through onto the screen behind it; this keeps it solid either way. The
+// colour itself comes from the theme: Fukuro.colors.playerBase.
 
 /**
  * The book page. Doubles as the now-playing screen:
@@ -246,9 +246,15 @@ fun PlayerScreen(
     val title = meta?.title ?: ""
     val author = meta?.authorName ?: ""
     val coverUrl = vm.coverModel(displayId)
-    val artworkBackground = rememberArtworkUiColor(displayId, state.coverRevision, coverUrl)
+    // blended into what this page actually sits on, which is the dark base in every
+    // theme, rather than the light background a light theme would otherwise hand it
+    val artworkBackground =
+        rememberArtworkUiColor(displayId, state.coverRevision, coverUrl, Fukuro.colors.playerBase)
+    // true black only under the "Pure black" theme; every other theme keeps the
+    // dark background, since this page is light-on-dark artwork chrome throughout
+    val playerBase = Fukuro.colors.playerBase
     val playerBackground by androidx.compose.animation.animateColorAsState(
-        artworkBackground ?: PlayerBg,
+        artworkBackground ?: playerBase,
         animationSpec = tween(500),
         label = "playerArtworkBackground",
     )
@@ -342,7 +348,7 @@ fun PlayerScreen(
                     topEnd = (dragPx / dismissPx * 28f).coerceIn(0f, 28f).dp
                 )
             )
-            .background(Color.Black)
+            .background(playerBase)
     ) {
         Scaffold(
             containerColor = Color.Transparent,
@@ -395,9 +401,9 @@ fun PlayerScreen(
                             .background(
                                 Brush.verticalGradient(
                                     0f to playerBackground,
-                                    0.30f to lerp(Color.Black, playerBackground, 0.62f),
-                                    0.62f to lerp(Color.Black, playerBackground, 0.20f),
-                                    1f to Color.Black,
+                                    0.30f to lerp(playerBase, playerBackground, 0.62f),
+                                    0.62f to lerp(playerBase, playerBackground, 0.20f),
+                                    1f to playerBase,
                                 )
                             )
                     ) {
@@ -682,9 +688,9 @@ fun PlayerScreen(
                                 DownloadIconButton(vm, displayId)
                             }
                         }
-                        // the sections below stay off the first screen: scrolling
-                        // deliberately reveals chapter details
-                        Spacer(Modifier.height(64.dp))
+                        // one rhythm down the page: the same gap that separates the
+                        // transport from the actions separates them from what follows
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
 

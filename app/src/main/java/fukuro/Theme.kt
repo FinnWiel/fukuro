@@ -173,7 +173,16 @@ data class FukuroColors(
     /** Strip a cover's progress bar sits on, so it reads over any artwork. */
     val coverProgressStrip: Color,
     val isDark: Boolean,
+    /** True only under the "Pure black" theme, where surfaces go to true black. */
+    val pureBlack: Boolean = false,
 ) {
+    /**
+     * What the player page sits on. That page is light-on-dark artwork chrome in
+     * every theme, so the light theme borrows the dark background rather than the
+     * light one; only "Pure black" takes it all the way to black.
+     */
+    val playerBase: Color get() = if (pureBlack) Color.Black else Color(0xFF101312)
+
     /**
      * The mini player and nav bar sit on this scrim in both themes, which is why
      * their content is always light-on-dark.
@@ -304,6 +313,7 @@ private fun blackTokens(accent: Color) = darkTokens(accent).copy(
     background = Color.Black,
     surface = Color.Black,
     outline = Color(0xFF1E2220),
+    pureBlack = true,
 )
 
 private fun lightTokens(accent: Color) = FukuroColors(
