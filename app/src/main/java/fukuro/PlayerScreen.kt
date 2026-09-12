@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -373,13 +371,18 @@ fun PlayerScreen(
         ) { pad ->
             LazyColumn(Modifier.fillMaxSize().padding(pad)) {
                 item {
-                    Column(Modifier.fillMaxWidth()) {
+                    // the artwork takes the whole first screen: the controls then sit at the
+                    // bottom edge of the viewport and nothing below them peeks in before
+                    // the page is scrolled
+                    Column(Modifier.fillMaxWidth().fillParentMaxHeight()) {
                         if (showCoverBookProgress) {
                             // whole-book timings sit above the artwork: on the cover they
                             // collided with the title block and were easy to miss
                             Row(
+                                // lines up with the scrubber: the cover's own 16dp inset
+                                // plus the 16dp the controls sit in
                                 Modifier.fillMaxWidth()
-                                    .padding(horizontal = 20.dp)
+                                    .padding(horizontal = 32.dp)
                                     .padding(bottom = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
@@ -395,8 +398,9 @@ fun PlayerScreen(
                         }
                         Box(
                             modifier = Modifier.fillMaxWidth()
+                                .weight(1f)
                                 .padding(horizontal = 16.dp)
-                                .aspectRatio(BOOK_COVER_ASPECT_RATIO)
+                                .padding(bottom = 12.dp)
                                 .clip(RoundedCornerShape(20.dp))
                                 // Chapter/book navigation belongs to the artwork only.
                                 // Keeping this before the visual transform also gives the
@@ -443,11 +447,15 @@ fun PlayerScreen(
                             // touch target readable, even on a very bright cover.
                             Box(
                                 Modifier.fillMaxSize().background(
+                                    // short scrim: it starts low and is fully black well
+                                    // before the bottom of the artwork, so the controls
+                                    // sit on solid black rather than on a long wash
                                     Brush.verticalGradient(
                                         0f to Color.Transparent,
-                                        0.28f to Color.Transparent,
-                                        0.58f to Color(0x99000000),
-                                        1f to Color(0xF5000000),
+                                        0.46f to Color.Transparent,
+                                        0.62f to Color(0x99000000),
+                                        0.74f to Color.Black,
+                                        1f to Color.Black,
                                     )
                                 )
                             )
@@ -556,15 +564,19 @@ fun PlayerScreen(
                                     )
                                 }
                                 Spacer(Modifier.height(10.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
+                                // A Row with SpaceBetween centred the transport between the
+                                // speed and sleep buttons, not on the screen: the two sides
+                                // are different widths, so the play button sat off-centre.
+                                // Anchoring each piece independently keeps it centred.
+                                Box(Modifier.fillMaxWidth()) {
                                     TextButton(
                                         onClick = { showSpeedDialog = true },
                                         contentPadding = PaddingValues(horizontal = 4.dp),
                                         shape = FukuroButtonShape,
+                                        // pull the button's own padding back so the label
+                                        // starts on the same line as the scrubber
+                                        modifier = Modifier.align(Alignment.CenterStart)
+                                            .offset(x = (-4).dp),
                                     ) {
                                         Text(
                                             "${fmtSpeed(speed)}x",
@@ -576,7 +588,8 @@ fun PlayerScreen(
                                     }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        modifier = Modifier.align(Alignment.Center),
                                     ) {
                                         IconButton(
                                             enabled = isCurrent,
@@ -618,7 +631,11 @@ fun PlayerScreen(
                                     }
                                     IconButton(
                                         onClick = { showSleepDialog = true },
-                                        modifier = Modifier.size(52.dp),
+                                        // 52dp box around a 30dp glyph: nudge it out by the
+                                        // difference so the icon ends where the scrubber does
+                                        modifier = Modifier.align(Alignment.CenterEnd)
+                                            .size(52.dp)
+                                            .offset(x = 11.dp),
                                     ) {
                                         Icon(
                                             Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
@@ -628,8 +645,9 @@ fun PlayerScreen(
                                     }
                                 }
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
+                                    // same trailing alignment as the scrubber's end label
+                                    modifier = Modifier.fillMaxWidth().offset(x = 12.dp),
+                                    horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     PlaybackOutputButton(tint = TxtPrimary)
@@ -637,7 +655,6 @@ fun PlayerScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
                     }
                 }
 
@@ -647,7 +664,7 @@ fun PlayerScreen(
                     item {
                         Row(
                             Modifier.fillMaxWidth().clickable { chaptersExpanded = !chaptersExpanded }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
@@ -667,7 +684,7 @@ fun PlayerScreen(
                                 val inChapter = absolutePosSec - ch.start
                                 val chLen = (ch.end - ch.start).coerceAtLeast(1.0)
                                 Column(
-                                    Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                                         .clip(RoundedCornerShape(10.dp)).background(PanelBg)
                                         .clickable { chaptersExpanded = true }
                                         .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -695,7 +712,7 @@ fun PlayerScreen(
                                         else onPlayBook(displayId, ch.start)
                                     }
                                     .background(if (current) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent)
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
@@ -724,7 +741,7 @@ fun PlayerScreen(
                     item {
                         Row(
                             Modifier.fillMaxWidth().clickable { onOpenSeries(seriesOfBook.id) }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -738,7 +755,7 @@ fun PlayerScreen(
                         }
                     }
                     item {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp)) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                             items(seriesOfBook.books, key = { it.id }) { b ->
                                 val progress = state.progress[b.id]
                                 CarouselCell(
@@ -767,7 +784,7 @@ fun PlayerScreen(
                             // co-authors live in one string; open the first one's page
                             Modifier.fillMaxWidth()
                                 .clickable { onOpenAuthor(author.split(',', ';', '&').first().trim()) }
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -781,7 +798,7 @@ fun PlayerScreen(
 
                 // ----- about -----
                 item {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                         Text("About", style = MaterialTheme.typography.titleMedium, color = TxtPrimary)
                         Spacer(Modifier.height(4.dp))
                         Text(
