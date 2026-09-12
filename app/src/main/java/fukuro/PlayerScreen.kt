@@ -275,7 +275,7 @@ fun PlayerScreen(
         animationSpec = tween(500),
         label = "playerArtworkBackground",
     )
-    val playerBackgroundMid = lerp(playerBackground, Color.Black, 0.65f)
+    val seriesOfBook = state.series.firstOrNull { s -> s.books.any { b -> b.id == displayId } }
     val saved = state.progress[displayId]
     val bookDuration = detail?.media?.duration ?: libItem?.media?.duration ?: 0.0
 
@@ -366,12 +366,12 @@ fun PlayerScreen(
                 )
             )
             .background(
-                // the tint from the artwork is only a short wash at the very top;
-                // the rest of the page stays on the darker base colour
+                // the "Reading now" wash, pushed harder: the artwork colour is close to
+                // full strength behind the cover and only lets go past halfway down
                 Brush.verticalGradient(
                     0f to playerBackground,
-                    0.10f to playerBackgroundMid,
-                    0.22f to Color.Black,
+                    0.30f to lerp(Color.Black, playerBackground, 0.62f),
+                    0.62f to lerp(Color.Black, playerBackground, 0.20f),
                     1f to Color.Black,
                 )
             )
@@ -380,7 +380,21 @@ fun PlayerScreen(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { },
+                    title = {
+                        // the series is the one label worth keeping in view while the
+                        // page scrolls; the title itself is already on the artwork
+                        seriesOfBook?.name?.takeIf { it.isNotBlank() }?.let { seriesName ->
+                            Text(
+                                seriesName,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = TxtPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             // chevron down: this page slides away downwards
@@ -424,6 +438,9 @@ fun PlayerScreen(
                             val artworkHeight = maxWidth / BOOK_COVER_ASPECT_RATIO
                             Box(
                                 modifier = Modifier.fillMaxWidth()
+                                // Artwork and the controls under it shift down as one
+                                // block, away from the fixed top bar.
+                                .padding(top = 24.dp)
                                 // Preserve the controls' current screen position while
                                 // returning the artwork itself to its original top edge.
                                 .height(artworkHeight + 64.dp)
@@ -485,21 +502,17 @@ fun PlayerScreen(
                                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                                     .padding(16.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        title,
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = TxtPrimary,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE),
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    PlaybackOutputButton(tint = TxtPrimary)
-                                }
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = TxtPrimary,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    // the output control moved below the transport, so the
+                                    // title keeps the full width to itself
+                                    modifier = Modifier.fillMaxWidth()
+                                        .basicMarquee(iterations = Int.MAX_VALUE),
+                                )
                                 if (author.isNotBlank()) {
                                     Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
                                 }
@@ -664,9 +677,14 @@ fun PlayerScreen(
                         Spacer(Modifier.height(72.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            PlaybackOutputLabel(
+                                tint = TxtSecondary,
+                                labelColor = TxtSecondary,
+                                modifier = Modifier.weight(1.6f, fill = false),
+                            )
+                            Spacer(Modifier.weight(1f))
                             FavoriteHeart(
                                 favorite = displayId in state.favorites,
                                 onToggle = { vm.toggleFavorite(displayId) },
@@ -755,7 +773,6 @@ fun PlayerScreen(
                 }
 
                 // ----- series -----
-                val seriesOfBook = state.series.firstOrNull { s -> s.books.any { b -> b.id == displayId } }
                 if (seriesOfBook != null) {
                     item {
                         Row(

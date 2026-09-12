@@ -129,7 +129,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themePref by vm.store.themeFlow.collectAsState(initial = "system")
             val accentPref by vm.store.accentFlow.collectAsState(initial = DEFAULT_ACCENT)
-            ShelfTheme(themePref, accentPref) {
+            // only read the artwork when the setting actually asks for it, so the
+            // usual fixed-accent case costs nothing
+            val matchBook = accentPref == ACCENT_MATCH_BOOK
+            val accentBookId = if (matchBook) currentBookId(controller) else null
+            val appState by vm.state.collectAsState()
+            val bookAccent = rememberArtworkAccentColor(
+                mediaId = accentBookId,
+                artworkRevision = appState.coverRevision,
+                model = accentBookId?.let { vm.coverModel(it) },
+            )
+            ShelfTheme(themePref, accentPref, bookAccent) {
                 // saved across configuration changes: a rotation should not replay it
                 var splashDone by androidx.compose.runtime.saveable.rememberSaveable {
                     mutableStateOf(false)
@@ -151,6 +161,37 @@ class MainActivity : ComponentActivity() {
         controller?.release()
         super.onDestroy()
     }
+}
+
+/** A player queue item's media id, back as the book id it was built from. */
+fun playingBookId(item: MediaItem?): String? = item?.mediaId
+    ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
+    ?.removePrefix(PlayerService.BOOK_PREFIX)
+    ?.substringBefore('#')
+
+/** The id of the book the player currently holds, tracked as it changes. */
+@Composable
+private fun currentBookId(controller: MediaController?): String? {
+    var id by androidx.compose.runtime.remember(controller) {
+        mutableStateOf(playingBookId(controller?.currentMediaItem))
+    }
+    androidx.compose.runtime.DisposableEffect(controller) {
+        val active = controller
+        if (active == null) {
+            id = null
+            onDispose { }
+        } else {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+                    id = playingBookId(item)
+                }
+            }
+            active.addListener(listener)
+            id = playingBookId(active.currentMediaItem)
+            onDispose { active.removeListener(listener) }
+        }
+    }
+    return id
 }
 
 /** Modern nav pattern: outlined icon at rest, rounded/filled when selected. */
@@ -183,10 +224,7 @@ fun AppNav(
     // added from the status chip on Home or from Settings
     val showChrome = route != "player" && route != "login" && !route.startsWith("book/")
 
-    fun bookId(item: MediaItem?): String? = item?.mediaId
-        ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
-        ?.removePrefix(PlayerService.BOOK_PREFIX)
-        ?.substringBefore('#')
+    fun bookId(item: MediaItem?): String? = playingBookId(item)
 
     var playingBookId by androidx.compose.runtime.remember(controller) {
         mutableStateOf(bookId(controller?.currentMediaItem))
