@@ -454,7 +454,7 @@ fun PlayerScreen(
                             )
                             Column(
                                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                                    .padding(16.dp)
                             ) {
                                 val fav = displayId in state.favorites
                                 Row(
@@ -474,9 +474,7 @@ fun PlayerScreen(
                                         favorite = fav,
                                         onToggle = { vm.toggleFavorite(displayId) },
                                         tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary,
-                                        // Align the visible heart, rather than its padded
-                                        // 48dp touch target, with the scrubber's right edge.
-                                        modifier = Modifier.offset(x = 12.dp),
+                                        modifier = Modifier.size(32.dp),
                                     )
                                 }
                                 if (author.isNotBlank()) {
@@ -497,7 +495,15 @@ fun PlayerScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }
-                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    PlaybackOutputButton(tint = TxtPrimary)
+                                    DownloadIconButton(vm, displayId)
+                                }
+                                Spacer(Modifier.height(4.dp))
 
                                 // The scrubber spans either the whole book or just the current
                                 // chapter, per the Settings choice. Positions stay absolute.
@@ -533,15 +539,23 @@ fun PlayerScreen(
                                 }
 
                                 currentChapter?.title?.takeIf { it.isNotBlank() }?.let { chapterNow ->
-                                    Text(
-                                        chapterNow,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = TxtSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
+                                    Box(
                                         modifier = Modifier.fillMaxWidth()
-                                    )
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(PanelBg)
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            chapterNow,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = TxtPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                    }
+                                    Spacer(Modifier.height(4.dp))
                                 }
                                 Scrubber(
                                     fraction = frac,
@@ -581,7 +595,9 @@ fun PlayerScreen(
                                     Row(
                                         modifier = Modifier.align(Alignment.Center),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                        // Keep the transport compact enough to leave clear,
+                                        // balanced space around speed and sleep at the edges.
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         IconButton(
                                             enabled = isCurrent,
@@ -631,14 +647,6 @@ fun PlayerScreen(
                                             else TxtSecondary
                                         )
                                     }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    PlaybackOutputButton(tint = TxtPrimary)
-                                    DownloadIconButton(vm, displayId)
                                 }
                             }
                         }
