@@ -65,7 +65,7 @@ class Store(private val context: Context) {
         val HOME_SECTIONS = stringPreferencesKey("home_sections") // csv order, pre-1.11 shelves
         val HOME_SHELVES = stringPreferencesKey("home_shelves") // json list of Shelf
         val LOCAL_PROGRESS = stringPreferencesKey("local_progress") // json {itemId: currentTimeSec}
-        val ACCENT = stringPreferencesKey("accent") // "dynamic" or a key from ACCENT_COLORS
+        val ACCENT = stringPreferencesKey("accent") // ACCENT_MATCH_BOOK, a key from ACCENT_COLORS, or "#RRGGBB"
         val PROGRESS_STYLE = stringPreferencesKey("progress_style") // "circle" | "bar"
         val DOWNLOAD_DIR = stringPreferencesKey("download_dir") // absolute path, blank = app storage
         val COVER_SIZE = stringPreferencesKey("cover_size") // "0".."4"

@@ -56,6 +56,35 @@ class ArtworkColorService(context: Context) {
         }
     }
 
+    /**
+     * The same artwork colour, worked up as a UI accent instead of page chrome: the
+     * cover's hue kept, but saturated and lightened into a range that stays legible
+     * on both the light and the dark theme.
+     */
+    suspend fun accentFor(
+        mediaId: String,
+        artworkRevision: Int,
+        model: Any,
+    ): Int? {
+        val key = "accent:$mediaId:$artworkRevision"
+        cache.get(key)?.let { return it }
+        return withContext(Dispatchers.IO) {
+            cache.get(key)?.let { return@withContext it }
+            val generated = runCatching {
+                val request = if (model is ImageRequest) {
+                    model.newBuilder().allowHardware(false).size(128).build()
+                } else {
+                    ImageRequest.Builder(appContext).data(model).allowHardware(false).size(128).build()
+                }
+                val drawable = imageLoader.execute(request).drawable as? BitmapDrawable
+                    ?: return@runCatching null
+                val source = selectRepresentativeColor(drawable.bitmap) ?: return@runCatching null
+                normalizeForAccent(source)
+            }.getOrNull()
+            generated?.also { cache.put(key, it) }
+        }
+    }
+
     /** Quantize the bitmap, then score several swatches for colour and representation. */
     private fun selectRepresentativeColor(source: android.graphics.Bitmap): Int? {
         val side = 48
@@ -122,6 +151,18 @@ class ArtworkColorService(context: Context) {
         return darkenForWhiteText(blended)
     }
 
+    /**
+     * Accents are read against both themes, so the same clamps the custom-colour
+     * picker enforces apply here: enough saturation to read as a colour, and a
+     * lightness that is neither washed out on white nor muddy on black.
+     */
+    private fun normalizeForAccent(sourceColor: Int): Int {
+        val hsl = FloatArray(3).also { ColorUtils.colorToHSL(sourceColor, it) }
+        hsl[1] = hsl[1].coerceIn(0.45f, 0.85f)
+        hsl[2] = hsl[2].coerceIn(0.40f, 0.58f)
+        return ColorUtils.HSLToColor(hsl) or Color.BLACK
+    }
+
     /** Darken only as much as needed for white foreground content to clear WCAG AA. */
     private fun darkenForWhiteText(color: Int): Int {
         var result = color or Color.BLACK
@@ -155,6 +196,33 @@ fun rememberArtworkUiColor(
             artworkRevision = artworkRevision,
             model = model,
             surfaceColor = surfaceColor.toArgb(),
+        )?.let { ComposeColor(it) }
+    }
+    return color
+}
+
+/**
+ * The accent colour of one book's artwork, for the "match to book" accent setting.
+ * Unlike [rememberArtworkUiColor] this never reads the theme, since it is resolved
+ * before the theme it feeds exists.
+ */
+@Composable
+fun rememberArtworkAccentColor(
+    mediaId: String?,
+    artworkRevision: Int,
+    model: Any?,
+): ComposeColor? {
+    val context = LocalContext.current
+    var color by remember { mutableStateOf<ComposeColor?>(null) }
+    LaunchedEffect(mediaId, artworkRevision) {
+        if (mediaId == null || model == null) {
+            color = null
+            return@LaunchedEffect
+        }
+        color = (context.applicationContext as ShelfApp).artworkColors.accentFor(
+            mediaId = mediaId,
+            artworkRevision = artworkRevision,
+            model = model,
         )?.let { ComposeColor(it) }
     }
     return color

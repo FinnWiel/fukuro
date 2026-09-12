@@ -1,5 +1,7 @@
 package fukuro
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -7,6 +9,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
@@ -35,6 +38,13 @@ val ACCENT_COLORS = linkedMapOf(
 )
 
 const val DEFAULT_ACCENT = "fukuro"
+
+/**
+ * Accent preference that follows the artwork of whatever book is playing. It is not a
+ * colour of its own: with nothing playing, or artwork no colour can be read from, it
+ * falls back to the palette's first entry, [DEFAULT_ACCENT].
+ */
+const val ACCENT_MATCH_BOOK = "book"
 
 /** Resolves an accent preference (palette key or "#RRGGBB") to a colour. */
 fun accentColorOf(pref: String): Color {
@@ -334,6 +344,7 @@ object Fukuro {
 fun ShelfTheme(
     themePref: String,
     accentPref: String,
+    bookAccent: Color? = null,
     content: @Composable () -> Unit,
 ) {
     val dark = when (themePref) {
@@ -342,7 +353,13 @@ fun ShelfTheme(
         else -> isSystemInDarkTheme()
     }
     val pureBlack = themePref == "black"
-    val accent = accentColorOf(accentPref)
+    // "match to book" has no colour of its own: an unreadable cover, or nothing
+    // playing at all, leaves accentColorOf to hand back the default.
+    val target =
+        if (accentPref == ACCENT_MATCH_BOOK) bookAccent ?: accentColorOf(ACCENT_MATCH_BOOK)
+        else accentColorOf(accentPref)
+    // books change mid-session; crossfade rather than repaint the whole app at once
+    val accent by animateColorAsState(target, animationSpec = tween(400), label = "accent")
     val scheme = when {
         dark && pureBlack -> blackFor(accent)
         dark -> darkFor(accent)
@@ -364,4 +381,4 @@ fun ShelfTheme(
  */
 @Composable
 fun FukuroPreviewTheme(dark: Boolean, content: @Composable () -> Unit) =
-    ShelfTheme(if (dark) "dark" else "light", DEFAULT_ACCENT, content)
+    ShelfTheme(if (dark) "dark" else "light", DEFAULT_ACCENT, content = content)
