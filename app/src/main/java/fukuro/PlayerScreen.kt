@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -282,6 +283,16 @@ fun PlayerScreen(
         livePosSec = sec
     }
 
+    // the top bar tints itself from this as the page starts to move under it
+    val listState = rememberLazyListState()
+    val glassOverPx = with(LocalDensity.current) { 96.dp.toPx() }
+    // read inside the draw phase, not composition: the bar repaints while scrolling
+    // without recomposing on every frame
+    val glassFraction = {
+        if (listState.firstVisibleItemIndex > 0) 1f
+        else (listState.firstVisibleItemScrollOffset / glassOverPx).coerceIn(0f, 1f)
+    }
+
     // pull down to dismiss: only takes over once the content can't scroll up any further
     val scope = rememberCoroutineScope()
     val dismissPx = with(LocalDensity.current) { 96.dp.toPx() }
@@ -354,6 +365,18 @@ fun PlayerScreen(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
+                    // frosted-glass hint: the bar stays clear over the artwork and picks
+                    // up a faint wash of the page colour once the content slides under
+                    // it, fading out down its own height so it has no hard edge
+                    modifier = Modifier.drawBehind {
+                        val f = glassFraction()
+                        if (f > 0f) drawRect(
+                            Brush.verticalGradient(
+                                0f to playerBase.copy(alpha = 0.50f * f),
+                                1f to playerBase.copy(alpha = 0.12f * f),
+                            )
+                        )
+                    },
                     title = {
                         // the series is the one label worth keeping in view while the
                         // page scrolls; the title itself is already on the artwork
@@ -389,6 +412,7 @@ fun PlayerScreen(
             // held by a spacer inside the washed block instead.
             LazyColumn(
                 Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(bottom = pad.calculateBottomPadding()),
             ) {
                 item {
