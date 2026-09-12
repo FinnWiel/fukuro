@@ -375,6 +375,9 @@ fun PlayerScreen(
             LazyColumn(Modifier.fillMaxSize().padding(pad)) {
                 item {
                     Column(Modifier.fillMaxWidth()) {
+                        // Let the artwork and its controls sit lower in the initial
+                        // viewport instead of crowding the app bar.
+                        Spacer(Modifier.height(64.dp))
                         if (showCoverBookProgress) {
                             // whole-book timings sit above the artwork: on the cover they
                             // collided with the title block and were easy to miss
@@ -539,23 +542,15 @@ fun PlayerScreen(
                                 }
 
                                 currentChapter?.title?.takeIf { it.isNotBlank() }?.let { chapterNow ->
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(PanelBg)
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            chapterNow,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = TxtPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center,
-                                        )
-                                    }
-                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        chapterNow,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = TxtSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                    )
                                 }
                                 Scrubber(
                                     fraction = frac,
@@ -650,7 +645,9 @@ fun PlayerScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(32.dp))
+                        // Keep every section below the player out of the initial
+                        // viewport; scrolling deliberately reveals chapter details.
+                        Spacer(Modifier.height(72.dp))
                     }
                 }
 
