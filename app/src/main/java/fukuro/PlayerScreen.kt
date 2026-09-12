@@ -445,9 +445,10 @@ fun PlayerScreen(
                                 Modifier.fillMaxSize().background(
                                     Brush.verticalGradient(
                                         0f to Color.Transparent,
-                                        0.28f to Color.Transparent,
-                                        0.58f to Color(0x99000000),
-                                        1f to Color(0xF5000000),
+                                        0.34f to Color.Transparent,
+                                        0.58f to Color(0xCC000000),
+                                        0.72f to Color.Black,
+                                        1f to Color.Black,
                                     )
                                 )
                             )
@@ -555,14 +556,14 @@ fun PlayerScreen(
                                         style = MaterialTheme.typography.bodySmall, color = TxtSecondary
                                     )
                                 }
-                                Spacer(Modifier.height(10.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
+                                Spacer(Modifier.height(22.dp))
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().height(72.dp),
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     TextButton(
                                         onClick = { showSpeedDialog = true },
+                                        modifier = Modifier.align(Alignment.CenterStart),
                                         contentPadding = PaddingValues(horizontal = 4.dp),
                                         shape = FukuroButtonShape,
                                     ) {
@@ -575,6 +576,7 @@ fun PlayerScreen(
                                         )
                                     }
                                     Row(
+                                        modifier = Modifier.align(Alignment.Center),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
@@ -618,7 +620,7 @@ fun PlayerScreen(
                                     }
                                     IconButton(
                                         onClick = { showSleepDialog = true },
-                                        modifier = Modifier.size(52.dp),
+                                        modifier = Modifier.align(Alignment.CenterEnd).size(52.dp),
                                     ) {
                                         Icon(
                                             Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
@@ -629,7 +631,7 @@ fun PlayerScreen(
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
+                                    horizontalArrangement = Arrangement.End,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     PlaybackOutputButton(tint = TxtPrimary)
@@ -637,7 +639,7 @@ fun PlayerScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(32.dp))
                     }
                 }
 
@@ -738,7 +740,10 @@ fun PlayerScreen(
                         }
                     }
                     item {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp)) {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             items(seriesOfBook.books, key = { it.id }) { b ->
                                 val progress = state.progress[b.id]
                                 CarouselCell(
@@ -752,7 +757,7 @@ fun PlayerScreen(
                                         vm.prefetchBook(b.id)
                                         onOpenBook(b.id)
                                     },
-                                    modifier = Modifier.padding(4.dp),
+                                    modifier = Modifier,
                                     progressStyle = state.progressStyle,
                                 )
                             }
