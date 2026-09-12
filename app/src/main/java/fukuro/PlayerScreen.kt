@@ -617,10 +617,13 @@ fun PlayerScreen(
                                     modifier = Modifier.fillMaxWidth().height(72.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
+                                    // speed and sleep are the row's two edge controls, so
+                                    // they get the same 48dp box: their contents then sit
+                                    // the same distance in from either side
                                     TextButton(
                                         onClick = { showSpeedDialog = true },
-                                        modifier = Modifier.align(Alignment.CenterStart),
-                                        contentPadding = PaddingValues(horizontal = 4.dp),
+                                        modifier = Modifier.align(Alignment.CenterStart).size(48.dp),
+                                        contentPadding = PaddingValues(0.dp),
                                         shape = FukuroButtonShape,
                                     ) {
                                         Text(
@@ -678,10 +681,10 @@ fun PlayerScreen(
                                     }
                                     IconButton(
                                         onClick = { showSleepDialog = true },
-                                        modifier = Modifier.align(Alignment.CenterEnd).size(52.dp),
+                                        modifier = Modifier.align(Alignment.CenterEnd).size(48.dp),
                                     ) {
                                         Icon(
-                                            Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
+                                            Icons.Filled.Bedtime, "Sleep timer", Modifier.size(22.dp),
                                             tint = if (sleepRemaining > 0 || sleepChaptersRemaining > 0) MaterialTheme.colorScheme.primary
                                             else TxtSecondary
                                         )
