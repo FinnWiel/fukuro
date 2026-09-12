@@ -2,6 +2,10 @@ package fukuro
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Headphones
@@ -9,34 +13,35 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.mediarouter.app.SystemOutputSwitcherDialogController
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 
-/** Opens Android's media-output picker, equivalent to Spotify's "Listening on" action. */
+/**
+ * The currently selected media route, kept live for as long as it is composed.
+ * Both the plain icon button and the labelled row read from this.
+ */
 @Composable
-fun PlaybackOutputButton(
-    tint: Color,
-    modifier: Modifier = Modifier,
-    iconSize: Dp = 24.dp,
-) {
+private fun rememberSelectedRoute(): MediaRouter.RouteInfo {
     val context = LocalContext.current
     val router = remember(context) { MediaRouter.getInstance(context) }
     var route by remember(router) { mutableStateOf(router.selectedRoute) }
-    val connected = !route.isDefault &&
-        route.deviceType != MediaRouter.RouteInfo.DEVICE_TYPE_SMARTPHONE
 
     DisposableEffect(router) {
         val callback = object : MediaRouter.Callback() {
@@ -60,23 +65,80 @@ fun PlaybackOutputButton(
         route = router.selectedRoute
         onDispose { router.removeCallback(callback) }
     }
+    return route
+}
+
+private fun openOutputPicker(context: android.content.Context) {
+    if (!SystemOutputSwitcherDialogController.showDialog(context)) {
+        // Android 8-10 do not expose the unified output panel to apps.
+        runCatching {
+            context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+        }
+    }
+}
+
+private fun routeIsRemote(route: MediaRouter.RouteInfo): Boolean =
+    !route.isDefault && route.deviceType != MediaRouter.RouteInfo.DEVICE_TYPE_SMARTPHONE
+
+/** Opens Android's media-output picker, equivalent to Spotify's "Listening on" action. */
+@Composable
+fun PlaybackOutputButton(
+    tint: Color,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 24.dp,
+) {
+    val context = LocalContext.current
+    val route = rememberSelectedRoute()
 
     IconButton(
-        onClick = {
-            if (!SystemOutputSwitcherDialogController.showDialog(context)) {
-                // Android 8–10 do not expose the unified output panel to apps.
-                runCatching {
-                    context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-                }
-            }
-        },
+        onClick = { openOutputPicker(context) },
         modifier = modifier,
     ) {
         Icon(
             playbackOutputIcon(route),
             contentDescription = "Listening on ${route.name}",
             modifier = Modifier.size(iconSize),
-            tint = if (connected) Fukuro.colors.accent else tint,
+            tint = if (routeIsRemote(route)) Fukuro.colors.accent else tint,
+        )
+    }
+}
+
+/**
+ * The same action with Spotify's wording spelled out next to it: the output icon
+ * followed by "Currently playing on <device>". Used under the transport, where
+ * there is room for the label the bare icon has to leave implicit.
+ */
+@Composable
+fun PlaybackOutputLabel(
+    tint: Color,
+    labelColor: Color,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 20.dp,
+) {
+    val context = LocalContext.current
+    val route = rememberSelectedRoute()
+    val remote = routeIsRemote(route)
+    val color = if (remote) Fukuro.colors.accent else labelColor
+
+    Row(
+        modifier
+            .clickable { openOutputPicker(context) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            playbackOutputIcon(route),
+            contentDescription = null,
+            modifier = Modifier.size(iconSize),
+            tint = if (remote) Fukuro.colors.accent else tint,
+        )
+        Text(
+            "Currently playing on ${route.name}",
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
