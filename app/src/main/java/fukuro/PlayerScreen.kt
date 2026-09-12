@@ -19,7 +19,6 @@ import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellati
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -451,18 +450,18 @@ fun PlayerScreen(
                                     style = MaterialTheme.typography.bodySmall, color = TxtSecondary)
                             }
                         }
-                        BoxWithConstraints(
+                        Box(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                         ) {
-                            val artworkHeight = maxWidth / BOOK_COVER_ASPECT_RATIO
                             Box(
                                 modifier = Modifier.fillMaxWidth()
                                 // Artwork and the controls under it shift down as one
                                 // block, away from the fixed top bar.
                                 .padding(top = 24.dp)
-                                // Preserve the controls' current screen position while
-                                // returning the artwork itself to its original top edge.
-                                .height(artworkHeight + 64.dp)
+                                // exactly the shape every other cover in the app takes.
+                                // A fixed extra strip under the artwork used to make this
+                                // panel longer than 2:3, which read as the wrong ratio.
+                                .aspectRatio(BOOK_COVER_ASPECT_RATIO)
                                 .clip(RoundedCornerShape(20.dp))
                                 // Chapter/book navigation belongs to the artwork only.
                                 // Keeping this before the visual transform also gives the
@@ -479,7 +478,7 @@ fun PlayerScreen(
                             CoverImage(
                                 model = coverUrl,
                                 contentDescription = title,
-                                modifier = Modifier.fillMaxWidth().height(artworkHeight).align(Alignment.TopCenter),
+                                modifier = Modifier.fillMaxSize(),
                             )
                             if (showCoverBookProgress) {
                                 // book progress on the cover follows the same choice the
