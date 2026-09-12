@@ -160,11 +160,19 @@ private fun UpdatesSection(vm: ShelfViewModel) {
                 "Up to date", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // the rate-limit message is a sentence, not a word: let it wrap
             u.error != null -> Text(
                 u.error ?: "", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f),
             )
         }
+    }
+    // whatever stopped the check — a spent rate limit, a network that blocks the API —
+    // the releases page in a browser is still a way through
+    if (u.error != null) {
+        Spacer(Modifier.height(8.dp))
+        SettingsButton(onClick = { vm.openReleasesPage() }) { Text("Open releases page") }
     }
 }
 
