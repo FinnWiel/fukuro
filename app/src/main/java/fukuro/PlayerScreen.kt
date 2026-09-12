@@ -342,16 +342,7 @@ fun PlayerScreen(
                     topEnd = (dragPx / dismissPx * 28f).coerceIn(0f, 28f).dp
                 )
             )
-            .background(
-                // the "Reading now" wash, pushed harder: the artwork colour is close to
-                // full strength behind the cover and only lets go past halfway down
-                Brush.verticalGradient(
-                    0f to playerBackground,
-                    0.30f to lerp(Color.Black, playerBackground, 0.62f),
-                    0.62f to lerp(Color.Black, playerBackground, 0.20f),
-                    1f to Color.Black,
-                )
-            )
+            .background(Color.Black)
     ) {
         Scaffold(
             containerColor = Color.Transparent,
@@ -387,9 +378,30 @@ fun PlayerScreen(
                 )
             }
         ) { pad ->
-            LazyColumn(Modifier.fillMaxSize().padding(pad)) {
+            // the list runs the full height, under the transparent top bar, so the
+            // artwork wash starts at the very top of the screen; the bar's height is
+            // held by a spacer inside the washed block instead.
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = pad.calculateBottomPadding()),
+            ) {
                 item {
-                    Column(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            // the wash belongs to this block and scrolls with it: on the
+                            // page background it stayed put under the moving content and
+                            // read as parallax. Full strength behind the cover, letting
+                            // go into black by the end of the transport.
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to playerBackground,
+                                    0.30f to lerp(Color.Black, playerBackground, 0.62f),
+                                    0.62f to lerp(Color.Black, playerBackground, 0.20f),
+                                    1f to Color.Black,
+                                )
+                            )
+                    ) {
+                        Spacer(Modifier.height(pad.calculateTopPadding()))
                         if (showCoverBookProgress) {
                             // whole-book timings sit above the artwork: on the cover they
                             // collided with the title block and were easy to miss
@@ -648,26 +660,31 @@ fun PlayerScreen(
                             }
                         }
                         }
-                        // Keep every section below the player out of the initial
-                        // viewport; scrolling deliberately reveals chapter details.
-                        Spacer(Modifier.height(72.dp))
+                        // these belong to the transport above them, so they sit right
+                        // under it rather than a screen away
+                        Spacer(Modifier.height(8.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             PlaybackOutputLabel(
                                 tint = TxtSecondary,
                                 labelColor = TxtSecondary,
-                                modifier = Modifier.weight(1.6f, fill = false),
+                                modifier = Modifier.weight(1f, fill = false),
                             )
-                            Spacer(Modifier.weight(1f))
-                            FavoriteHeart(
-                                favorite = displayId in state.favorites,
-                                onToggle = { vm.toggleFavorite(displayId) },
-                                tint = if (displayId in state.favorites) MaterialTheme.colorScheme.primary else TxtPrimary,
-                            )
-                            DownloadIconButton(vm, displayId)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                FavoriteHeart(
+                                    favorite = displayId in state.favorites,
+                                    onToggle = { vm.toggleFavorite(displayId) },
+                                    tint = if (displayId in state.favorites) MaterialTheme.colorScheme.primary else TxtPrimary,
+                                )
+                                DownloadIconButton(vm, displayId)
+                            }
                         }
+                        // the sections below stay off the first screen: scrolling
+                        // deliberately reveals chapter details
+                        Spacer(Modifier.height(64.dp))
                     }
                 }
 
