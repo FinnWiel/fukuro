@@ -343,10 +343,12 @@ fun PlayerScreen(
                 )
             )
             .background(
-                // the same wash the "Reading now" hero uses: one gentle 22% tint of the
-                // artwork colour fading into the base, only turned to run top to bottom
+                // the "Reading now" wash, pushed harder: the artwork colour is close to
+                // full strength behind the cover and only lets go past halfway down
                 Brush.verticalGradient(
-                    0f to lerp(Color.Black, playerBackground, 0.22f),
+                    0f to playerBackground,
+                    0.30f to lerp(Color.Black, playerBackground, 0.62f),
+                    0.62f to lerp(Color.Black, playerBackground, 0.20f),
                     1f to Color.Black,
                 )
             )

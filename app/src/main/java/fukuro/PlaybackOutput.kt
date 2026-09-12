@@ -104,9 +104,9 @@ fun PlaybackOutputButton(
 }
 
 /**
- * The same action with Spotify's wording spelled out next to it: the output icon
- * followed by "Currently playing on <device>". Used under the transport, where
- * there is room for the label the bare icon has to leave implicit.
+ * The same action with the output named next to it: the icon followed by the device
+ * audio is playing on. Used under the transport, where there is room for the name
+ * the bare icon has to leave implicit.
  */
 @Composable
 fun PlaybackOutputLabel(
@@ -129,12 +129,13 @@ fun PlaybackOutputLabel(
     ) {
         Icon(
             playbackOutputIcon(route),
-            contentDescription = null,
+            // the label names the device; the icon carries the action
+            contentDescription = "Listening on ${route.name}. Change output",
             modifier = Modifier.size(iconSize),
             tint = if (remote) Fukuro.colors.accent else tint,
         )
         Text(
-            "Currently playing on ${route.name}",
+            route.name.toString(),
             style = MaterialTheme.typography.labelMedium,
             color = color,
             maxLines = 1,
