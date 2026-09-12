@@ -251,7 +251,7 @@ fun PlayerScreen(
         animationSpec = tween(500),
         label = "playerArtworkBackground",
     )
-    val playerBackgroundBottom = lerp(playerBackground, Color.Black, 0.52f)
+    val playerBackgroundMid = lerp(playerBackground, Color.Black, 0.65f)
     val saved = state.progress[displayId]
     val bookDuration = detail?.media?.duration ?: libItem?.media?.duration ?: 0.0
 
@@ -346,8 +346,9 @@ fun PlayerScreen(
                 // the rest of the page stays on the darker base colour
                 Brush.verticalGradient(
                     0f to playerBackground,
-                    0.18f to playerBackgroundBottom,
-                    1f to playerBackgroundBottom,
+                    0.10f to playerBackgroundMid,
+                    0.22f to Color.Black,
+                    1f to Color.Black,
                 )
             )
     ) {
@@ -445,10 +446,9 @@ fun PlayerScreen(
                                 Modifier.fillMaxSize().background(
                                     Brush.verticalGradient(
                                         0f to Color.Transparent,
-                                        0.34f to Color.Transparent,
-                                        0.58f to Color(0xCC000000),
-                                        0.72f to Color.Black,
-                                        1f to Color.Black,
+                                        0.28f to Color.Transparent,
+                                        0.58f to Color(0x99000000),
+                                        1f to Color(0xF5000000),
                                     )
                                 )
                             )
@@ -473,7 +473,10 @@ fun PlayerScreen(
                                     FavoriteHeart(
                                         favorite = fav,
                                         onToggle = { vm.toggleFavorite(displayId) },
-                                        tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
+                                        tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary,
+                                        // Align the visible heart, rather than its padded
+                                        // 48dp touch target, with the scrubber's right edge.
+                                        modifier = Modifier.offset(x = 12.dp),
                                     )
                                 }
                                 if (author.isNotBlank()) {
@@ -556,7 +559,7 @@ fun PlayerScreen(
                                         style = MaterialTheme.typography.bodySmall, color = TxtSecondary
                                     )
                                 }
-                                Spacer(Modifier.height(22.dp))
+                                Spacer(Modifier.height(8.dp))
                                 Box(
                                     modifier = Modifier.fillMaxWidth().height(72.dp),
                                     contentAlignment = Alignment.Center,
