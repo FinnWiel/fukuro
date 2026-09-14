@@ -80,6 +80,9 @@ class PlayerService : MediaLibraryService() {
     private var currentChapters: List<Chapter> = emptyList()
     private var widgetCoverId: String? = null // which book's cover the widgets are holding
     private var finishedItemId: String? = null // last book we already marked finished
+    // Media3 can emit pause/end callbacks for the old queue while it resolves a requested
+    // replacement. Keep those callbacks from changing the old book after a new one was picked.
+    private var pendingBookSwitchId: String? = null
 
     // Fukuro streams raw audio files, so ABS does not create a playback-session record for
     // it. Measure real elapsed play time locally (speed-independent) for the Stats tab.
@@ -178,6 +181,7 @@ class PlayerService : MediaLibraryService() {
             var lastKey = ""
             while (isActive) {
                 delay(1000)
+                if (pendingBookSwitchId != null) continue
                 if (currentChapters.isEmpty()) continue
                 checkChapterSleepTimer()
                 // Both dual-progress layouts keep the controller/notification scoped to
@@ -195,16 +199,20 @@ class PlayerService : MediaLibraryService() {
         }
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) onBookFinished()
+                if (pendingBookSwitchId == null && state == Player.STATE_ENDED) onBookFinished()
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (pendingBookSwitchId != null) return
                 if (isPlaying) startListeningSession()
                 else scope.launch { flushListening(); syncProgress() }
                 publishNowPlaying()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                completeBookSwitch(mediaItem)
+                if (pendingBookSwitchId != null) return
+                if (player.isPlaying) startListeningSession()
                 publishNowPlaying(newBook = true)
                 loadSystemArtworkForCurrentItem()
             }
@@ -216,6 +224,7 @@ class PlayerService : MediaLibraryService() {
      * asking the player, because they are usually redrawn when this process is gone.
      */
     private fun publishNowPlaying(newBook: Boolean = false) {
+        if (pendingBookSwitchId != null) return
         val id = currentItemId ?: return
         // Building a replacement playlist updates currentItemId before Media3 has swapped
         // its queue. Ignore callbacks from that short hand-off window: their position still
@@ -302,6 +311,7 @@ class PlayerService : MediaLibraryService() {
      * Listening and reopening it started from nothing.
      */
     private fun onBookFinished() {
+        if (pendingBookSwitchId != null) return
         val id = currentItemId ?: return
         if (!playerIsOnBook(id)) return
         if (id == finishedItemId) return // ENDED can fire more than once
@@ -423,6 +433,7 @@ class PlayerService : MediaLibraryService() {
     }
 
     private fun checkChapterSleepTimer() {
+        if (pendingBookSwitchId != null) return
         val target = sleepChapterEndSec ?: return
         if (!player.isPlaying) return
         val remainingMs = ((target - bookPositionSec()) * 1000.0 /
@@ -542,6 +553,7 @@ class PlayerService : MediaLibraryService() {
     }
 
     private suspend fun syncProgress() {
+        if (pendingBookSwitchId != null) return
         val id = currentItemId ?: return
         // onSetMediaItems builds the incoming playlist asynchronously. During that work the
         // player can still emit a pause/position callback for the outgoing playlist, while
@@ -562,6 +574,7 @@ class PlayerService : MediaLibraryService() {
     }
 
     private fun startListeningSession() {
+        if (pendingBookSwitchId != null) return
         val id = currentItemId ?: return
         if (!playerIsOnBook(id)) return
         val now = System.currentTimeMillis()
@@ -603,6 +616,7 @@ class PlayerService : MediaLibraryService() {
     }
 
     private fun flushListeningOnTeardown() {
+        if (pendingBookSwitchId != null) return
         val sessionId = listenSessionId ?: return
         val itemId = listenItemId ?: return
         val now = System.currentTimeMillis()
@@ -625,6 +639,7 @@ class PlayerService : MediaLibraryService() {
      * process dies first, the app hands the position over on the next reconnect.
      */
     private fun saveProgressOnTeardown() {
+        if (pendingBookSwitchId != null) return
         val id = currentItemId ?: return
         if (!playerIsOnBook(id)) return
         val pos = bookPositionSec()
@@ -644,6 +659,24 @@ class PlayerService : MediaLibraryService() {
         ?.substringBefore('#')
 
     private fun playerIsOnBook(itemId: String): Boolean = playerBookId() == itemId
+
+    /** Mark a requested cross-book replacement before Media3 starts changing the old queue. */
+    private fun beginBookSwitch(itemId: String) {
+        if (currentItemId != null && currentItemId != itemId) pendingBookSwitchId = itemId
+    }
+
+    /** Resume normal callbacks only after Media3 has actually installed the target playlist. */
+    private fun completeBookSwitch(mediaItem: MediaItem?) {
+        val target = pendingBookSwitchId ?: return
+        if (mediaItem?.mediaId?.startsWith("$BOOK_PREFIX$target#") == true) {
+            pendingBookSwitchId = null
+        }
+    }
+
+    /** A failed selection must not leave the current player permanently callback-suppressed. */
+    private fun cancelBookSwitch(itemId: String?) {
+        if (pendingBookSwitchId == itemId) pendingBookSwitchId = null
+    }
 
     /**
      * Persist the book that is genuinely in the player before [buildPlaylist] changes the
@@ -962,36 +995,47 @@ class PlayerService : MediaLibraryService() {
         override fun onSetMediaItems(
             mediaSession: MediaSession, controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long
-        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
-            val first = mediaItems.firstOrNull()
-            val id = first?.mediaId ?: ""
-            if (id.startsWith(BOOK_PREFIX) && !id.contains('#')) {
-                val itemId = id.removePrefix(BOOK_PREFIX)
-                // resume position: prefer the position handed over by the app (no network),
-                // else the newer of what the device remembers and what the server was last
-                // told (the Android Auto path). Offline listening leaves the server behind,
-                // so trusting it blindly here would rewind the book.
-                val fromExtras = first?.mediaMetadata?.extras?.getDouble("startTimeSec", -1.0) ?: -1.0
-                val local = store.localProgress()[itemId]
-                val saved = when {
-                    fromExtras >= 0 -> fromExtras
-                    LocalLibrary.isLocal(itemId) -> local?.pos
-                    else -> {
-                        val server = try {
-                            api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId && !it.isFinished }
-                        } catch (_: Exception) { null }
-                        when {
-                            server == null -> local?.pos
-                            local != null && local.updatedAt > server.lastUpdate -> local.pos
-                            else -> server.currentTime
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val requestedItemId = mediaItems.firstOrNull()?.mediaId
+                ?.takeIf { it.startsWith(BOOK_PREFIX) && !it.contains('#') }
+                ?.removePrefix(BOOK_PREFIX)
+            requestedItemId?.let(::beginBookSwitch)
+            return scope.future {
+                try {
+                    val first = mediaItems.firstOrNull()
+                    val id = first?.mediaId ?: ""
+                    if (id.startsWith(BOOK_PREFIX) && !id.contains('#')) {
+                        val itemId = id.removePrefix(BOOK_PREFIX)
+                        // resume position: prefer the position handed over by the app (no network),
+                        // else the newer of what the device remembers and what the server was last
+                        // told (the Android Auto path). Offline listening leaves the server behind,
+                        // so trusting it blindly here would rewind the book.
+                        val fromExtras = first?.mediaMetadata?.extras?.getDouble("startTimeSec", -1.0) ?: -1.0
+                        val local = store.localProgress()[itemId]
+                        val saved = when {
+                            fromExtras >= 0 -> fromExtras
+                            LocalLibrary.isLocal(itemId) -> local?.pos
+                            else -> {
+                                val server = try {
+                                    api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId && !it.isFinished }
+                                } catch (_: Exception) { null }
+                                when {
+                                    server == null -> local?.pos
+                                    local != null && local.updatedAt > server.lastUpdate -> local.pos
+                                    else -> server.currentTime
+                                }
+                            }
                         }
+                        val playlist = buildPlaylist(itemId, saved)
+                        val (idx, posMs) = locate(saved ?: 0.0)
+                        MediaSession.MediaItemsWithStartPosition(playlist, idx, posMs)
+                    } else {
+                        MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs)
                     }
+                } catch (e: Exception) {
+                    cancelBookSwitch(requestedItemId)
+                    throw e
                 }
-                val playlist = buildPlaylist(itemId, saved)
-                val (idx, posMs) = locate(saved ?: 0.0)
-                MediaSession.MediaItemsWithStartPosition(playlist, idx, posMs)
-            } else {
-                MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs)
             }
         }
 
