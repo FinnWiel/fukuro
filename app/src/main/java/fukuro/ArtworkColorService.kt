@@ -36,8 +36,9 @@ class ArtworkColorService(context: Context) {
         artworkRevision: Int,
         model: Any,
         surfaceColor: Int,
+        lightForeground: Boolean = false,
     ): Int? {
-        val key = "$mediaId:$artworkRevision:${surfaceColor.toUInt()}"
+        val key = "$mediaId:$artworkRevision:${surfaceColor.toUInt()}:$lightForeground"
         cache.get(key)?.let { return it }
         return withContext(Dispatchers.IO) {
             cache.get(key)?.let { return@withContext it }
@@ -50,7 +51,7 @@ class ArtworkColorService(context: Context) {
                 val drawable = imageLoader.execute(request).drawable as? BitmapDrawable
                     ?: return@runCatching null
                 val source = selectRepresentativeColor(drawable.bitmap) ?: return@runCatching null
-                normalizeForPlayer(source, surfaceColor)
+                normalizeForPlayer(source, surfaceColor, lightForeground)
             }.getOrNull()
             generated?.also { cache.put(key, it) }
         }
@@ -136,9 +137,9 @@ class ArtworkColorService(context: Context) {
     }
 
     /** Preserve hue, tame saturation/lightness, blend into the app, then verify contrast. */
-    private fun normalizeForPlayer(sourceColor: Int, surfaceColor: Int): Int {
+    private fun normalizeForPlayer(sourceColor: Int, surfaceColor: Int, lightForeground: Boolean): Int {
         val hsl = FloatArray(3).also { ColorUtils.colorToHSL(sourceColor, it) }
-        val lightSurface = ColorUtils.calculateLuminance(surfaceColor or Color.BLACK) > 0.5
+        val lightSurface = lightForeground && ColorUtils.calculateLuminance(surfaceColor or Color.BLACK) > 0.5
         hsl[1] = when {
             hsl[1] > 0.80f -> 0.55f
             hsl[1] > 0.65f -> 0.60f
@@ -195,11 +196,13 @@ fun rememberArtworkUiColor(
     model: Any?,
     /** What the colour is blended into. Defaults to the page background. */
     surface: ComposeColor? = null,
+    /** Whether this consumer will render dark text over the generated colour. */
+    lightForeground: Boolean = false,
 ): ComposeColor? {
     val context = LocalContext.current
     val surfaceColor = surface ?: Fukuro.colors.background
     var color by remember { mutableStateOf<ComposeColor?>(null) }
-    LaunchedEffect(mediaId, artworkRevision, surfaceColor) {
+    LaunchedEffect(mediaId, artworkRevision, surfaceColor, lightForeground) {
         if (mediaId == null || model == null) {
             color = null
             return@LaunchedEffect
@@ -209,6 +212,7 @@ fun rememberArtworkUiColor(
             artworkRevision = artworkRevision,
             model = model,
             surfaceColor = surfaceColor.toArgb(),
+            lightForeground = lightForeground,
         )?.let { ComposeColor(it) }
     }
     return color

@@ -363,12 +363,17 @@ fun PlayerScreen(
     val title = meta?.title ?: ""
     val author = meta?.authorName ?: ""
     val coverUrl = vm.coverModel(displayId)
-    // blended into what this page actually sits on, which is the dark base in every
-    // theme, rather than the light background a light theme would otherwise hand it
+    // Blend into the player surface and normalize for whichever foreground the selected
+    // theme uses, so the light page remains readable without changing other consumers.
     val artworkBackground =
-        rememberArtworkUiColor(displayId, state.coverRevision, coverUrl, Fukuro.colors.playerBase)
-    // true black only under the "Pure black" theme; every other theme keeps the
-    // dark background, since this page is light-on-dark artwork chrome throughout
+        rememberArtworkUiColor(
+            displayId,
+            state.coverRevision,
+            coverUrl,
+            Fukuro.colors.playerBase,
+            lightForeground = !Fukuro.colors.isDark,
+        )
+    // Pure black remains true black; regular light/dark themes use their own page base.
     val playerBase = Fukuro.colors.playerBase
     val playerBackground by androidx.compose.animation.animateColorAsState(
         artworkBackground ?: playerBase,
