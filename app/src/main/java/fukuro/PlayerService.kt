@@ -217,6 +217,10 @@ class PlayerService : MediaLibraryService() {
      */
     private fun publishNowPlaying(newBook: Boolean = false) {
         val id = currentItemId ?: return
+        // Building a replacement playlist updates currentItemId before Media3 has swapped
+        // its queue. Ignore callbacks from that short hand-off window: their position still
+        // belongs to the outgoing book and must not be published as the incoming one.
+        if (!playerIsOnBook(id)) return
         // Snapshot the player here rather than inside the coroutine: this is called from the
         // pause listener, which fires while the app is being torn down, and by the time a
         // coroutine ran the player could be stopped and cleared — leaving the widget showing
@@ -299,6 +303,7 @@ class PlayerService : MediaLibraryService() {
      */
     private fun onBookFinished() {
         val id = currentItemId ?: return
+        if (!playerIsOnBook(id)) return
         if (id == finishedItemId) return // ENDED can fire more than once
         finishedItemId = id
         val sleepStopsHere = sleepChapterEndSec?.let { currentItemDuration >= it - 0.25 } == true
@@ -538,6 +543,11 @@ class PlayerService : MediaLibraryService() {
 
     private suspend fun syncProgress() {
         val id = currentItemId ?: return
+        // onSetMediaItems builds the incoming playlist asynchronously. During that work the
+        // player can still emit a pause/position callback for the outgoing playlist, while
+        // currentItemId already refers to the incoming book. Never attribute that stale
+        // position to either book.
+        if (!playerIsOnBook(id)) return
         val pos = bookPositionSec()
         // This runs from coroutines — the 15s tick, the pause listener — and by the time one
         // of them gets its turn the player may already have been stopped and cleared, which
@@ -553,6 +563,7 @@ class PlayerService : MediaLibraryService() {
 
     private fun startListeningSession() {
         val id = currentItemId ?: return
+        if (!playerIsOnBook(id)) return
         val now = System.currentTimeMillis()
         if (listenSessionId == null || listenItemId != id) {
             listenSessionId = UUID.randomUUID().toString()
@@ -571,6 +582,10 @@ class PlayerService : MediaLibraryService() {
     private suspend fun flushListening() {
         val sessionId = listenSessionId ?: return
         val itemId = listenItemId ?: return
+        // A switch flushes the outgoing session before its playback state is replaced (see
+        // buildPlaylist). Any later callback is stale and must not record the new book's
+        // position against the old listening session.
+        if (!playerIsOnBook(itemId)) return
         val now = System.currentTimeMillis()
         val elapsed = ((now - lastListenTick).coerceAtLeast(0L) / 1000.0).coerceAtMost(30.0)
         lastListenTick = now
@@ -611,6 +626,7 @@ class PlayerService : MediaLibraryService() {
      */
     private fun saveProgressOnTeardown() {
         val id = currentItemId ?: return
+        if (!playerIsOnBook(id)) return
         val pos = bookPositionSec()
         if (pos <= 0.0) return // nothing worth recording, and never overwrite with a zero
         store.setLocalProgressBlocking(id, pos)
@@ -618,6 +634,33 @@ class PlayerService : MediaLibraryService() {
         val duration = currentItemDuration
         ShelfApp.from(application).appScope.launch {
             runCatching { api.updateProgress(id, pos, duration) }
+        }
+    }
+
+    /** The id encoded in Media3's *actual* playlist, rather than the playlist being built. */
+    private fun playerBookId(): String? = player.currentMediaItem?.mediaId
+        ?.takeIf { it.startsWith(BOOK_PREFIX) }
+        ?.removePrefix(BOOK_PREFIX)
+        ?.substringBefore('#')
+
+    private fun playerIsOnBook(itemId: String): Boolean = playerBookId() == itemId
+
+    /**
+     * Persist the book that is genuinely in the player before [buildPlaylist] changes the
+     * state used to translate raw track positions into book positions. The server push is
+     * deliberately detached: changing chapters/books should not wait for the network.
+     */
+    private suspend fun saveOutgoingBookProgress(nextItemId: String) {
+        val id = currentItemId ?: return
+        if (id == nextItemId || !playerIsOnBook(id)) return
+        val pos = bookPositionSec()
+        if (pos <= 0.0 || player.mediaItemCount == 0) return
+        val duration = currentItemDuration
+        store.setLocalProgress(id, pos)
+        if (!LocalLibrary.isLocal(id)) {
+            ShelfApp.from(application).appScope.launch {
+                runCatching { api.updateProgress(id, pos, duration) }
+            }
         }
     }
 
@@ -632,6 +675,7 @@ class PlayerService : MediaLibraryService() {
             downloads.localItem(itemId) ?: throw e
         }
         if (listenItemId != null && listenItemId != itemId) flushListening()
+        saveOutgoingBookProgress(itemId)
         if (currentItemId != null && currentItemId != itemId && sleepChapterEndSec != null) {
             clearSleepTimer()
         }

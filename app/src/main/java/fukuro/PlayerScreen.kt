@@ -574,8 +574,12 @@ fun PlayerScreen(
                                 val spanLen = if (perChapter) {
                                     (currentChapter!!.end - currentChapter.start).coerceAtLeast(1.0)
                                 } else totalBookSec
+                                // A non-playing book needs its real duration before a manual
+                                // bookmark can be placed; otherwise totalBookSec is its 1s UI
+                                // fallback while details are still loading.
+                                val canSetProgress = isCurrent || bookDuration > 0.0
                                 val accent = MaterialTheme.colorScheme.primary
-                                var dragSec by remember { mutableStateOf<Float?>(null) }
+                                var dragSec by remember(displayId) { mutableStateOf<Float?>(null) }
                                 val shownSec = (dragSec?.toDouble() ?: (absolutePosSec - spanStart))
                                     .coerceIn(0.0, spanLen)
                                 val frac = (shownSec / spanLen).toFloat().coerceIn(0f, 1f)
@@ -586,10 +590,14 @@ fun PlayerScreen(
                                         .coerceIn(0.0, totalBookSec)
                                     Scrubber(
                                         fraction = (bookShownSec / totalBookSec).toFloat(),
-                                        enabled = isCurrent,
+                                        enabled = canSetProgress,
                                         accent = accent,
                                         onScrub = { f -> bookDragSec = f * totalBookSec.toFloat() },
-                                        onScrubEnd = { f -> seekAbsolute(f * totalBookSec); bookDragSec = null },
+                                        onScrubEnd = { f ->
+                                            val position = f * totalBookSec
+                                            if (isCurrent) seekAbsolute(position) else vm.setManualProgress(displayId, position)
+                                            bookDragSec = null
+                                        },
                                     )
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text(fmtMs((bookShownSec * 1000).toLong()),
@@ -613,10 +621,14 @@ fun PlayerScreen(
                                 }
                                 Scrubber(
                                     fraction = frac,
-                                    enabled = isCurrent,
+                                    enabled = canSetProgress,
                                     accent = accent,
                                     onScrub = { f -> dragSec = f * spanLen.toFloat() },
-                                    onScrubEnd = { f -> seekAbsolute(spanStart + f * spanLen); dragSec = null }
+                                    onScrubEnd = { f ->
+                                        val position = spanStart + f * spanLen
+                                        if (isCurrent) seekAbsolute(position) else vm.setManualProgress(displayId, position)
+                                        dragSec = null
+                                    }
                                 )
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text(fmtMs((shownSec * 1000).toLong()),

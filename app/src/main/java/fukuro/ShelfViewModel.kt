@@ -367,7 +367,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             if (theirs != null && theirs.lastUpdate >= own.updatedAt) continue
             val duration = _state.value.allItems.firstOrNull { it.id == itemId }?.media?.duration
                 ?: theirs?.duration ?: 0.0
-            runCatching { api.updateProgress(itemId, own.pos, duration) }
+            runCatching {
+                api.updateProgress(itemId, own.pos, duration)
+                // A manual bookmark can reopen a book while offline. Its later position
+                // upload must also clear the server's completed flag, otherwise the server
+                // could hide it despite the newer local resume point.
+                if (theirs?.isFinished == true && !own.finished) {
+                    api.markFinished(itemId, false)
+                }
+            }
         }
     }
 
@@ -452,6 +460,30 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             refresh()
         } catch (e: Exception) {
             _state.value = _state.value.copy(error = "Could not reset progress: ${e.message?.take(120)}")
+        }
+    }
+
+    /**
+     * Stores a bookmark without touching the playback service. This is used by a book page
+     * that is not the one currently playing, so its scrubber can set where a later Play
+     * should resume without interrupting the active book.
+     */
+    fun setManualProgress(itemId: String, positionSec: Double) = viewModelScope.launch {
+        val duration = _state.value.allItems.firstOrNull { it.id == itemId }?.media?.duration
+            ?: _state.value.serverProgress[itemId]?.duration
+            ?: 0.0
+        val position = if (duration > 0.0) positionSec.coerceIn(0.0, duration) else positionSec.coerceAtLeast(0.0)
+
+        // Setting a place in a book means it is resumable, including if it was previously
+        // marked finished. The local record updates the UI immediately and survives offline.
+        store.setLocalProgress(itemId, position, finished = false)
+        if (LocalLibrary.isLocal(itemId)) return@launch
+
+        try {
+            api.updateProgress(itemId, position, duration)
+            api.markFinished(itemId, false)
+        } catch (_: Exception) {
+            // The next connected refresh pushes the durable local position.
         }
     }
 
