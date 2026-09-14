@@ -12,6 +12,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -63,7 +64,7 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
             .header("Accept", "application/vnd.github+json")
             .build()
         val body = http.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) error("GitHub returned HTTP ${resp.code}")
+            if (!resp.isSuccessful) error(describeFailure(resp))
             resp.body?.string().orEmpty()
         }
         val release = json.decodeFromString<GhRelease>(body)
@@ -78,6 +79,38 @@ class Updater(private val context: Context, private val http: OkHttpClient) {
             apkName = apk.name,
             sizeBytes = apk.size,
             pageUrl = release.htmlUrl,
+        )
+    }
+
+    /**
+     * GitHub answers an exhausted rate limit with 403 rather than 429, and this check is
+     * unauthenticated, so the 60-an-hour budget belongs to the IP address — which on a
+     * mobile network is shared with everyone else behind the same carrier NAT. A bare
+     * "HTTP 403" made that look like a fault in the app, so name it and say when it lifts.
+     */
+    private fun describeFailure(resp: Response): String {
+        if (resp.code == 403 || resp.code == 429) {
+            val spent = resp.header("X-RateLimit-Remaining")?.toIntOrNull() == 0
+            val resetAt = resp.header("X-RateLimit-Reset")?.toLongOrNull()
+            if (spent && resetAt != null) {
+                val minutes = (resetAt - System.currentTimeMillis() / 1000) / 60
+                return when {
+                    minutes < 1 -> "GitHub's update-check limit is used up. Try again shortly."
+                    minutes == 1L -> "GitHub's update-check limit is used up. Try again in a minute."
+                    else -> "GitHub's update-check limit is used up. Try again in $minutes minutes."
+                }
+            }
+            return "GitHub refused the check. Something on this network may be blocking api.github.com."
+        }
+        if (resp.code == 404) return "No published release to update to yet."
+        return "GitHub returned HTTP ${resp.code}"
+    }
+
+    /** Where to send someone whose check failed: the releases page, in a browser. */
+    fun openReleasesPage() {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${BuildConfig.UPDATE_REPO}/releases/latest"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
     }
 

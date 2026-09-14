@@ -550,6 +550,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     fun grantInstallPermission() = shelf.updater.requestInstallPermission()
 
+    /** When the check itself cannot get through, the browser still can. */
+    fun openReleasesPage() = shelf.updater.openReleasesPage()
+
     fun dismissUpdate() { _update.value = _update.value.copy(dismissed = true) }
 
     /**

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Colorize
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Info
@@ -159,11 +160,19 @@ private fun UpdatesSection(vm: ShelfViewModel) {
                 "Up to date", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // the rate-limit message is a sentence, not a word: let it wrap
             u.error != null -> Text(
                 u.error ?: "", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f),
             )
         }
+    }
+    // whatever stopped the check — a spent rate limit, a network that blocks the API —
+    // the releases page in a browser is still a way through
+    if (u.error != null) {
+        Spacer(Modifier.height(8.dp))
+        SettingsButton(onClick = { vm.openReleasesPage() }) { Text("Open releases page") }
     }
 }
 
@@ -322,6 +331,30 @@ fun SettingsScreen(
                             .clickable { scope.launch { vm.store.setAccent(key) } }
                     )
                 }
+                // follows the playing book's artwork; falls back to the palette's
+                // first colour when there is nothing to read a colour from
+                val isMatchBook = accent == ACCENT_MATCH_BOOK
+                Box(
+                    Modifier.size(34.dp).clip(CircleShape)
+                        .background(
+                            if (isMatchBook) Fukuro.colors.accent
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .then(
+                            if (isMatchBook)
+                                Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                            else Modifier.border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                        )
+                        .clickable { scope.launch { vm.store.setAccent(ACCENT_MATCH_BOOK) } },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.AutoAwesome, "Match to current book",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (isMatchBook) Fukuro.colors.onAccent
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 // custom colour picker, last in the row
                 Box(
                     Modifier.size(34.dp).clip(CircleShape)
@@ -343,6 +376,14 @@ fun SettingsScreen(
                         tint = if (isCustom) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            if (accent == ACCENT_MATCH_BOOK) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "The accent follows the artwork of the book that is playing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Fukuro.colors.onSurfaceVariant,
+                )
             }
 
                 }

@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -131,8 +132,13 @@ private val TxtSecondary = Color(0xB3FFFFFF)
 private val PanelBg = Color(0x59000000)
 
 // what the blurred artwork sits on. Books with no cover used to leave the page
-// see-through onto the screen behind it; this keeps it solid either way.
-private val PlayerBg = Color(0xFF101312)
+// see-through onto the screen behind it; this keeps it solid either way. The
+// colour itself comes from the theme: Fukuro.colors.playerBase.
+
+private fun androidx.media3.common.Player.isPlaybackLoading(): Boolean =
+    playerError == null && playWhenReady &&
+        (playbackState == androidx.media3.common.Player.STATE_IDLE ||
+            playbackState == androidx.media3.common.Player.STATE_BUFFERING)
 
 /**
  * A frosted version of the current cover makes the controls feel anchored to the artwork
@@ -142,6 +148,9 @@ private val PlayerBg = Color(0xFF101312)
 @Composable
 private fun PlayerGlassHeader(
     coverModel: Any?,
+    seriesName: String?,
+    playerBase: Color,
+    glassFraction: () -> Float,
     onBack: () -> Unit,
     onMore: () -> Unit,
 ) {
@@ -158,15 +167,39 @@ private fun PlayerGlassHeader(
             )
         }
         Box(
-            Modifier.matchParentSize().background(
-                Brush.verticalGradient(
-                    0f to Color(0xD9111413),
-                    1f to Color(0xB8121514),
+            Modifier.matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color(0xD9111413),
+                        1f to Color(0xB8121514),
+                    )
                 )
-            )
+                .drawBehind {
+                    val fraction = glassFraction()
+                    if (fraction > 0f) {
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to playerBase.copy(alpha = 0.50f * fraction),
+                                1f to playerBase.copy(alpha = 0.12f * fraction),
+                            )
+                        )
+                    }
+                }
         )
         TopAppBar(
-            title = { },
+            title = {
+                seriesName?.takeIf { it.isNotBlank() }?.let { name ->
+                    Text(
+                        name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TxtPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
@@ -213,6 +246,8 @@ fun PlayerScreen(
     var playingId by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<LibraryItem?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var showLoadingSpinner by remember { mutableStateOf(false) }
     // absolute book position/duration from the service: the controller's own position is
     // scoped to whatever the progress bars show, so it can't be used for this
     var livePosSec by remember { mutableStateOf<Double?>(null) }
@@ -231,13 +266,29 @@ fun PlayerScreen(
             onDispose { }
         } else {
             val listener = object : androidx.media3.common.Player.Listener {
-                override fun onIsPlayingChanged(value: Boolean) {
-                    isPlaying = value
+                override fun onEvents(
+                    player: androidx.media3.common.Player,
+                    events: androidx.media3.common.Player.Events,
+                ) {
+                    playingId = player.currentMediaItem?.mediaId
+                        ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
+                        ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
+                    isPlaying = player.isPlaying
+                    isLoading = player.isPlaybackLoading()
                 }
             }
             activeController.addListener(listener)
             isPlaying = activeController.isPlaying
+            isLoading = activeController.isPlaybackLoading()
             onDispose { activeController.removeListener(listener) }
+        }
+    }
+
+    LaunchedEffect(isLoading) {
+        showLoadingSpinner = false
+        if (isLoading) {
+            delay(1000)
+            showLoadingSpinner = true
         }
     }
 
@@ -275,6 +326,7 @@ fun PlayerScreen(
 
     val displayId = itemId ?: playingId
     val isCurrent = displayId != null && displayId == playingId
+    val isCurrentLoading = isCurrent && isLoading
 
     LaunchedEffect(displayId) {
         detail = null
@@ -302,13 +354,19 @@ fun PlayerScreen(
     val title = meta?.title ?: ""
     val author = meta?.authorName ?: ""
     val coverUrl = vm.coverModel(displayId)
-    val artworkBackground = rememberArtworkUiColor(displayId, state.coverRevision, coverUrl)
+    // blended into what this page actually sits on, which is the dark base in every
+    // theme, rather than the light background a light theme would otherwise hand it
+    val artworkBackground =
+        rememberArtworkUiColor(displayId, state.coverRevision, coverUrl, Fukuro.colors.playerBase)
+    // true black only under the "Pure black" theme; every other theme keeps the
+    // dark background, since this page is light-on-dark artwork chrome throughout
+    val playerBase = Fukuro.colors.playerBase
     val playerBackground by androidx.compose.animation.animateColorAsState(
-        artworkBackground ?: PlayerBg,
+        artworkBackground ?: playerBase,
         animationSpec = tween(500),
         label = "playerArtworkBackground",
     )
-    val playerBackgroundBottom = lerp(playerBackground, Color.Black, 0.52f)
+    val seriesOfBook = state.series.firstOrNull { s -> s.books.any { b -> b.id == displayId } }
     val saved = state.progress[displayId]
     val bookDuration = detail?.media?.duration ?: libItem?.media?.duration ?: 0.0
 
@@ -330,6 +388,16 @@ fun PlayerScreen(
             Bundle().apply { putDouble("posSec", sec.coerceAtLeast(0.0)) }
         )
         livePosSec = sec
+    }
+
+    // the top bar tints itself from this as the page starts to move under it
+    val listState = rememberLazyListState()
+    val glassOverPx = with(LocalDensity.current) { 96.dp.toPx() }
+    // read inside the draw phase, not composition: the bar repaints while scrolling
+    // without recomposing on every frame
+    val glassFraction = {
+        if (listState.firstVisibleItemIndex > 0) 1f
+        else (listState.firstVisibleItemScrollOffset / glassOverPx).coerceIn(0f, 1f)
     }
 
     // pull down to dismiss: only takes over once the content can't scroll up any further
@@ -398,29 +466,46 @@ fun PlayerScreen(
                     topEnd = (dragPx / dismissPx * 28f).coerceIn(0f, 28f).dp
                 )
             )
-            .background(
-                // the tint from the artwork is only a short wash at the very top;
-                // the rest of the page stays on the darker base colour
-                Brush.verticalGradient(
-                    0f to playerBackground,
-                    0.18f to playerBackgroundBottom,
-                    1f to playerBackgroundBottom,
-                )
-            )
+            .background(playerBase)
     ) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
                 PlayerGlassHeader(
                     coverModel = coverUrl,
+                    seriesName = seriesOfBook?.name,
+                    playerBase = playerBase,
+                    glassFraction = glassFraction,
                     onBack = onBack,
                     onMore = { menuOpen = true },
                 )
             }
         ) { pad ->
-            LazyColumn(Modifier.fillMaxSize().padding(pad)) {
+            // the list runs the full height, under the transparent top bar, so the
+            // artwork wash starts at the very top of the screen; the bar's height is
+            // held by a spacer inside the washed block instead.
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(bottom = pad.calculateBottomPadding()),
+            ) {
                 item {
-                    Column(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            // the wash belongs to this block and scrolls with it: on the
+                            // page background it stayed put under the moving content and
+                            // read as parallax. Full strength behind the cover, letting
+                            // go into black by the end of the transport.
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to playerBackground,
+                                    0.30f to lerp(playerBase, playerBackground, 0.62f),
+                                    0.62f to lerp(playerBase, playerBackground, 0.20f),
+                                    1f to playerBase,
+                                )
+                            )
+                    ) {
+                        Spacer(Modifier.height(pad.calculateTopPadding()))
                         if (showCoverBookProgress) {
                             // whole-book timings sit above the artwork: on the cover they
                             // collided with the title block and were easy to miss
@@ -441,8 +526,16 @@ fun PlayerScreen(
                             }
                         }
                         Box(
-                            modifier = Modifier.fillMaxWidth()
-                                .padding(horizontal = 16.dp)
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth()
+                                // Artwork and the controls under it shift down as one
+                                // block, away from the fixed top bar.
+                                .padding(top = 24.dp)
+                                // exactly the shape every other cover in the app takes.
+                                // A fixed extra strip under the artwork used to make this
+                                // panel longer than 2:3, which read as the wrong ratio.
                                 .aspectRatio(BOOK_COVER_ASPECT_RATIO)
                                 .clip(RoundedCornerShape(20.dp))
                                 // Chapter/book navigation belongs to the artwork only.
@@ -456,7 +549,7 @@ fun PlayerScreen(
                                     onCommit = { forward -> onSwipe(forward) }
                                 )
                                 .swipeSlideVisual(slide)
-                        ) {
+                            ) {
                             CoverImage(
                                 model = coverUrl,
                                 contentDescription = title,
@@ -500,28 +593,19 @@ fun PlayerScreen(
                             )
                             Column(
                                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                                    .padding(16.dp)
                             ) {
-                                val fav = displayId in state.favorites
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        title,
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = TxtPrimary,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE),
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    FavoriteHeart(
-                                        favorite = fav,
-                                        onToggle = { vm.toggleFavorite(displayId) },
-                                        tint = if (fav) MaterialTheme.colorScheme.primary else TxtPrimary
-                                    )
-                                }
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = TxtPrimary,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    // the output control moved below the transport, so the
+                                    // title keeps the full width to itself
+                                    modifier = Modifier.fillMaxWidth()
+                                        .basicMarquee(iterations = Int.MAX_VALUE),
+                                )
                                 if (author.isNotBlank()) {
                                     Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
                                 }
@@ -540,7 +624,7 @@ fun PlayerScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(Modifier.height(4.dp))
 
                                 // The scrubber spans either the whole book or just the current
                                 // chapter, per the Settings choice. Positions stay absolute.
@@ -583,7 +667,7 @@ fun PlayerScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                                     )
                                 }
                                 Scrubber(
@@ -602,15 +686,18 @@ fun PlayerScreen(
                                         style = MaterialTheme.typography.bodySmall, color = TxtSecondary
                                     )
                                 }
-                                Spacer(Modifier.height(10.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
+                                Spacer(Modifier.height(8.dp))
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().height(72.dp),
+                                    contentAlignment = Alignment.Center,
                                 ) {
+                                    // speed and sleep are the row's two edge controls, so
+                                    // they get the same 48dp box: their contents then sit
+                                    // the same distance in from either side
                                     TextButton(
                                         onClick = { showSpeedDialog = true },
-                                        contentPadding = PaddingValues(horizontal = 4.dp),
+                                        modifier = Modifier.align(Alignment.CenterStart).size(48.dp),
+                                        contentPadding = PaddingValues(0.dp),
                                         shape = FukuroButtonShape,
                                     ) {
                                         Text(
@@ -622,8 +709,11 @@ fun PlayerScreen(
                                         )
                                     }
                                     Row(
+                                        modifier = Modifier.align(Alignment.Center),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                        // Keep the transport compact enough to leave clear,
+                                        // balanced space around speed and sleep at the edges.
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         IconButton(
                                             enabled = isCurrent,
@@ -641,8 +731,10 @@ fun PlayerScreen(
                                         }
                                         PlayPauseKnockout(
                                             isPlaying = isCurrent && isPlaying,
+                                            isLoading = isCurrentLoading && showLoadingSpinner,
                                             onClick = {
                                                 if (!isCurrent) onPlayBook(displayId, null)
+                                                else if (isCurrentLoading) controller?.pause()
                                                 else {
                                                     val shouldPlay = !isPlaying
                                                     isPlaying = shouldPlay
@@ -665,26 +757,43 @@ fun PlayerScreen(
                                     }
                                     IconButton(
                                         onClick = { showSleepDialog = true },
-                                        modifier = Modifier.size(52.dp),
+                                        modifier = Modifier.align(Alignment.CenterEnd).size(48.dp),
                                     ) {
                                         Icon(
-                                            Icons.Filled.Bedtime, "Sleep timer", Modifier.size(30.dp),
+                                            Icons.Filled.Bedtime, "Sleep timer", Modifier.size(22.dp),
                                             tint = if (sleepRemaining > 0 || sleepChaptersRemaining > 0) MaterialTheme.colorScheme.primary
                                             else TxtSecondary
                                         )
                                     }
                                 }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    PlaybackOutputButton(tint = TxtPrimary)
-                                    DownloadIconButton(vm, displayId)
-                                }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
+                        }
+                        // these belong to the transport above them, so they sit right
+                        // under it rather than a screen away
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            PlaybackOutputLabel(
+                                tint = TxtSecondary,
+                                labelColor = TxtSecondary,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                FavoriteHeart(
+                                    favorite = displayId in state.favorites,
+                                    onToggle = { vm.toggleFavorite(displayId) },
+                                    tint = if (displayId in state.favorites) MaterialTheme.colorScheme.primary else TxtPrimary,
+                                )
+                                DownloadIconButton(vm, displayId)
+                            }
+                        }
+                        // one rhythm down the page: the same gap that separates the
+                        // transport from the actions separates them from what follows
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
 
@@ -766,7 +875,6 @@ fun PlayerScreen(
                 }
 
                 // ----- series -----
-                val seriesOfBook = state.series.firstOrNull { s -> s.books.any { b -> b.id == displayId } }
                 if (seriesOfBook != null) {
                     item {
                         Row(
@@ -785,7 +893,10 @@ fun PlayerScreen(
                         }
                     }
                     item {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp)) {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             items(seriesOfBook.books, key = { it.id }) { b ->
                                 val progress = state.progress[b.id]
                                 CarouselCell(
@@ -799,7 +910,7 @@ fun PlayerScreen(
                                         vm.prefetchBook(b.id)
                                         onOpenBook(b.id)
                                     },
-                                    modifier = Modifier.padding(4.dp),
+                                    modifier = Modifier,
                                     progressStyle = state.progressStyle,
                                 )
                             }
@@ -1119,7 +1230,7 @@ private fun DownloadIconButton(vm: ShelfViewModel, itemId: String) {
  * artwork behind shows in the glyph.
  */
 @Composable
-private fun PlayPauseKnockout(isPlaying: Boolean, onClick: () -> Unit) {
+private fun PlayPauseKnockout(isPlaying: Boolean, isLoading: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(72.dp)
@@ -1131,6 +1242,7 @@ private fun PlayPauseKnockout(isPlaying: Boolean, onClick: () -> Unit) {
                 val cx = size.width / 2f
                 val cy = size.height / 2f
                 val glyph = size.minDimension * 0.42f
+                if (isLoading) return@drawBehind
                 if (isPlaying) {
                     val barW = glyph * 0.32f
                     val gap = glyph * 0.30f
@@ -1154,8 +1266,19 @@ private fun PlayPauseKnockout(isPlaying: Boolean, onClick: () -> Unit) {
                     }
                     drawPath(path, Color.Black, blendMode = BlendMode.DstOut)
                 }
-            }
+            },
+        contentAlignment = Alignment.Center,
     )
+    {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(30.dp),
+                color = Fukuro.colors.playerBase,
+                strokeWidth = 3.dp,
+            )
+        }
+    }
+
 }
 
 private fun fmtSpeed(f: Float): String = "%.2f".format(f).trimEnd('0').trimEnd('.', ',')
