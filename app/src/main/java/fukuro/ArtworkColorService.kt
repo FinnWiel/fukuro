@@ -22,7 +22,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Turns cover artwork into a dark, restrained UI colour suitable for player chrome.
+ * Turns cover artwork into a restrained UI colour suitable for player chrome.
  * Results are cached by media id and artwork revision, so recomposition never repeats
  * bitmap loading or colour quantization.
  */
@@ -138,17 +138,18 @@ class ArtworkColorService(context: Context) {
     /** Preserve hue, tame saturation/lightness, blend into the app, then verify contrast. */
     private fun normalizeForPlayer(sourceColor: Int, surfaceColor: Int): Int {
         val hsl = FloatArray(3).also { ColorUtils.colorToHSL(sourceColor, it) }
+        val lightSurface = ColorUtils.calculateLuminance(surfaceColor or Color.BLACK) > 0.5
         hsl[1] = when {
             hsl[1] > 0.80f -> 0.55f
             hsl[1] > 0.65f -> 0.60f
             else -> hsl[1].coerceAtLeast(0.25f)
         }.coerceAtMost(0.65f)
-        hsl[2] = hsl[2].coerceIn(0.22f, 0.40f)
+        hsl[2] = if (lightSurface) hsl[2].coerceIn(0.56f, 0.74f) else hsl[2].coerceIn(0.22f, 0.40f)
 
         val normalized = ColorUtils.HSLToColor(hsl)
         val opaqueSurface = surfaceColor or Color.BLACK
         val blended = ColorUtils.blendARGB(opaqueSurface, normalized, 0.80f)
-        return darkenForWhiteText(blended)
+        return if (lightSurface) lightenForDarkText(blended) else darkenForWhiteText(blended)
     }
 
     /**
@@ -169,6 +170,16 @@ class ArtworkColorService(context: Context) {
         repeat(24) {
             if (ColorUtils.calculateContrast(Color.WHITE, result) >= 4.5) return result
             result = ColorUtils.blendARGB(result, Color.BLACK, 0.06f)
+        }
+        return result
+    }
+
+    /** Lighten only as much as needed for dark foreground content to clear WCAG AA. */
+    private fun lightenForDarkText(color: Int): Int {
+        var result = color or Color.BLACK
+        repeat(24) {
+            if (ColorUtils.calculateContrast(Color.BLACK, result) >= 4.5) return result
+            result = ColorUtils.blendARGB(result, Color.WHITE, 0.06f)
         }
         return result
     }
