@@ -1,6 +1,7 @@
 package fukuro
 
 import android.os.Bundle
+import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -12,6 +13,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.clipToBounds
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -89,6 +92,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -129,6 +133,59 @@ private val PanelBg = Color(0x59000000)
 // what the blurred artwork sits on. Books with no cover used to leave the page
 // see-through onto the screen behind it; this keeps it solid either way.
 private val PlayerBg = Color(0xFF101312)
+
+/**
+ * A frosted version of the current cover makes the controls feel anchored to the artwork
+ * without competing with them. Compose backs this with RenderEffect on Android 12+.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerGlassHeader(
+    coverModel: Any?,
+    onBack: () -> Unit,
+    onMore: () -> Unit,
+) {
+    Box(Modifier.fillMaxWidth().clipToBounds()) {
+        // RenderEffect is only available from Android 12. Older devices retain the same dark,
+        // translucent header but skip the artwork layer rather than showing an unblurred cover.
+        if (coverModel != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            CoverImage(
+                model = coverModel,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize()
+                    .graphicsLayer { scaleX = 1.32f; scaleY = 1.32f }
+                    .blur(32.dp),
+            )
+        }
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(
+                    0f to Color(0xD9111413),
+                    1f to Color(0xB8121514),
+                )
+            )
+        )
+        TopAppBar(
+            title = { },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.Rounded.KeyboardArrowDown,
+                        "Close",
+                        Modifier.size(32.dp),
+                        tint = TxtPrimary,
+                    )
+                }
+            },
+            actions = {
+                IconButton(onClick = onMore) {
+                    Icon(Icons.Rounded.MoreVert, "More", tint = TxtPrimary)
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+        )
+    }
+}
 
 /**
  * The book page. Doubles as the now-playing screen:
@@ -354,20 +411,10 @@ fun PlayerScreen(
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
-                TopAppBar(
-                    title = { },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            // chevron down: this page slides away downwards
-                            Icon(Icons.Rounded.KeyboardArrowDown, "Close", Modifier.size(32.dp), tint = TxtPrimary)
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Rounded.MoreVert, "More", tint = TxtPrimary)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                PlayerGlassHeader(
+                    coverModel = coverUrl,
+                    onBack = onBack,
+                    onMore = { menuOpen = true },
                 )
             }
         ) { pad ->
