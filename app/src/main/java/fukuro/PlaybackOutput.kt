@@ -8,12 +8,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Headphones
-import androidx.compose.material.icons.rounded.BluetoothAudio
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.DirectionsCar
-import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Speaker
+import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.Cast
@@ -153,7 +153,7 @@ fun PlaybackOutputLabel(
 
 private fun playbackOutputIcon(route: MediaRouter.RouteInfo): ImageVector {
     if (route.isDefault || route.deviceType == MediaRouter.RouteInfo.DEVICE_TYPE_SMARTPHONE) {
-        return Icons.Rounded.PhoneAndroid
+        return Icons.Rounded.Smartphone
     }
 
     return when (route.deviceType) {
@@ -186,10 +186,10 @@ private fun playbackOutputIcon(route: MediaRouter.RouteInfo): ImageVector {
                     Icons.Rounded.DirectionsCar
                 listOf("speaker", "soundbar", "homepod", "sonos", "nest audio").any(name::contains) ->
                     Icons.Rounded.Speaker
-                else -> Icons.Rounded.BluetoothAudio
+                else -> Icons.Rounded.Bluetooth
             }
         }
 
-        else -> Icons.Rounded.BluetoothAudio
+        else -> Icons.Rounded.Bluetooth
     }
 }
