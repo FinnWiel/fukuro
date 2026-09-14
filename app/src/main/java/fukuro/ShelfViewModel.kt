@@ -154,6 +154,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     private val cache get() = shelf.cache
     private val recommendationService get() = shelf.recommendations
     private var recommendationJob: kotlinx.coroutines.Job? = null
+    private var autoMatchJob: kotlinx.coroutines.Job? = null
 
     /** Loads the last discovery result immediately, then refreshes it when its daily cache expires. */
     fun refreshRecommendations(force: Boolean = false) {
@@ -424,6 +425,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 prefetchContinue()
                 pushLocalProgress(progress)
                 runCatching { api.syncListeningSessions() }
+                scheduleAutoMatchNewBooks(items, me.type)
             } catch (e: Exception) {
                 // keep whatever is already on screen (cache + local + downloads)
                 _state.value = _state.value.copy(
@@ -432,6 +434,61 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                     downloadedIds = downloaded, localCount = localItems.size,
                     error = null
                 )
+            }
+        }
+    }
+
+    /**
+     * Enabling starts with the currently visible library as the baseline. Consequently
+     * only genuinely new server items are changed, never a user's existing collection.
+     */
+    fun setAutoMatchNewBooks(enabled: Boolean) = viewModelScope.launch {
+        if (enabled) {
+            store.setAutoMatchKnownItems(
+                _state.value.allItems.filterNot { LocalLibrary.isLocal(it.id) }.map { it.id }
+            )
+        }
+        store.setAutoMatchNewBooks(enabled)
+    }
+
+    private fun scheduleAutoMatchNewBooks(items: List<LibraryItem>, userRole: String?) {
+        if (userRole != "root" && userRole != "admin") return
+        if (autoMatchJob?.isActive == true) return
+        autoMatchJob = viewModelScope.launch {
+            if (!store.autoMatchNewBooksFlow.first()) return@launch
+            val known = store.autoMatchKnownItems()
+            // Migration/first enable safety: establish a baseline instead of matching an
+            // existing library that the user never asked Fukuro to change.
+            if (known.isEmpty()) {
+                store.setAutoMatchKnownItems(items.map { it.id })
+                return@launch
+            }
+            val added = items.filterNot { it.id in known }
+            if (added.isEmpty()) return@launch
+            val needsMatch = added.filter { item ->
+                val metadata = item.media.metadata
+                metadata.authorName.isNullOrBlank() || metadata.genres.isEmpty() ||
+                    metadata.description.isNullOrBlank() ||
+                    (metadata.isbn.isNullOrBlank() && metadata.asin.isNullOrBlank())
+            }
+            store.addAutoMatchKnownItems(added.filterNot { it in needsMatch }.map { it.id })
+            if (needsMatch.isEmpty()) return@launch
+            try {
+                api.quickMatchItems(needsMatch.map { it.id })
+                store.addAutoMatchKnownItems(needsMatch.map { it.id })
+                _admin.value = _admin.value.copy(
+                    message = "Automatically matched ${needsMatch.size} new book(s)",
+                    success = true,
+                )
+                // Quick Match has completed; a normal refresh pulls the new metadata into
+                // the app without blocking this refresh.
+                refresh()
+            } catch (e: Exception) {
+                _admin.value = _admin.value.copy(
+                    message = "Automatic metadata match failed: ${e.message ?: "unknown error"}",
+                    success = false,
+                )
+                // Failed IDs stay unknown, so a later library refresh can retry them.
             }
         }
     }

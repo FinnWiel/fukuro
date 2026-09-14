@@ -80,6 +80,8 @@ class Store(private val context: Context) {
         val AUTO_UPDATE = booleanPreferencesKey("auto_update_check")
         val AUTO_NEXT = booleanPreferencesKey("auto_next_in_series") // off: finishing stops
         val AUTO_REMOVE_COMPLETED_DOWNLOADS = booleanPreferencesKey("auto_remove_completed_downloads")
+        val AUTO_MATCH_NEW_BOOKS = booleanPreferencesKey("auto_match_new_books")
+        val AUTO_MATCH_KNOWN_ITEMS = stringPreferencesKey("auto_match_known_items")
         val SWIPE_ACTION = stringPreferencesKey("swipe_action")      // "chapter" | "book"
         val UPDATE_LAST_CHECK = stringPreferencesKey("update_last_check") // epoch ms
         val API_KEY = stringPreferencesKey("abs_api_key")
@@ -121,6 +123,22 @@ class Store(private val context: Context) {
     suspend fun setAutoRemoveCompletedDownloads(v: Boolean) =
         context.dataStore.edit { it[K.AUTO_REMOVE_COMPLETED_DOWNLOADS] = v }
     fun autoRemoveCompletedDownloadsBlocking(): Boolean = mAutoRemoveCompletedDownloads
+
+    /** Server-side Quick Match for books first seen after the user enables it. */
+    val autoMatchNewBooksFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[K.AUTO_MATCH_NEW_BOOKS] ?: false }
+    suspend fun setAutoMatchNewBooks(v: Boolean) =
+        context.dataStore.edit { it[K.AUTO_MATCH_NEW_BOOKS] = v }
+    suspend fun autoMatchKnownItems(): Set<String> = context.dataStore.data.first()
+        .get(K.AUTO_MATCH_KNOWN_ITEMS).orEmpty().split(',').filter(String::isNotBlank).toSet()
+    suspend fun setAutoMatchKnownItems(ids: Collection<String>) = context.dataStore.edit {
+        it[K.AUTO_MATCH_KNOWN_ITEMS] = ids.distinct().joinToString(",")
+    }
+    suspend fun addAutoMatchKnownItems(ids: Collection<String>) = context.dataStore.edit { prefs ->
+        val known = prefs[K.AUTO_MATCH_KNOWN_ITEMS].orEmpty()
+            .split(',').filter(String::isNotBlank).toSet()
+        prefs[K.AUTO_MATCH_KNOWN_ITEMS] = (known + ids).joinToString(",")
+    }
 
     /** What a sideways swipe on either player does: "chapter" or "book". */
     val swipeActionFlow: Flow<String> = context.dataStore.data.map { it[K.SWIPE_ACTION] ?: "chapter" }

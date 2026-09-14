@@ -3,6 +3,7 @@ package fukuro
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.putJsonArray
@@ -110,6 +111,25 @@ class AbsApi(private val store: Store) {
 
     suspend fun matchLibrary(libraryId: String) {
         raw("GET", "/api/libraries/$libraryId/matchall", preferApiKey = true)
+    }
+
+    /** Quick Match only the newly discovered books, leaving populated fields intact. */
+    suspend fun quickMatchItems(itemIds: List<String>) {
+        itemIds.distinct().chunked(25).forEach { ids ->
+            val body = buildJsonObject {
+                putJsonObject("options") { }
+                putJsonArray("libraryItemIds") { ids.forEach { add(JsonPrimitive(it)) } }
+            }.toString()
+            try {
+                raw("POST", "/api/items/batch/quickmatch", body, preferApiKey = true)
+            } catch (e: ApiException) {
+                // Older ABS servers predate the batch route but support item matching.
+                if (e.code != 404 && e.code != 405) throw e
+                ids.forEach { id ->
+                    raw("POST", "/api/items/$id/match", "{}", preferApiKey = true)
+                }
+            }
+        }
     }
 
     suspend fun users(): List<AbsUser> =

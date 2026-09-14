@@ -668,6 +668,7 @@ fun AdminSettingsScreen(
     val admin by vm.admin.collectAsState()
     val permissions = state.currentUserPermissions
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
+    val autoMatchNewBooks by vm.store.autoMatchNewBooksFlow.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
     val onlineUserIds = remember(admin.onlineUsers) { admin.onlineUsers.map { it.id }.toSet() }
@@ -740,6 +741,27 @@ fun AdminSettingsScreen(
                     SectionTitle("Library maintenance")
                     Spacer(Modifier.height(4.dp))
                     SectionCaption("Start the same server-side scans and metadata matching available in Audiobookshelf.")
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxWidth().height(64.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = autoMatchNewBooks,
+                            onCheckedChange = vm::setAutoMatchNewBooks,
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text("Match newly added books automatically")
+                            Text(
+                                "Fills missing metadata with ABS Quick Match; existing fields are preserved.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        SettingInfo(
+                            "Runs once for each new book after a library refresh. Authors, genres, description and identifiers depend on the configured ABS metadata provider."
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     if (state.libraries.isEmpty()) {
                         SectionCaption("No server libraries are loaded.")
