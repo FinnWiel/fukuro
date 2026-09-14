@@ -242,6 +242,7 @@ fun PlayerScreen(
 
     val displayId = itemId ?: playingId
     val isCurrent = displayId != null && displayId == playingId
+    val isCurrentLoading = isCurrent && isLoading
 
     LaunchedEffect(displayId) {
         detail = null
@@ -635,9 +636,10 @@ fun PlayerScreen(
                                         }
                                         PlayPauseKnockout(
                                             isPlaying = isCurrent && isPlaying,
-                                            isLoading = isCurrent && showLoadingSpinner,
+                                            isLoading = isCurrentLoading && showLoadingSpinner,
                                             onClick = {
                                                 if (!isCurrent) onPlayBook(displayId, null)
+                                                else if (isCurrentLoading) controller?.pause()
                                                 else {
                                                     val shouldPlay = !isPlaying
                                                     isPlaying = shouldPlay
@@ -1133,7 +1135,7 @@ private fun PlayPauseKnockout(isPlaying: Boolean, isLoading: Boolean, onClick: (
         Modifier
             .size(72.dp)
             .clip(CircleShape)
-            .clickable(enabled = !isLoading, onClick = onClick)
+            .clickable(onClick = onClick)
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawBehind {
                 drawCircle(Color.White)
