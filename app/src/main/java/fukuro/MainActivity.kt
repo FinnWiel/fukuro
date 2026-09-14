@@ -498,6 +498,11 @@ fun AppNav(
                     sheetItem = null
                     nav.navigate("author/${android.net.Uri.encode(name)}")
                 },
+                onOpenRecommendation = { book ->
+                    selectedRecommendation = book
+                    sheetItem = null
+                    nav.navigate("recommendation")
+                },
             )
         }
 

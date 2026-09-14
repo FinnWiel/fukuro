@@ -197,6 +197,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun recommendationDetails(book: BookRecommendation): BookRecommendation =
         recommendationService.details(book)
 
+    suspend fun similarRecommendations(book: LibraryItem): List<BookRecommendation> =
+        recommendationService.similarTo(book, _state.value.allItems)
+
     fun dismissRecommendation(book: BookRecommendation) = viewModelScope.launch {
         store.dismissRecommendation(recommendationFeedbackKey(book))
         _state.value = _state.value.copy(

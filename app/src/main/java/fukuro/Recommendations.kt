@@ -73,6 +73,17 @@ private data class RecommendationCache(
     val algorithmVersion: Int = 0,
 )
 
+@Serializable
+private data class SimilarBooksCache(
+    val entries: Map<String, SimilarBooksEntry> = emptyMap(),
+)
+
+@Serializable
+private data class SimilarBooksEntry(
+    val fetchedAt: Long = 0,
+    val books: List<BookRecommendation> = emptyList(),
+)
+
 /**
  * Discovers books outside the user's library. Open Library is always available;
  * Google Books joins in when the user has supplied a project API key in Settings.
@@ -90,6 +101,7 @@ class RecommendationService(
         .build()
     private val cacheFile = File(context.filesDir, "recommendations.json")
     private val detailsFile = File(context.filesDir, "recommendation_details.json")
+    private val similarBooksFile = File(context.filesDir, "similar_books.json")
 
     suspend fun cached(): List<BookRecommendation> = withContext(Dispatchers.IO) {
         val feedback = store.recommendationFeedback()
@@ -187,6 +199,133 @@ class RecommendationService(
             }
             selected
         } else oldBooks
+    }
+
+    /**
+     * A deliberately narrow shelf for one book. Unlike the Home algorithm this never
+     * consults the listener's wider taste profile: candidates have to overlap with the
+     * selected book itself, and are still screened against library ownership and settings.
+     */
+    suspend fun similarTo(
+        seed: LibraryItem,
+        library: List<LibraryItem>,
+        limit: Int = 12,
+    ): List<BookRecommendation> = withContext(Dispatchers.IO) {
+        val seedTitle = seed.media.metadata.title.orEmpty().trim()
+        val seedAuthors = authorsOf(seed).filter(String::isNotBlank).distinctBy(::normalized)
+        val seedTopics = (seed.tags + seed.media.metadata.genres)
+            .filter(String::isNotBlank)
+            .distinctBy(::normalized)
+            .filterNot { normalized(it) in STRICT_GENERIC_TOPICS }
+            .take(8)
+        if (seedTitle.isBlank() || (seedAuthors.isEmpty() && seedTopics.isEmpty())) {
+            return@withContext emptyList()
+        }
+
+        val feedback = store.recommendationFeedback()
+        val excludedTags = store.recommendationExcludedTags()
+        val preferredLanguage = store.recommendationLanguage()
+        val owned = OwnedIndex.from(library)
+        val cacheKey = listOf(
+            seed.id,
+            seedTitle,
+            seedAuthors.joinToString(","),
+            seedTopics.joinToString(","),
+            preferredLanguage,
+            excludedTags.joinToString(","),
+        ).joinToString("|") { normalized(it) }
+        val cached = runCatching {
+            json.decodeFromString<SimilarBooksCache>(similarBooksFile.readText())
+        }.getOrDefault(SimilarBooksCache())
+        cached.entries[cacheKey]?.takeIf {
+            System.currentTimeMillis() - it.fetchedAt < CACHE_MS
+        }?.let { entry ->
+            return@withContext entry.books.filterNot {
+                owned.contains(it) || recommendationKey(it) in feedback.dismissed
+            }.take(limit)
+        }
+
+        val googleKey = store.googleBooksKey().trim()
+        val openQueries = buildList {
+            seedTopics.take(4).forEach { add("subject" to it) }
+            seedAuthors.firstOrNull()?.let { add("author" to it) }
+        }
+        val googleQueries = buildList {
+            seedTopics.take(4).forEach { add("subject" to it) }
+            seedAuthors.firstOrNull()?.let { add("inauthor" to it) }
+        }
+        val candidates = coroutineScope {
+            val permits = Semaphore(4)
+            val requests = openQueries.map { (field, value) ->
+                async { permits.withPermit { openLibrary(field, value, preferredLanguage) } }
+            } + if (googleKey.isNotEmpty()) {
+                googleQueries.map { (field, value) ->
+                    async { permits.withPermit { googleBooks(field, value, googleKey, preferredLanguage) } }
+                }
+            } else emptyList()
+            requests.awaitAll().flatten()
+        }
+
+        val seedBook = SeedBook(
+            title = seedTitle,
+            authors = seedAuthors.map(::normalized).toSet(),
+            topics = seedTopics.map(::normalized).toSet(),
+            weight = 5.0,
+        )
+        val profile = PreferenceProfile(
+            authors = seedAuthors.associateWith { 4.0 },
+            topics = seedTopics.associateWith { 5.0 },
+            series = emptyMap(),
+            seeds = listOf(seedBook),
+        )
+        val books = candidates
+            .filterNot { owned.contains(it) }
+            .filter { matchesLanguage(it.languages, preferredLanguage) }
+            .filterNot { hasExcludedTag(it.subjects + listOfNotNull(it.queryTopic), excludedTags) }
+            .groupBy { bookKey(it.title, it.authors.firstOrNull()) }
+            .mapNotNull { (_, editions) -> merge(editions, profile, feedback) }
+            .filterNot {
+                recommendationKey(it) in feedback.dismissed ||
+                    hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags)
+            }
+            .mapNotNull { book ->
+                val matchingTopics = seedTopics.filter { wanted ->
+                    book.subjects.any { topicMatches(wanted, it) } ||
+                        book.primaryTopic?.let { topicMatches(wanted, it) } == true
+                }.distinctBy(::normalized)
+                val sameAuthor = book.authors.any { found ->
+                    seedAuthors.any { normalized(it) == normalized(found) }
+                }
+                val strictMatch = when {
+                    seedTopics.size >= 2 -> matchingTopics.size >= 2 ||
+                        (matchingTopics.isNotEmpty() && sameAuthor)
+                    seedTopics.size == 1 -> matchingTopics.isNotEmpty()
+                    else -> sameAuthor
+                }
+                if (!strictMatch) null else {
+                    val explanation = buildList {
+                        if (sameAuthor) add("same author")
+                        addAll(matchingTopics.take(3))
+                    }.joinToString(" · ")
+                    book.copy(
+                        reason = "Strictly similar to $seedTitle: $explanation",
+                        score = matchingTopics.size * 20.0 +
+                            (if (sameAuthor) 8.0 else 0.0) + book.score * 0.15,
+                    )
+                }
+            }
+            .sortedByDescending { it.score }
+            .take(limit)
+
+        runCatching {
+            val entries = (cached.entries + (cacheKey to SimilarBooksEntry(
+                fetchedAt = System.currentTimeMillis(),
+                books = books,
+            ))).entries.sortedByDescending { it.value.fetchedAt }.take(20)
+                .associate { it.toPair() }
+            similarBooksFile.writeText(json.encodeToString(SimilarBooksCache(entries)))
+        }
+        books
     }
 
     /** Adds the longer synopsis and complete subject list when a recommendation is opened. */
@@ -731,6 +870,9 @@ class RecommendationService(
     companion object {
         private const val ALGORITHM_VERSION = 3
         private const val CACHE_MS = 24 * 60 * 60 * 1000L
+        private val STRICT_GENERIC_TOPICS = setOf(
+            "book", "books", "audiobook", "audiobooks", "fiction", "literature", "novel", "novels",
+        )
         private val GENERIC_TAG_WORDS = setOf("book", "books", "audiobook", "audiobooks", "novel", "novels")
         private val CHILDREN_TAG_WORDS = setOf(
             "child", "children", "kid", "kids", "juvenile", "juveniles",
