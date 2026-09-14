@@ -1,7 +1,6 @@
 package fukuro
 
 import android.os.Bundle
-import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -34,7 +33,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -90,10 +88,8 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -141,93 +137,10 @@ private val PlayerTrack: Color
     @Composable @ReadOnlyComposable get() =
         if (Fukuro.colors.isDark) Color(0x40FFFFFF) else Color.Black.copy(alpha = 0.16f)
 
-// what the blurred artwork sits on. Books with no cover used to leave the page
-// see-through onto the screen behind it; this keeps it solid either way. The
-// colour itself comes from the theme: Fukuro.colors.playerBase.
-
 private fun androidx.media3.common.Player.isPlaybackLoading(): Boolean =
     playerError == null && playWhenReady &&
         (playbackState == androidx.media3.common.Player.STATE_IDLE ||
             playbackState == androidx.media3.common.Player.STATE_BUFFERING)
-
-/**
- * A frosted version of the current cover makes the controls feel anchored to the artwork
- * without competing with them. Compose backs this with RenderEffect on Android 12+.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PlayerGlassHeader(
-    coverModel: Any?,
-    seriesName: String?,
-    playerBase: Color,
-    glassFraction: () -> Float,
-    onBack: () -> Unit,
-    onMore: () -> Unit,
-) {
-    Box(Modifier.fillMaxWidth().clipToBounds()) {
-        // RenderEffect is only available from Android 12. Older devices retain the same dark,
-        // translucent header but skip the artwork layer rather than showing an unblurred cover.
-        if (coverModel != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            CoverImage(
-                model = coverModel,
-                contentDescription = null,
-                modifier = Modifier.matchParentSize()
-                    .graphicsLayer {
-                        scaleX = 1.32f
-                        scaleY = 1.32f
-                        // The frosted layer is only visible once content has moved under the bar.
-                        alpha = (glassFraction() * 0.72f).coerceIn(0f, 1f)
-                    }
-                    .blur(32.dp),
-            )
-        }
-        Box(
-            Modifier.matchParentSize()
-                .drawBehind {
-                    val fraction = glassFraction()
-                    if (fraction > 0f) {
-                        drawRect(
-                            Brush.verticalGradient(
-                                0f to playerBase.copy(alpha = 0.16f * fraction),
-                                1f to playerBase.copy(alpha = 0.08f * fraction),
-                            )
-                        )
-                    }
-                }
-        )
-        TopAppBar(
-            title = {
-                seriesName?.takeIf { it.isNotBlank() }?.let { name ->
-                    Text(
-                        name,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = TxtPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.Rounded.KeyboardArrowDown,
-                        "Close",
-                        Modifier.size(32.dp),
-                        tint = TxtPrimary,
-                    )
-                }
-            },
-            actions = {
-                IconButton(onClick = onMore) {
-                    Icon(Icons.Rounded.MoreVert, "More", tint = TxtPrimary)
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-        )
-    }
-}
 
 /**
  * The book page. Doubles as the now-playing screen:
@@ -404,16 +317,6 @@ fun PlayerScreen(
         livePosSec = sec
     }
 
-    // the top bar tints itself from this as the page starts to move under it
-    val listState = rememberLazyListState()
-    val glassOverPx = with(LocalDensity.current) { 96.dp.toPx() }
-    // read inside the draw phase, not composition: the bar repaints while scrolling
-    // without recomposing on every frame
-    val glassFraction = {
-        if (listState.firstVisibleItemIndex > 0) 1f
-        else (listState.firstVisibleItemScrollOffset / glassOverPx).coerceIn(0f, 1f)
-    }
-
     // pull down to dismiss: only takes over once the content can't scroll up any further
     val scope = rememberCoroutineScope()
     val dismissPx = with(LocalDensity.current) { 96.dp.toPx() }
@@ -485,13 +388,36 @@ fun PlayerScreen(
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
-                PlayerGlassHeader(
-                    coverModel = coverUrl,
-                    seriesName = seriesOfBook?.name,
-                    playerBase = playerBase,
-                    glassFraction = glassFraction,
-                    onBack = onBack,
-                    onMore = { menuOpen = true },
+                TopAppBar(
+                    title = {
+                        seriesOfBook?.name?.takeIf { it.isNotBlank() }?.let { seriesName ->
+                            Text(
+                                seriesName,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = TxtPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.Rounded.KeyboardArrowDown,
+                                "Close",
+                                Modifier.size(32.dp),
+                                tint = TxtPrimary,
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Rounded.MoreVert, "More", tint = TxtPrimary)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 )
             }
         ) { pad ->
@@ -500,7 +426,6 @@ fun PlayerScreen(
             // held by a spacer inside the washed block instead.
             LazyColumn(
                 Modifier.fillMaxSize(),
-                state = listState,
                 contentPadding = PaddingValues(bottom = pad.calculateBottomPadding()),
             ) {
                 item {
