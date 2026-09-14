@@ -131,6 +131,11 @@ private val PanelBg = Color(0x59000000)
 // see-through onto the screen behind it; this keeps it solid either way. The
 // colour itself comes from the theme: Fukuro.colors.playerBase.
 
+private fun androidx.media3.common.Player.isPlaybackLoading(): Boolean =
+    playerError == null && playWhenReady &&
+        (playbackState == androidx.media3.common.Player.STATE_IDLE ||
+            playbackState == androidx.media3.common.Player.STATE_BUFFERING)
+
 /**
  * The book page. Doubles as the now-playing screen:
  *  - [itemId] null  -> shows whatever is currently loaded in the player
@@ -157,6 +162,8 @@ fun PlayerScreen(
     var playingId by remember { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<LibraryItem?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var showLoadingSpinner by remember { mutableStateOf(false) }
     // absolute book position/duration from the service: the controller's own position is
     // scoped to whatever the progress bars show, so it can't be used for this
     var livePosSec by remember { mutableStateOf<Double?>(null) }
@@ -175,13 +182,29 @@ fun PlayerScreen(
             onDispose { }
         } else {
             val listener = object : androidx.media3.common.Player.Listener {
-                override fun onIsPlayingChanged(value: Boolean) {
-                    isPlaying = value
+                override fun onEvents(
+                    player: androidx.media3.common.Player,
+                    events: androidx.media3.common.Player.Events,
+                ) {
+                    playingId = player.currentMediaItem?.mediaId
+                        ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
+                        ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
+                    isPlaying = player.isPlaying
+                    isLoading = player.isPlaybackLoading()
                 }
             }
             activeController.addListener(listener)
             isPlaying = activeController.isPlaying
+            isLoading = activeController.isPlaybackLoading()
             onDispose { activeController.removeListener(listener) }
+        }
+    }
+
+    LaunchedEffect(isLoading) {
+        showLoadingSpinner = false
+        if (isLoading) {
+            delay(1000)
+            showLoadingSpinner = true
         }
     }
 
@@ -219,6 +242,7 @@ fun PlayerScreen(
 
     val displayId = itemId ?: playingId
     val isCurrent = displayId != null && displayId == playingId
+    val isCurrentLoading = isCurrent && isLoading
 
     LaunchedEffect(displayId) {
         detail = null
@@ -656,8 +680,10 @@ fun PlayerScreen(
                                         }
                                         PlayPauseKnockout(
                                             isPlaying = isCurrent && isPlaying,
+                                            isLoading = isCurrentLoading && showLoadingSpinner,
                                             onClick = {
                                                 if (!isCurrent) onPlayBook(displayId, null)
+                                                else if (isCurrentLoading) controller?.pause()
                                                 else {
                                                     val shouldPlay = !isPlaying
                                                     isPlaying = shouldPlay
@@ -1153,7 +1179,7 @@ private fun DownloadIconButton(vm: ShelfViewModel, itemId: String) {
  * artwork behind shows in the glyph.
  */
 @Composable
-private fun PlayPauseKnockout(isPlaying: Boolean, onClick: () -> Unit) {
+private fun PlayPauseKnockout(isPlaying: Boolean, isLoading: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(72.dp)
@@ -1165,6 +1191,7 @@ private fun PlayPauseKnockout(isPlaying: Boolean, onClick: () -> Unit) {
                 val cx = size.width / 2f
                 val cy = size.height / 2f
                 val glyph = size.minDimension * 0.42f
+                if (isLoading) return@drawBehind
                 if (isPlaying) {
                     val barW = glyph * 0.32f
                     val gap = glyph * 0.30f
@@ -1188,8 +1215,19 @@ private fun PlayPauseKnockout(isPlaying: Boolean, onClick: () -> Unit) {
                     }
                     drawPath(path, Color.Black, blendMode = BlendMode.DstOut)
                 }
-            }
+            },
+        contentAlignment = Alignment.Center,
     )
+    {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(30.dp),
+                color = PlayerBg,
+                strokeWidth = 3.dp,
+            )
+        }
+    }
+
 }
 
 private fun fmtSpeed(f: Float): String = "%.2f".format(f).trimEnd('0').trimEnd('.', ',')
