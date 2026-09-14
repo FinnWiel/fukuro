@@ -9,8 +9,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.BluetoothAudio
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Speaker
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.Usb
+import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -150,23 +157,39 @@ private fun playbackOutputIcon(route: MediaRouter.RouteInfo): ImageVector {
     }
 
     return when (route.deviceType) {
+        MediaRouter.RouteInfo.DEVICE_TYPE_CAR -> Icons.Rounded.DirectionsCar
+
         MediaRouter.RouteInfo.DEVICE_TYPE_WIRED_HEADPHONES,
         MediaRouter.RouteInfo.DEVICE_TYPE_WIRED_HEADSET,
         MediaRouter.RouteInfo.DEVICE_TYPE_USB_HEADSET,
-        MediaRouter.RouteInfo.DEVICE_TYPE_BLE_HEADSET,
-        MediaRouter.RouteInfo.DEVICE_TYPE_HEARING_AID -> Icons.Rounded.Headphones
+        MediaRouter.RouteInfo.DEVICE_TYPE_BLE_HEADSET -> Icons.Rounded.Headphones
+
+        MediaRouter.RouteInfo.DEVICE_TYPE_TV -> Icons.Rounded.Tv
+        MediaRouter.RouteInfo.DEVICE_TYPE_COMPUTER -> Icons.Rounded.Computer
+        MediaRouter.RouteInfo.DEVICE_TYPE_GROUP -> Icons.Rounded.Cast
+        MediaRouter.RouteInfo.DEVICE_TYPE_USB_ACCESSORY,
+        MediaRouter.RouteInfo.DEVICE_TYPE_USB_DEVICE -> Icons.Rounded.Usb
+        MediaRouter.RouteInfo.DEVICE_TYPE_HEARING_AID -> Icons.Rounded.Hearing
+
+        MediaRouter.RouteInfo.DEVICE_TYPE_REMOTE_SPEAKER,
+        MediaRouter.RouteInfo.DEVICE_TYPE_BUILTIN_SPEAKER,
+        MediaRouter.RouteInfo.DEVICE_TYPE_AUDIO_VIDEO_RECEIVER -> Icons.Rounded.Speaker
 
         MediaRouter.RouteInfo.DEVICE_TYPE_BLUETOOTH_A2DP -> {
-            val name = route.name.toString().lowercase()
-            if (listOf("speaker", "soundbar", "homepod", "sonos", "nest audio").any(name::contains)) {
-                Icons.Rounded.Speaker
-            } else {
-                // Android reports both classic Bluetooth headsets and speakers as
-                // A2DP, so prefer headphones unless the route identifies a speaker.
-                Icons.Rounded.Headphones
+            val name = listOf(route.name, route.description)
+                .joinToString(" ") { it?.toString().orEmpty() }
+                .lowercase()
+            when {
+                // Some car stereos expose only generic A2DP. These words are a fallback for
+                // that case; an explicit DEVICE_TYPE_CAR above always takes precedence.
+                listOf("car", "radio", "stereo", "automotive", "vehicle").any(name::contains) ->
+                    Icons.Rounded.DirectionsCar
+                listOf("speaker", "soundbar", "homepod", "sonos", "nest audio").any(name::contains) ->
+                    Icons.Rounded.Speaker
+                else -> Icons.Rounded.BluetoothAudio
             }
         }
 
-        else -> Icons.Rounded.Speaker
+        else -> Icons.Rounded.BluetoothAudio
     }
 }
