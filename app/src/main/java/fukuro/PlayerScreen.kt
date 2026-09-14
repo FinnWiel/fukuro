@@ -192,14 +192,24 @@ fun PlayerScreen(
                     player: androidx.media3.common.Player,
                     events: androidx.media3.common.Player.Events,
                 ) {
-                    playingId = player.currentMediaItem?.mediaId
+                    val newPlayingId = player.currentMediaItem?.mediaId
                         ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
                         ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
+                    if (playingId != newPlayingId) {
+                        // A position response for the previous queue can arrive after this
+                        // event. Do not show that old chapter on the newly selected book.
+                        livePosSec = null
+                        liveDurSec = 0.0
+                    }
+                    playingId = newPlayingId
                     isPlaying = player.isPlaying
                     isLoading = player.isPlaybackLoading()
                 }
             }
             activeController.addListener(listener)
+            playingId = activeController.currentMediaItem?.mediaId
+                ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
+                ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
             isPlaying = activeController.isPlaying
             isLoading = activeController.isPlaybackLoading()
             onDispose { activeController.removeListener(listener) }
@@ -217,9 +227,14 @@ fun PlayerScreen(
     LaunchedEffect(controller) {
         while (true) {
             controller?.let { c ->
-                playingId = c.currentMediaItem?.mediaId
+                val currentPlayingId = c.currentMediaItem?.mediaId
                     ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
                     ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
+                if (playingId != currentPlayingId) {
+                    livePosSec = null
+                    liveDurSec = 0.0
+                }
+                playingId = currentPlayingId
                 speed = c.playbackParameters.speed
                 val p = c.sendCustomCommand(
                     SessionCommand(PlayerService.CMD_BOOK_POSITION, Bundle.EMPTY), Bundle.EMPTY
@@ -227,8 +242,14 @@ fun PlayerScreen(
                 p.addListener({
                     try {
                         val b = p.get().extras
-                        livePosSec = b.getDouble("posSec", 0.0)
-                        liveDurSec = b.getDouble("durSec", 0.0)
+                        val responseBookId = b.getString("itemId")
+                        val activeBookId = c.currentMediaItem?.mediaId
+                            ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
+                            ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
+                        if (responseBookId == activeBookId) {
+                            livePosSec = b.getDouble("posSec", 0.0)
+                            liveDurSec = b.getDouble("durSec", 0.0)
+                        }
                     } catch (_: Exception) {}
                 }, java.util.concurrent.Executor { it.run() })
                 val f = c.sendCustomCommand(

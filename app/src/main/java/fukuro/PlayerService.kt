@@ -592,7 +592,7 @@ class PlayerService : MediaLibraryService() {
     }
 
     /** Persist the time since the previous tick, ignoring long gaps caused by a suspended process. */
-    private suspend fun flushListening() {
+    private suspend fun flushListening(syncRemote: Boolean = true) {
         val sessionId = listenSessionId ?: return
         val itemId = listenItemId ?: return
         // A switch flushes the outgoing session before its playback state is replaced (see
@@ -607,7 +607,7 @@ class PlayerService : MediaLibraryService() {
                 sessionId, itemId, listenTitle, listenAuthor, listenStartedAt, elapsed,
                 listenLibraryId, listenDuration, listenStartTime, bookPositionSec(),
             )
-            if (!LocalLibrary.isLocal(itemId)) runCatching { api.syncListeningSessions() }
+            if (syncRemote && !LocalLibrary.isLocal(itemId)) runCatching { api.syncListeningSessions() }
         }
         if (!player.isPlaying) {
             listenSessionId = null
@@ -683,15 +683,15 @@ class PlayerService : MediaLibraryService() {
      * state used to translate raw track positions into book positions. The server push is
      * deliberately detached: changing chapters/books should not wait for the network.
      */
-    private suspend fun saveOutgoingBookProgress(nextItemId: String) {
+    private fun saveOutgoingBookProgress(nextItemId: String) {
         val id = currentItemId ?: return
         if (id == nextItemId || !playerIsOnBook(id)) return
         val pos = bookPositionSec()
         if (pos <= 0.0 || player.mediaItemCount == 0) return
         val duration = currentItemDuration
-        store.setLocalProgress(id, pos)
-        if (!LocalLibrary.isLocal(id)) {
-            ShelfApp.from(application).appScope.launch {
+        ShelfApp.from(application).appScope.launch {
+            store.setLocalProgress(id, pos)
+            if (!LocalLibrary.isLocal(id)) {
                 runCatching { api.updateProgress(id, pos, duration) }
             }
         }
@@ -707,7 +707,9 @@ class PlayerService : MediaLibraryService() {
         val item = try { fetchItem(itemId) } catch (e: Exception) {
             downloads.localItem(itemId) ?: throw e
         }
-        if (listenItemId != null && listenItemId != itemId) flushListening()
+        // Keep this book switch off the network path. The listening record is durable on
+        // device now and will be uploaded by the normal periodic/reconnect sync.
+        if (listenItemId != null && listenItemId != itemId) flushListening(syncRemote = false)
         saveOutgoingBookProgress(itemId)
         if (currentItemId != null && currentItemId != itemId && sleepChapterEndSec != null) {
             clearSleepTimer()
@@ -865,6 +867,9 @@ class PlayerService : MediaLibraryService() {
                     val pos = bookPositionSec()
                     val (winStart, winLen) = scopeWindow()
                     val out = Bundle().apply {
+                        // Controllers discard delayed responses whose book no longer matches
+                        // their active item, avoiding a one-frame chapter flash on a switch.
+                        putString("itemId", playerBookId().orEmpty())
                         putDouble("posSec", pos)
                         putDouble("durSec", currentItemDuration)
                         putDouble("winStartSec", winStart)
