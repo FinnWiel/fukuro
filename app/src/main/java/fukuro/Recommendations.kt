@@ -210,6 +210,7 @@ class RecommendationService(
         seed: LibraryItem,
         library: List<LibraryItem>,
         limit: Int = 12,
+        force: Boolean = false,
     ): List<BookRecommendation> = withContext(Dispatchers.IO) {
         val seedTitle = seed.media.metadata.title.orEmpty().trim()
         val seedAuthors = authorsOf(seed).filter(String::isNotBlank).distinctBy(::normalized)
@@ -238,6 +239,7 @@ class RecommendationService(
             json.decodeFromString<SimilarBooksCache>(similarBooksFile.readText())
         }.getOrDefault(SimilarBooksCache())
         cached.entries[cacheKey]?.takeIf {
+            !force &&
             System.currentTimeMillis() - it.fetchedAt < CACHE_MS
         }?.let { entry ->
             return@withContext entry.books.filterNot {

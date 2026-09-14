@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RemoveDone
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.AlertDialog
@@ -187,6 +188,9 @@ fun PlayerScreen(
     var similarBooks by remember { mutableStateOf<List<BookRecommendation>>(emptyList()) }
     var similarBooksLoading by remember { mutableStateOf(false) }
     var similarBooksLoaded by remember { mutableStateOf(false) }
+    var similarRefreshRequest by remember { mutableIntStateOf(0) }
+    var handledSimilarRefresh by remember { mutableIntStateOf(0) }
+    var similarBooksForId by remember { mutableStateOf<String?>(null) }
 
     androidx.compose.runtime.DisposableEffect(controller) {
         val activeController = controller
@@ -346,16 +350,23 @@ fun PlayerScreen(
     LaunchedEffect(
         displayId,
         shouldLoadSimilarBooks,
+        similarRefreshRequest,
         recommendationSeed?.tags,
         recommendationSeed?.media?.metadata?.genres,
     ) {
-        similarBooks = emptyList()
-        similarBooksLoaded = false
-        similarBooksLoading = false
+        if (similarBooksForId != displayId) {
+            similarBooksForId = displayId
+            similarBooks = emptyList()
+            similarBooksLoaded = false
+            similarBooksLoading = false
+        }
         if (!shouldLoadSimilarBooks) return@LaunchedEffect
         val seed = recommendationSeed ?: return@LaunchedEffect
+        val force = similarRefreshRequest != handledSimilarRefresh
+        handledSimilarRefresh = similarRefreshRequest
         similarBooksLoading = true
-        similarBooks = runCatching { vm.similarRecommendations(seed) }.getOrDefault(emptyList())
+        val result = runCatching { vm.similarRecommendations(seed, force = force) }
+        if (result.isSuccess) similarBooks = result.getOrDefault(emptyList())
         similarBooksLoading = false
         similarBooksLoaded = true
     }
@@ -946,12 +957,28 @@ fun PlayerScreen(
                 // ----- strictly similar books -----
                 item {
                     Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp)) {
-                        Text(
-                            "Different books like this",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TxtPrimary,
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Different books like this",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TxtPrimary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(
+                                enabled = !similarBooksLoading,
+                                onClick = { similarRefreshRequest += 1 },
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Refresh,
+                                    "Reload similar books",
+                                    tint = if (similarBooksLoading) TxtSecondary.copy(alpha = 0.45f)
+                                    else TxtPrimary,
+                                )
+                            }
+                        }
                         Text(
                             "Strict matches based only on this book's tags and author",
                             style = MaterialTheme.typography.bodySmall,

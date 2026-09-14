@@ -197,8 +197,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun recommendationDetails(book: BookRecommendation): BookRecommendation =
         recommendationService.details(book)
 
-    suspend fun similarRecommendations(book: LibraryItem): List<BookRecommendation> =
-        recommendationService.similarTo(book, _state.value.allItems)
+    suspend fun similarRecommendations(
+        book: LibraryItem,
+        force: Boolean = false,
+    ): List<BookRecommendation> =
+        recommendationService.similarTo(book, _state.value.allItems, force = force)
 
     fun dismissRecommendation(book: BookRecommendation) = viewModelScope.launch {
         store.dismissRecommendation(recommendationFeedbackKey(book))
