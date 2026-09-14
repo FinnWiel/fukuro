@@ -86,6 +86,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -125,10 +126,20 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-// this page always sits on artwork: explicit light-on-dark colors
-private val TxtPrimary = Color.White
-private val TxtSecondary = Color(0xB3FFFFFF)
-private val PanelBg = Color(0x59000000)
+// Player chrome follows the selected app theme. Dark mode keeps the high-contrast white
+// treatment over artwork; light mode uses the same Material foregrounds as the rest of the app.
+private val TxtPrimary: Color
+    @Composable @ReadOnlyComposable get() =
+        if (Fukuro.colors.isDark) Color.White else Fukuro.colors.onBackground
+private val TxtSecondary: Color
+    @Composable @ReadOnlyComposable get() =
+        if (Fukuro.colors.isDark) Color(0xB3FFFFFF) else Fukuro.colors.onSurfaceVariant.copy(alpha = 0.82f)
+private val PanelBg: Color
+    @Composable @ReadOnlyComposable get() =
+        if (Fukuro.colors.isDark) Color(0x59000000) else Fukuro.colors.surface.copy(alpha = 0.90f)
+private val PlayerTrack: Color
+    @Composable @ReadOnlyComposable get() =
+        if (Fukuro.colors.isDark) Color(0x40FFFFFF) else Color.Black.copy(alpha = 0.16f)
 
 // what the blurred artwork sits on. Books with no cover used to leave the page
 // see-through onto the screen behind it; this keeps it solid either way. The
@@ -161,25 +172,24 @@ private fun PlayerGlassHeader(
                 model = coverModel,
                 contentDescription = null,
                 modifier = Modifier.matchParentSize()
-                    .graphicsLayer { scaleX = 1.32f; scaleY = 1.32f }
+                    .graphicsLayer {
+                        scaleX = 1.32f
+                        scaleY = 1.32f
+                        // The frosted layer is only visible once content has moved under the bar.
+                        alpha = (glassFraction() * 0.72f).coerceIn(0f, 1f)
+                    }
                     .blur(32.dp),
             )
         }
         Box(
             Modifier.matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color(0xD9111413),
-                        1f to Color(0xB8121514),
-                    )
-                )
                 .drawBehind {
                     val fraction = glassFraction()
                     if (fraction > 0f) {
                         drawRect(
                             Brush.verticalGradient(
-                                0f to playerBase.copy(alpha = 0.50f * fraction),
-                                1f to playerBase.copy(alpha = 0.12f * fraction),
+                                0f to playerBase.copy(alpha = 0.16f * fraction),
+                                1f to playerBase.copy(alpha = 0.08f * fraction),
                             )
                         )
                     }
@@ -573,21 +583,23 @@ fun PlayerScreen(
                                         modifier = Modifier.fillMaxWidth().height(5.dp)
                                             .align(Alignment.TopCenter),
                                         color = MaterialTheme.colorScheme.primary,
-                                        trackColor = Color(0x66000000),
+                                        trackColor = TxtPrimary.copy(alpha = 0.28f),
                                     )
                                 }
                             }
-                            // All now-playing controls live on the cover. The gradual black
-                            // scrim preserves the artwork above while keeping every label and
-                            // touch target readable, even on a very bright cover.
+                            // All now-playing controls live on the cover. The scrim follows the
+                            // theme so light mode keeps dark, readable labels over the artwork.
                             Box(
                                 Modifier.fillMaxSize().background(
-                                    Brush.verticalGradient(
-                                        0f to Color.Transparent,
-                                        0.28f to Color.Transparent,
-                                        0.58f to Color(0x99000000),
-                                        1f to Color(0xF5000000),
-                                    )
+                                    run {
+                                        val scrim = if (Fukuro.colors.isDark) Color.Black else Color.White
+                                        Brush.verticalGradient(
+                                            0f to Color.Transparent,
+                                            0.28f to Color.Transparent,
+                                            0.58f to scrim.copy(alpha = 0.62f),
+                                            1f to scrim.copy(alpha = 0.92f),
+                                        )
+                                    }
                                 )
                             )
                             Column(
@@ -1161,7 +1173,7 @@ private fun Scrubber(
             ),
         contentAlignment = Alignment.CenterStart // keeps the dot centred on the line
     ) {
-        Box(Modifier.fillMaxWidth().height(3.dp).clip(CircleShape).background(Color(0x40FFFFFF)))
+        Box(Modifier.fillMaxWidth().height(3.dp).clip(CircleShape).background(PlayerTrack))
         Box(Modifier.fillMaxWidth(shown).height(3.dp).clip(CircleShape).background(accent))
         val x = (widthPx * shown - dotPx / 2f).roundToInt().coerceIn(0, (widthPx - dotPx).toInt().coerceAtLeast(0))
         Box(Modifier.offset { IntOffset(x, 0) }.size(dot).clip(CircleShape).background(accent))
@@ -1209,7 +1221,7 @@ private fun DownloadIconButton(vm: ShelfViewModel, itemId: String) {
                 progress = { dl.progress },
                 modifier = Modifier.size(24.dp),
                 strokeWidth = 2.5.dp,
-                trackColor = Color(0x40FFFFFF)
+                trackColor = PlayerTrack
             )
         }
         dl?.error != null -> IconButton(onClick = { vm.downloads.clearError(itemId); vm.download(itemId) }) {
@@ -1230,6 +1242,8 @@ private fun DownloadIconButton(vm: ShelfViewModel, itemId: String) {
  */
 @Composable
 private fun PlayPauseKnockout(isPlaying: Boolean, isLoading: Boolean, onClick: () -> Unit) {
+    val buttonColor = if (Fukuro.colors.isDark) Color.White else MaterialTheme.colorScheme.primary
+    val spinnerColor = if (Fukuro.colors.isDark) Fukuro.colors.playerBase else MaterialTheme.colorScheme.onPrimary
     Box(
         Modifier
             .size(72.dp)
@@ -1237,7 +1251,7 @@ private fun PlayPauseKnockout(isPlaying: Boolean, isLoading: Boolean, onClick: (
             .clickable(onClick = onClick)
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawBehind {
-                drawCircle(Color.White)
+                drawCircle(buttonColor)
                 val cx = size.width / 2f
                 val cy = size.height / 2f
                 val glyph = size.minDimension * 0.42f
@@ -1272,7 +1286,7 @@ private fun PlayPauseKnockout(isPlaying: Boolean, isLoading: Boolean, onClick: (
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(30.dp),
-                color = Fukuro.colors.playerBase,
+                color = spinnerColor,
                 strokeWidth = 3.dp,
             )
         }
