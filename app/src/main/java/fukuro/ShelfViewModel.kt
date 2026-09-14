@@ -42,6 +42,8 @@ data class UiState(
     val recommendations: List<BookRecommendation> = emptyList(),
     val recommendationsLoading: Boolean = false,
     val recommendationsError: String? = null,
+    val metadataMatchReviews: List<MetadataMatchReview> = emptyList(),
+    val metadataMatchApplying: Boolean = false,
 ) {
     /** ABS admin areas are role-gated; never infer them from a hardcoded username. */
     val canOpenAdminSettings: Boolean
@@ -449,6 +451,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         store.setAutoMatchNewBooks(enabled)
+        if (!enabled) {
+            _state.value = _state.value.copy(metadataMatchReviews = emptyList())
+        }
     }
 
     private fun scheduleAutoMatchNewBooks(items: List<LibraryItem>, userRole: String?) {
@@ -463,34 +468,79 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 store.setAutoMatchKnownItems(items.map { it.id })
                 return@launch
             }
-            val added = items.filterNot { it.id in known }
+            val alreadyQueued = _state.value.metadataMatchReviews.map { it.item.id }.toSet()
+            val added = items.filterNot { it.id in known || it.id in alreadyQueued }
             if (added.isEmpty()) return@launch
             val needsMatch = added.filter { item ->
                 val metadata = item.media.metadata
-                metadata.authorName.isNullOrBlank() || metadata.genres.isEmpty() ||
+                metadata.authorName.isNullOrBlank() || metadata.genres.isEmpty() || item.tags.isEmpty() ||
                     metadata.description.isNullOrBlank() ||
                     (metadata.isbn.isNullOrBlank() && metadata.asin.isNullOrBlank())
             }
             store.addAutoMatchKnownItems(added.filterNot { it in needsMatch }.map { it.id })
             if (needsMatch.isEmpty()) return@launch
-            try {
-                api.quickMatchItems(needsMatch.map { it.id })
-                store.addAutoMatchKnownItems(needsMatch.map { it.id })
-                _admin.value = _admin.value.copy(
-                    message = "Automatically matched ${needsMatch.size} new book(s)",
-                    success = true,
-                )
-                // Quick Match has completed; a normal refresh pulls the new metadata into
-                // the app without blocking this refresh.
-                refresh()
-            } catch (e: Exception) {
-                _admin.value = _admin.value.copy(
-                    message = "Automatic metadata match failed: ${e.message ?: "unknown error"}",
-                    success = false,
-                )
-                // Failed IDs stay unknown, so a later library refresh can retry them.
+            val libraries = _state.value.libraries.associateBy { it.id }
+            for (item in needsMatch) {
+                try {
+                    val provider = libraries[item.libraryId]?.provider ?: "google"
+                    val suggestion = api.bookMatchCandidates(item, provider)
+                        .firstOrNull { it.title.isNotBlank() }
+                    if (suggestion == null) {
+                        store.addAutoMatchKnownItems(listOf(item.id))
+                        _admin.value = _admin.value.copy(
+                            message = "No metadata match found for ${item.media.metadata.title ?: item.relPath}",
+                            success = false,
+                        )
+                    } else {
+                        val review = MetadataMatchReview(item, provider, suggestion)
+                        if (_state.value.metadataMatchReviews.none { it.item.id == item.id }) {
+                            _state.value = _state.value.copy(
+                                metadataMatchReviews = _state.value.metadataMatchReviews + review
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    _admin.value = _admin.value.copy(
+                        message = "Metadata preview failed: ${e.message ?: "unknown error"}",
+                        success = false,
+                    )
+                    // Failed IDs stay unknown, so a later library refresh can retry them.
+                }
             }
         }
+    }
+
+    fun acceptMetadataMatch(review: MetadataMatchReview) = viewModelScope.launch {
+        if (_state.value.metadataMatchApplying) return@launch
+        _state.value = _state.value.copy(metadataMatchApplying = true)
+        try {
+            api.applyBookMatch(review)
+            store.addAutoMatchKnownItems(listOf(review.item.id))
+            _state.value = _state.value.copy(
+                metadataMatchReviews = _state.value.metadataMatchReviews.filterNot {
+                    it.item.id == review.item.id
+                },
+                metadataMatchApplying = false,
+            )
+            _admin.value = _admin.value.copy(message = "Metadata accepted", success = true)
+            refresh()
+        } catch (e: Exception) {
+            _state.value = _state.value.copy(metadataMatchApplying = false)
+            _admin.value = _admin.value.copy(
+                message = "Could not apply metadata: ${e.message ?: "unknown error"}",
+                success = false,
+            )
+        }
+    }
+
+    fun declineMetadataMatch(review: MetadataMatchReview) = viewModelScope.launch {
+        store.addAutoMatchKnownItems(listOf(review.item.id))
+        _state.value = _state.value.copy(
+            metadataMatchReviews = _state.value.metadataMatchReviews.filterNot {
+                it.item.id == review.item.id
+            }
+        )
+        _admin.value = _admin.value.copy(message = "Metadata match declined", success = true)
     }
 
     /**

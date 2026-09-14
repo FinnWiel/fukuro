@@ -716,6 +716,146 @@ fun RecommendationDetailScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun MetadataMatchReviewDialog(
+    review: MetadataMatchReview,
+    applying: Boolean,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+) {
+    val current = review.item.media.metadata
+    val proposed = review.suggestion
+    AlertDialog(
+        onDismissRequest = { },
+        title = { Text("New book metadata found") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(verticalAlignment = Alignment.Top) {
+                    CoverImage(
+                        model = proposed.cover,
+                        contentDescription = proposed.title,
+                        modifier = Modifier.width(72.dp).height(108.dp)
+                            .clip(RoundedCornerShape(Fukuro.dims.coverRadius)),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            proposed.title,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        proposed.author?.takeIf(String::isNotBlank)?.let {
+                            Spacer(Modifier.height(3.dp))
+                            Text(it, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Found with ${review.provider}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "For ${current.title ?: review.item.relPath}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                MatchReviewLine("Author", current.authorName, proposed.author)
+                MatchReviewLine("Publisher", current.publisher, proposed.publisher)
+                MatchReviewLine("Year", current.publishedYear, proposed.publishedYear)
+                MatchReviewLine("ISBN", current.isbn, proposed.isbn)
+                MatchReviewLine("ASIN", current.asin, proposed.asin)
+                MatchReviewLine("Language", current.language, proposed.language)
+
+                val categories = proposed.genres.orEmpty()
+                val tags = proposed.tags.orEmpty()
+                if (categories.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Suggested genres", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(6.dp))
+                    MatchReviewChips(categories)
+                }
+                if (tags.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Suggested tags", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(6.dp))
+                    MatchReviewChips(tags)
+                }
+                if (categories.isEmpty() && tags.isEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "This match contains no genres or tags.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                proposed.description?.takeIf(String::isNotBlank)?.let { description ->
+                    Spacer(Modifier.height(12.dp))
+                    Text("Description", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        android.text.Html.fromHtml(
+                            description, android.text.Html.FROM_HTML_MODE_COMPACT,
+                        ).toString(),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Accept fills only fields that are currently empty.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onAccept, enabled = !applying) {
+                Text(if (applying) "Applying…" else "Accept")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDecline, enabled = !applying) { Text("Decline") }
+        },
+    )
+}
+
+@Composable
+private fun MatchReviewLine(label: String, current: String?, proposed: String?) {
+    if (proposed.isNullOrBlank()) return
+    Spacer(Modifier.height(8.dp))
+    Text(label, style = MaterialTheme.typography.labelMedium)
+    Text(
+        if (current.isNullOrBlank()) proposed else "Current: $current\nSuggested: $proposed",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MatchReviewChips(values: List<String>) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        values.distinct().forEach { value ->
+            Surface(shape = RoundedCornerShape(50), color = Fukuro.colors.surface) {
+                Text(
+                    value,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
 /* ---------------- Library (full grid + search) ---------------- */
 
 private fun orderedLibraryItems(

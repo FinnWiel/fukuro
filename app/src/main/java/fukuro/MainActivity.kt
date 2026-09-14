@@ -512,6 +512,15 @@ fun AppNav(
         androidx.activity.compose.BackHandler(enabled = sheetItem != null) {
             sheetItem = null
         }
+
+        state.metadataMatchReviews.firstOrNull()?.let { review ->
+            MetadataMatchReviewDialog(
+                review = review,
+                applying = state.metadataMatchApplying,
+                onAccept = { vm.acceptMetadataMatch(review) },
+                onDecline = { vm.declineMetadataMatch(review) },
+            )
+        }
     }
 }
 

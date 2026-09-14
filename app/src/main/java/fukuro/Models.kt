@@ -68,7 +68,32 @@ data class AbsLibrary(
     val id: String,
     val name: String,
     val mediaType: String = "book",
+    val provider: String = "google",
     val folders: List<LibFolder> = emptyList(),
+)
+
+@Serializable
+data class AbsBookMatch(
+    val id: String? = null,
+    val title: String = "",
+    val subtitle: String? = null,
+    val author: String? = null,
+    val publisher: String? = null,
+    val publishedYear: String? = null,
+    val description: String? = null,
+    val cover: String? = null,
+    val isbn: String? = null,
+    val asin: String? = null,
+    val language: String? = null,
+    val genres: List<String>? = null,
+    val tags: List<String>? = null,
+    val matchConfidence: Double? = null,
+)
+
+data class MetadataMatchReview(
+    val item: LibraryItem,
+    val provider: String,
+    val suggestion: AbsBookMatch,
 )
 
 @Serializable
@@ -129,15 +154,18 @@ data class Chapter(
 data class Metadata(
     val title: String? = null,
     val titleIgnorePrefix: String? = null,
+    val subtitle: String? = null,
     val authorName: String? = null,
     val seriesName: String? = null,
     val series: List<SeriesRef> = emptyList(),
     val narratorName: String? = null,
     val description: String? = null,
+    val publisher: String? = null,
     val publishedYear: String? = null,
     val genres: List<String> = emptyList(),
     val isbn: String? = null,
     val asin: String? = null,
+    val language: String? = null,
 )
 
 @Serializable

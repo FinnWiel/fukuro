@@ -17,6 +17,8 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import java.io.InputStream
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import java.time.Instant
 import java.time.ZoneId
@@ -113,23 +115,62 @@ class AbsApi(private val store: Store) {
         raw("GET", "/api/libraries/$libraryId/matchall", preferApiKey = true)
     }
 
-    /** Quick Match only the newly discovered books, leaving populated fields intact. */
-    suspend fun quickMatchItems(itemIds: List<String>) {
-        itemIds.distinct().chunked(25).forEach { ids ->
-            val body = buildJsonObject {
-                putJsonObject("options") { }
-                putJsonArray("libraryItemIds") { ids.forEach { add(JsonPrimitive(it)) } }
-            }.toString()
-            try {
-                raw("POST", "/api/items/batch/quickmatch", body, preferApiKey = true)
-            } catch (e: ApiException) {
-                // Older ABS servers predate the batch route but support item matching.
-                if (e.code != 404 && e.code != 405) throw e
-                ids.forEach { id ->
-                    raw("POST", "/api/items/$id/match", "{}", preferApiKey = true)
+    /** Same non-mutating provider search used by the ABS manual Match screen. */
+    suspend fun bookMatchCandidates(item: LibraryItem, provider: String): List<AbsBookMatch> {
+        fun encoded(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
+        val metadata = item.media.metadata
+        val selectedProvider = provider.ifBlank { "google" }
+        val audibleAsin = metadata.asin?.takeIf {
+            selectedProvider.startsWith("audible") && it.isNotBlank()
+        }
+        val title = audibleAsin ?: metadata.title.orEmpty()
+        val author = if (audibleAsin == null) metadata.authorName.orEmpty() else ""
+        val path = "/api/search/books?provider=${encoded(selectedProvider)}" +
+            "&fallbackTitleOnly=1&title=${encoded(title)}&author=${encoded(author)}&id=${encoded(item.id)}"
+        return json.decodeFromString(raw("GET", path, preferApiKey = true))
+    }
+
+    /** Apply only empty fields that the user accepted in Fukuro's review popup. */
+    suspend fun applyBookMatch(review: MetadataMatchReview) {
+        val current = review.item
+        val metadata = current.media.metadata
+        val proposed = review.suggestion
+        val body = buildJsonObject {
+            putJsonObject("metadata") {
+                if (metadata.authorName.isNullOrBlank() && !proposed.author.isNullOrBlank()) {
+                    putJsonArray("authors") {
+                        proposed.author.split(',', ';', '&').map(String::trim)
+                            .filter(String::isNotBlank).forEachIndexed { index, name ->
+                                add(buildJsonObject {
+                                    put("id", "new-fukuro-$index")
+                                    put("name", name)
+                                })
+                            }
+                    }
+                }
+                if (metadata.genres.isEmpty() && !proposed.genres.isNullOrEmpty()) {
+                    putJsonArray("genres") { proposed.genres.forEach { add(JsonPrimitive(it)) } }
+                }
+                if (metadata.description.isNullOrBlank() && !proposed.description.isNullOrBlank()) {
+                    put("description", proposed.description)
+                }
+                if (metadata.publisher.isNullOrBlank() && !proposed.publisher.isNullOrBlank()) {
+                    put("publisher", proposed.publisher)
+                }
+                if (metadata.publishedYear.isNullOrBlank() && !proposed.publishedYear.isNullOrBlank()) {
+                    put("publishedYear", proposed.publishedYear)
+                }
+                if (metadata.isbn.isNullOrBlank() && !proposed.isbn.isNullOrBlank()) put("isbn", proposed.isbn)
+                if (metadata.asin.isNullOrBlank() && !proposed.asin.isNullOrBlank()) put("asin", proposed.asin)
+                if (metadata.language.isNullOrBlank() && !proposed.language.isNullOrBlank()) {
+                    put("language", proposed.language)
                 }
             }
-        }
+            if (current.tags.isEmpty() && !proposed.tags.isNullOrEmpty()) {
+                putJsonArray("tags") { proposed.tags.forEach { add(JsonPrimitive(it)) } }
+            }
+        }.toString()
+        raw("PATCH", "/api/items/${current.id}/media", body, preferApiKey = true)
     }
 
     suspend fun users(): List<AbsUser> =

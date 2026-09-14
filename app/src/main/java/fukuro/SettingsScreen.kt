@@ -751,15 +751,15 @@ fun AdminSettingsScreen(
                             onCheckedChange = vm::setAutoMatchNewBooks,
                         )
                         Column(Modifier.weight(1f)) {
-                            Text("Match newly added books automatically")
+                            Text("Review metadata for new books")
                             Text(
-                                "Fills missing metadata with ABS Quick Match; existing fields are preserved.",
+                                "Shows a review popup before adding missing metadata.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         SettingInfo(
-                            "Runs once for each new book after a library refresh. Authors, genres, description and identifiers depend on the configured ABS metadata provider."
+                            "Searches the library's configured ABS metadata provider once for each new book. Nothing is changed until you accept the suggested author, genres, tags and other missing details."
                         )
                     }
                     Spacer(Modifier.height(8.dp))
