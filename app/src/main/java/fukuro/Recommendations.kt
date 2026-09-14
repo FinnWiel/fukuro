@@ -214,24 +214,27 @@ class RecommendationService(
     ): List<BookRecommendation> = withContext(Dispatchers.IO) {
         val seedTitle = seed.media.metadata.title.orEmpty().trim()
         val seedAuthors = authorsOf(seed).filter(String::isNotBlank).distinctBy(::normalized)
-        val seedTopics = (seed.tags + seed.media.metadata.genres)
+        val localSeedTopics = (seed.tags + seed.media.metadata.genres)
             .filter(String::isNotBlank)
             .distinctBy(::normalized)
             .filterNot { normalized(it) in STRICT_GENERIC_TOPICS }
             .take(8)
-        if (seedTitle.isBlank() || (seedAuthors.isEmpty() && seedTopics.isEmpty())) {
-            return@withContext emptyList()
-        }
+        if (seedTitle.isBlank()) return@withContext emptyList()
 
         val feedback = store.recommendationFeedback()
         val excludedTags = store.recommendationExcludedTags()
         val preferredLanguage = store.recommendationLanguage()
         val owned = OwnedIndex.from(library)
+        val seedIsbn = seed.media.metadata.isbn
+        val seedAsin = seed.media.metadata.asin
         val cacheKey = listOf(
+            "v$SIMILAR_ALGORITHM_VERSION",
             seed.id,
             seedTitle,
             seedAuthors.joinToString(","),
-            seedTopics.joinToString(","),
+            localSeedTopics.joinToString(","),
+            seedIsbn.orEmpty(),
+            seedAsin.orEmpty(),
             preferredLanguage,
             excludedTags.joinToString(","),
         ).joinToString("|") { normalized(it) }
@@ -248,6 +251,60 @@ class RecommendationService(
         }
 
         val googleKey = store.googleBooksKey().trim()
+        // ABS often has no tags at all. Resolve the seed inside Fukuro using identifiers
+        // plus title/author, then borrow only the categories from editions that clearly
+        // represent this book. These calls happen only on a cache miss or manual reload.
+        val seedCandidates = coroutineScope {
+            val permits = Semaphore(4)
+            val openQueries = buildList {
+                seedIsbn?.takeIf(String::isNotBlank)?.let { add("isbn" to it) }
+                seedAsin?.takeIf(String::isNotBlank)?.let { add("q" to it) }
+                add("title" to seedTitle)
+            }.distinct()
+            val googleQueries = if (googleKey.isEmpty()) emptyList() else buildList {
+                seedIsbn?.takeIf(String::isNotBlank)?.let { add("isbn" to it) }
+                seedAsin?.takeIf(String::isNotBlank)?.let { add("q" to it) }
+                val titleAuthor = buildString {
+                    append("intitle:").append(seedTitle)
+                    seedAuthors.firstOrNull()?.let { append(" inauthor:").append(it) }
+                }
+                add("q" to titleAuthor)
+            }.distinct()
+            val requests = openQueries.map { (field, value) ->
+                async { permits.withPermit { openLibrary(field, value, preferredLanguage) } }
+            } + googleQueries.map { (field, value) ->
+                async { permits.withPermit { googleBooks(field, value, googleKey, preferredLanguage) } }
+            }
+            requests.awaitAll().flatten()
+        }
+        val matchedSeedEditions = seedCandidates.mapNotNull { candidate ->
+            val isbnMatch = normalizedIsbn(seedIsbn)?.let { wanted ->
+                normalizedIsbn(candidate.isbn) == wanted
+            } == true
+            val asinMatch = normalizedAsin(seedAsin)?.let { wanted ->
+                normalizedAsin(candidate.asin) == wanted
+            } == true
+            val titleMatch = titleSimilarity(
+                comparableTitle(seedTitle), comparableTitle(candidate.title)
+            )
+            val authorMatch = seedAuthors.any { wanted ->
+                candidate.authors.any { normalized(it) == normalized(wanted) }
+            }
+            val identityScore = when {
+                isbnMatch || asinMatch -> 100.0 + titleMatch
+                titleMatch >= 0.82 && authorMatch -> 50.0 + titleMatch
+                titleMatch >= 0.94 -> 25.0 + titleMatch
+                else -> return@mapNotNull null
+            }
+            candidate to identityScore
+        }.sortedByDescending { it.second }.take(4).map { it.first }
+        val seedTopics = (localSeedTopics + matchedSeedEditions.flatMap { it.subjects })
+            .filter(String::isNotBlank)
+            .distinctBy(::normalized)
+            .filterNot { normalized(it) in STRICT_GENERIC_TOPICS }
+            .take(12)
+        if (seedAuthors.isEmpty() && seedTopics.isEmpty()) return@withContext emptyList()
+
         val openQueries = buildList {
             seedTopics.take(4).forEach { add("subject" to it) }
             seedAuthors.firstOrNull()?.let { add("author" to it) }
@@ -871,6 +928,7 @@ class RecommendationService(
 
     companion object {
         private const val ALGORITHM_VERSION = 3
+        private const val SIMILAR_ALGORITHM_VERSION = 2
         private const val CACHE_MS = 24 * 60 * 60 * 1000L
         private val STRICT_GENERIC_TOPICS = setOf(
             "book", "books", "audiobook", "audiobooks", "fiction", "literature", "novel", "novels",
