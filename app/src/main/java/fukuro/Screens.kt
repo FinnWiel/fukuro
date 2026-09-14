@@ -9,6 +9,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.layout.Arrangement
@@ -603,7 +605,7 @@ fun RecommendationDetailScreen(
                 modifier = Modifier.size(196.dp).clip(RoundedCornerShape(Fukuro.dims.coverRadius)),
             )
             Spacer(Modifier.height(16.dp))
-            Text(book.title, style = Fukuro.type.pageTitle, color = Fukuro.colors.onBackground)
+            Text(book.title, style = Fukuro.type.greeting, color = Fukuro.colors.onBackground)
             if (book.authors.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text(
