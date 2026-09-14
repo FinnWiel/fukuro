@@ -114,7 +114,7 @@ class SystemMediaArtwork(private val context: Context) {
         // RenderEffect is a hardware-rendering effect rather than an off-screen Bitmap API.
         // A software stack blur gives this generated metadata image identical results from API
         // 26 onward, including Android Auto and manufacturers' media surfaces.
-        stackBlurAndSubdue(square, BLUR_RADIUS)
+        blurAndSubdue(square, BLUR_RADIUS)
 
         // Fit-center the unmodified source at almost the full square height.  This naturally
         // also lets genuinely square source artwork use the full foreground area.
@@ -136,7 +136,7 @@ class SystemMediaArtwork(private val context: Context) {
     }
 
     /** Strong blur plus a restrained colour treatment so vivid covers do not dominate controls. */
-    private fun stackBlurAndSubdue(bitmap: Bitmap, radius: Int) {
+    private fun blurAndSubdue(bitmap: Bitmap, radius: Int) {
         val width = bitmap.width
         val height = bitmap.height
         val pixels = IntArray(width * height)
