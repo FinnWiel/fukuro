@@ -1100,6 +1100,11 @@ fun SeriesScreen(
     val busy = ids.any { dlStates.containsKey(it) }
     var showRemoveDownloads by remember(seriesId) { mutableStateOf(false) }
     var selectedForRemoval by remember(seriesId) { mutableStateOf<Set<String>>(emptySet()) }
+    var optionsBookId by remember(seriesId) { mutableStateOf<String?>(null) }
+
+    optionsBookId?.let { itemId ->
+        BookOptionsSheet(vm, itemId, onDismiss = { optionsBookId = null })
+    }
 
     if (showRemoveDownloads) {
         val allSelected = downloadedIds.isNotEmpty() && downloadedIds.all { it in selectedForRemoval }
@@ -1181,6 +1186,7 @@ fun SeriesScreen(
             vm.prefetchBook(id)
             onOpenBook(id)
         },
+        onBookOptions = { optionsBookId = it },
         onToggleFavorite = { vm.toggleSeriesFavorite(allIds) },
         onPin = { vm.pinSeriesShortcut(seriesId) },
         onDownloadAll = { vm.downloadAll(ids) },

@@ -3,6 +3,7 @@ package fukuro
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,7 @@ fun SeriesOverviewScreen(
     downloadedCount: Int,
     onBack: () -> Unit,
     onOpenBook: (String) -> Unit,
+    onBookOptions: (String) -> Unit,
     onToggleFavorite: () -> Unit,
     onPin: () -> Unit,
     onDownloadAll: () -> Unit,
@@ -202,6 +204,7 @@ fun SeriesOverviewScreen(
                     cover = cachedCover(book.id),
                     playing = book.id == playingBookId,
                     onOpen = { onOpenBook(book.id) },
+                    onLongPress = { onBookOptions(book.id) },
                     modifier = Modifier
                         .padding(horizontal = d.screenPadding)
                         .padding(bottom = if (index == books.lastIndex) 0.dp else d.rowGap),
@@ -220,6 +223,7 @@ private fun SeriesBookRow(
     cover: Any?,
     playing: Boolean,
     onOpen: () -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = Fukuro.colors
@@ -230,7 +234,8 @@ private fun SeriesBookRow(
         else -> 0f
     }
     Row(
-        modifier.fillMaxWidth().height(d.rowHeight).clickable(onClick = onOpen),
+        modifier.fillMaxWidth().height(d.rowHeight)
+            .combinedClickable(onClick = onOpen, onLongClick = onLongPress),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(d.rowContentGap),
     ) {
