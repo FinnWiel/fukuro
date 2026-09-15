@@ -517,8 +517,10 @@ fun AppNav(
             MetadataMatchReviewDialog(
                 review = review,
                 applying = state.metadataMatchApplying,
-                onAccept = { vm.acceptMetadataMatch(review) },
+                error = state.metadataMatchError,
+                onAccept = { fields -> vm.acceptMetadataMatch(review, fields) },
                 onDecline = { vm.declineMetadataMatch(review) },
+                onStop = { vm.stopMetadataMatching(review) },
             )
         }
     }

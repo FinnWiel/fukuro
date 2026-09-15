@@ -721,14 +721,21 @@ fun RecommendationDetailScreen(
 fun MetadataMatchReviewDialog(
     review: MetadataMatchReview,
     applying: Boolean,
-    onAccept: () -> Unit,
+    error: String?,
+    onAccept: (Set<MatchField>) -> Unit,
     onDecline: () -> Unit,
+    onStop: () -> Unit,
 ) {
     val current = review.item.media.metadata
     val proposed = review.suggestion
+    val available = remember(review) { proposedMatchFields(review) }
+    var selected by remember(review) { mutableStateOf(available) }
+    fun toggle(field: MatchField, checked: Boolean) {
+        selected = if (checked) selected + field else selected - field
+    }
     AlertDialog(
         onDismissRequest = { },
-        title = { Text("New book metadata found") },
+        title = { Text(if (review.replaceExisting) "Review metadata change" else "New book metadata found") },
         text = {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 520.dp)
@@ -764,28 +771,60 @@ fun MetadataMatchReviewDialog(
                     "For ${current.title ?: review.item.relPath}",
                     style = MaterialTheme.typography.labelLarge,
                 )
-                MatchReviewLine("Author", current.authorName, proposed.author)
-                MatchReviewLine("Publisher", current.publisher, proposed.publisher)
-                MatchReviewLine("Year", current.publishedYear, proposed.publishedYear)
-                MatchReviewLine("ISBN", current.isbn, proposed.isbn)
-                MatchReviewLine("ASIN", current.asin, proposed.asin)
-                MatchReviewLine("Language", current.language, proposed.language)
+                if (review.replaceExisting) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "This is the provider's first result, not a guaranteed match. Check it before replacing metadata.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Check the fields you want to apply:", style = MaterialTheme.typography.labelLarge)
+                @Composable fun line(field: MatchField, old: String?, new: String?) {
+                    if (field in available) {
+                        SelectableMatchLine(field, old, new, field in selected) { toggle(field, it) }
+                    }
+                }
+                line(MatchField.TITLE, current.title, proposed.title)
+                line(MatchField.SUBTITLE, current.subtitle, proposed.subtitle)
+                line(MatchField.AUTHOR, current.authorName, proposed.author)
+                line(MatchField.PUBLISHER, current.publisher, proposed.publisher)
+                line(MatchField.YEAR, current.publishedYear, proposed.publishedYear)
+                line(MatchField.ISBN, current.isbn, proposed.isbn)
+                line(MatchField.ASIN, current.asin, proposed.asin)
+                line(MatchField.LANGUAGE, current.language, proposed.language)
+                if (MatchField.COVER in available) {
+                    SelectableMatchLine(MatchField.COVER, null, "Use suggested cover", MatchField.COVER in selected) {
+                        toggle(MatchField.COVER, it)
+                    }
+                }
 
                 val categories = proposed.genres.orEmpty()
                 val tags = proposed.tags.orEmpty()
-                if (categories.isNotEmpty()) {
+                if (MatchField.GENRES in available) {
                     Spacer(Modifier.height(12.dp))
-                    Text("Suggested genres", style = MaterialTheme.typography.labelLarge)
+                    SelectableMatchHeader(MatchField.GENRES, MatchField.GENRES in selected) {
+                        toggle(MatchField.GENRES, it)
+                    }
+                    if (review.replaceExisting && current.genres.isNotEmpty()) {
+                        Text("Current: ${current.genres.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                    }
                     Spacer(Modifier.height(6.dp))
                     MatchReviewChips(categories)
                 }
-                if (tags.isNotEmpty()) {
+                if (MatchField.TAGS in available) {
                     Spacer(Modifier.height(12.dp))
-                    Text("Suggested tags", style = MaterialTheme.typography.labelLarge)
+                    SelectableMatchHeader(MatchField.TAGS, MatchField.TAGS in selected) {
+                        toggle(MatchField.TAGS, it)
+                    }
+                    if (review.replaceExisting && review.item.tags.isNotEmpty()) {
+                        Text("Current: ${review.item.tags.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                    }
                     Spacer(Modifier.height(6.dp))
                     MatchReviewChips(tags)
                 }
-                if (categories.isEmpty() && tags.isEmpty()) {
+                if (MatchField.GENRES !in available && MatchField.TAGS !in available) {
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "This match contains no genres or tags.",
@@ -793,10 +832,23 @@ fun MetadataMatchReviewDialog(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                proposed.description?.takeIf(String::isNotBlank)?.let { description ->
+                proposed.description?.takeIf(String::isNotBlank)
+                    ?.takeIf { MatchField.DESCRIPTION in available }?.let { description ->
                     Spacer(Modifier.height(12.dp))
-                    Text("Description", style = MaterialTheme.typography.labelLarge)
+                    SelectableMatchHeader(MatchField.DESCRIPTION, MatchField.DESCRIPTION in selected) {
+                        toggle(MatchField.DESCRIPTION, it)
+                    }
                     Spacer(Modifier.height(4.dp))
+                    if (review.replaceExisting && !current.description.isNullOrBlank()) {
+                        Text(
+                            "Current: ${android.text.Html.fromHtml(current.description, android.text.Html.FROM_HTML_MODE_COMPACT)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text("Suggested:", style = MaterialTheme.typography.labelSmall)
+                    }
                     Text(
                         android.text.Html.fromHtml(
                             description, android.text.Html.FROM_HTML_MODE_COMPACT,
@@ -808,33 +860,67 @@ fun MetadataMatchReviewDialog(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Accept fills only fields that are currently empty.",
+                    if (review.replaceExisting)
+                        "Accept applies only checked fields, including replacements. Existing cover art is kept."
+                    else "Accept fills only checked fields that are currently empty.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                error?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onAccept, enabled = !applying) {
+            TextButton(onClick = { onAccept(selected) }, enabled = !applying && selected.isNotEmpty()) {
                 Text(if (applying) "Applying…" else "Accept")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDecline, enabled = !applying) { Text("Decline") }
+            Row {
+                if (review.replaceExisting) {
+                    TextButton(onClick = onStop, enabled = !applying) { Text("Stop matching") }
+                }
+                TextButton(onClick = onDecline, enabled = !applying) { Text("Decline") }
+            }
         },
     )
 }
 
 @Composable
-private fun MatchReviewLine(label: String, current: String?, proposed: String?) {
+private fun SelectableMatchLine(
+    field: MatchField,
+    current: String?,
+    proposed: String?,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+) {
     if (proposed.isNullOrBlank()) return
     Spacer(Modifier.height(8.dp))
-    Text(label, style = MaterialTheme.typography.labelMedium)
+    SelectableMatchHeader(field, checked, onChecked)
     Text(
-        if (current.isNullOrBlank()) proposed else "Current: $current\nSuggested: $proposed",
+        if (current.isNullOrBlank()) "Suggested: $proposed" else "Current: $current\nSuggested: $proposed",
+        modifier = Modifier.padding(start = 48.dp),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+@Composable
+private fun SelectableMatchHeader(
+    field: MatchField,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = onChecked)
+        Text(
+            field.label,
+            modifier = Modifier.clickable { onChecked(!checked) },
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

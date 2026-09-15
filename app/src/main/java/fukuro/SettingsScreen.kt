@@ -740,7 +740,7 @@ fun AdminSettingsScreen(
                     Spacer(Modifier.height(16.dp))
                     SectionTitle("Library maintenance")
                     Spacer(Modifier.height(4.dp))
-                    SectionCaption("Start the same server-side scans and metadata matching available in Audiobookshelf.")
+                    SectionCaption("Scan runs on Audiobookshelf. Match metadata previews each proposed change in Fukuro and waits for your decision.")
                     Spacer(Modifier.height(8.dp))
                     Row(
                         Modifier.fillMaxWidth().height(64.dp),
@@ -850,7 +850,7 @@ private fun AdminLibraryActions(
         onClick = onMatch,
         modifier = Modifier.fillMaxWidth(),
         enabled = runningAction == null,
-    ) { Text(if (runningAction == "match-${library.id}") "Matching..." else "Match metadata") }
+    ) { Text(if (runningAction == "match-${library.id}") "Reviewing..." else "Match metadata") }
 }
 
 @Composable

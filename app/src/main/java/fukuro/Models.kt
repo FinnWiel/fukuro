@@ -94,7 +94,56 @@ data class MetadataMatchReview(
     val item: LibraryItem,
     val provider: String,
     val suggestion: AbsBookMatch,
+    val replaceExisting: Boolean = false,
 )
+
+enum class MatchField(val label: String) {
+    TITLE("Title"), SUBTITLE("Subtitle"), AUTHOR("Author"), GENRES("Genres"), TAGS("Tags"),
+    DESCRIPTION("Description"), PUBLISHER("Publisher"), YEAR("Year"), ISBN("ISBN"),
+    ASIN("ASIN"), LANGUAGE("Language"), COVER("Cover"),
+}
+
+/** The exact fields the match would add or replace, before the user selects a subset. */
+fun proposedMatchFields(review: MetadataMatchReview): Set<MatchField> {
+    val current = review.item.media.metadata
+    val suggestion = review.suggestion
+    fun changed(old: String?, new: String?): Boolean =
+        !new.isNullOrBlank() && (old.isNullOrBlank() ||
+            (review.replaceExisting && !old.trim().equals(new.trim(), ignoreCase = true)))
+    fun changedList(old: List<String>, new: List<String>?): Boolean =
+        !new.isNullOrEmpty() && (old.isEmpty() ||
+            (review.replaceExisting && old.map { it.trim().lowercase() }.toSet() !=
+                new.map { it.trim().lowercase() }.toSet()))
+    return buildSet {
+        if (changed(current.title, suggestion.title)) add(MatchField.TITLE)
+        if (changed(current.subtitle, suggestion.subtitle)) add(MatchField.SUBTITLE)
+        if (changed(current.authorName, suggestion.author)) add(MatchField.AUTHOR)
+        if (changedList(current.genres, suggestion.genres)) add(MatchField.GENRES)
+        if (changedList(review.item.tags, suggestion.tags)) add(MatchField.TAGS)
+        if (changed(current.description, suggestion.description)) add(MatchField.DESCRIPTION)
+        if (changed(current.publisher, suggestion.publisher)) add(MatchField.PUBLISHER)
+        if (changed(current.publishedYear, suggestion.publishedYear)) add(MatchField.YEAR)
+        if (changed(current.isbn, suggestion.isbn)) add(MatchField.ISBN)
+        if (changed(current.asin, suggestion.asin)) add(MatchField.ASIN)
+        if (changed(current.language, suggestion.language)) add(MatchField.LANGUAGE)
+        if (review.item.media.coverPath.isNullOrBlank() && !suggestion.cover.isNullOrBlank()) {
+            add(MatchField.COVER)
+        }
+    }
+}
+
+@Serializable
+data class AbsTasksResponse(val tasks: List<AbsTask> = emptyList())
+
+@Serializable
+data class AbsTask(
+    val id: String = "",
+    val action: String = "",
+    val data: AbsTaskData = AbsTaskData(),
+)
+
+@Serializable
+data class AbsTaskData(val libraryId: String = "")
 
 @Serializable
 data class LibFolder(val id: String = "", val fullPath: String = "")
@@ -136,6 +185,7 @@ data class LibraryItem(
 @Serializable
 data class Media(
     val metadata: Metadata = Metadata(),
+    val coverPath: String? = null,
     val duration: Double = 0.0,
     val numAudioFiles: Int = 0,
     val audioFiles: List<AudioFile> = emptyList(),
