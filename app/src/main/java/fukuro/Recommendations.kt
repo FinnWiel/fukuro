@@ -649,8 +649,14 @@ class RecommendationService(
         val similarity = profile.seeds.maxOfOrNull { seed ->
             seedSimilarity(candidate.authors, candidate.subjects, seed) * seed.weight
         } ?: 0.0
-        val rating = (candidate.rating ?: 0.0) * 0.35
-        val popularity = ln(1.0 + (candidate.ratingsCount ?: 0)) * 0.15
+        // Reward well-rated books with a meaningful number of ratings. A perfect
+        // score from one reader should not beat a slightly lower score from many.
+        val rating = candidate.rating?.takeIf { it in 0.0..5.0 }
+        val ratingsCount = candidate.ratingsCount?.coerceAtLeast(0) ?: 0
+        val confidence = if (candidate.ratingsCount == null) 0.25
+            else ratingsCount / (ratingsCount + 25.0)
+        val quality = rating?.let { (it - 3.0).coerceAtLeast(0.0) * 4.0 * confidence } ?: 0.0
+        val popularity = rating?.let { ln(1.0 + ratingsCount) * (it / 5.0) } ?: 0.0
         val reducedAuthor = candidate.authors.any { found ->
             feedback.reducedAuthors.any { normalized(it) == normalized(found) }
         }
@@ -658,7 +664,7 @@ class RecommendationService(
             feedback.reducedTopics.any { topicMatches(it, found) }
         }
         val penalty = (if (reducedAuthor) 12.0 else 0.0) + (if (reducedTopic) 7.0 else 0.0)
-        return author * 1.6 + topics * 1.15 + similarity * 1.8 + series + rating + popularity - penalty
+        return author * 1.6 + topics * 1.15 + similarity * 1.8 + series + quality + popularity - penalty
     }
 
     /**
@@ -950,8 +956,8 @@ class RecommendationService(
     @Serializable private data class GoogleIdentifier(val type: String = "", val identifier: String = "")
 
     companion object {
-        private const val ALGORITHM_VERSION = 4
-        private const val SIMILAR_ALGORITHM_VERSION = 3
+        private const val ALGORITHM_VERSION = 5
+        private const val SIMILAR_ALGORITHM_VERSION = 4
         private const val CACHE_MS = 24 * 60 * 60 * 1000L
         private val STRICT_GENERIC_TOPICS = setOf(
             "book", "books", "audiobook", "audiobooks", "fiction", "literature", "novel", "novels",
