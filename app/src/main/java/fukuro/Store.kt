@@ -3,6 +3,7 @@ package fukuro
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -65,6 +66,7 @@ class Store(private val context: Context) {
         val HOME_SECTIONS = stringPreferencesKey("home_sections") // csv order, pre-1.11 shelves
         val HOME_SHELVES = stringPreferencesKey("home_shelves") // json list of Shelf
         val LOCAL_PROGRESS = stringPreferencesKey("local_progress") // json {itemId: currentTimeSec}
+        val PROGRESS_HISTORY = stringPreferencesKey("progress_history") // recent local position writes
         val ACCENT = stringPreferencesKey("accent") // ACCENT_MATCH_BOOK, a key from ACCENT_COLORS, or "#RRGGBB"
         val PROGRESS_STYLE = stringPreferencesKey("progress_style") // "circle" | "bar"
         val DOWNLOAD_DIR = stringPreferencesKey("download_dir") // absolute path, blank = app storage
@@ -413,6 +415,12 @@ class Store(private val context: Context) {
     suspend fun localProgress(): Map<String, LocalProgress> =
         decodeProgress(context.dataStore.data.first()[K.LOCAL_PROGRESS])
 
+    /** The latest on-device writes for one book, newest first. Kept across app restarts. */
+    suspend fun progressHistory(itemId: String): List<ProgressHistoryEntry> =
+        decodeProgressHistory(context.dataStore.data.first()[K.PROGRESS_HISTORY])
+            .asReversed()
+            .filter { it.itemId == itemId }
+
     /** Reads both the current shape and the plain `{id: seconds}` written before 1.3.2. */
     private fun decodeProgress(raw: String?): Map<String, LocalProgress> {
         if (raw.isNullOrBlank()) return emptyMap()
@@ -424,19 +432,75 @@ class Store(private val context: Context) {
         return emptyMap()
     }
 
+    private fun decodeProgressHistory(raw: String?): List<ProgressHistoryEntry> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching { progressJson.decodeFromString<List<ProgressHistoryEntry>>(raw) }
+            .getOrDefault(emptyList())
+    }
+
+    private fun appendProgressHistory(
+        prefs: MutablePreferences,
+        entry: ProgressHistoryEntry,
+    ) {
+        val history = decodeProgressHistory(prefs[K.PROGRESS_HISTORY]).toMutableList()
+        history += entry
+        prefs[K.PROGRESS_HISTORY] = progressJson.encodeToString(history.takeLast(240))
+    }
+
+    /** Records transport outcomes alongside position writes without changing the position itself. */
+    suspend fun recordProgressEvent(itemId: String, position: Double, source: String) {
+        context.dataStore.edit { prefs ->
+            val local = decodeProgress(prefs[K.LOCAL_PROGRESS])[itemId]
+            appendProgressHistory(
+                prefs,
+                ProgressHistoryEntry(
+                    itemId = itemId,
+                    position = position,
+                    recordedAt = System.currentTimeMillis(),
+                    source = source,
+                    previousPosition = local?.pos,
+                    finished = local?.finished ?: false,
+                ),
+            )
+        }
+    }
+
     /**
      * Read-modify-write inside a single [edit] so two saves landing together — the player's
      * 15s tick and a teardown save, say — cannot drop one of the two.
      */
-    suspend fun setLocalProgress(itemId: String, currentTimeSec: Double, finished: Boolean? = null) {
+    suspend fun setLocalProgress(
+        itemId: String,
+        currentTimeSec: Double,
+        finished: Boolean? = null,
+        source: String = "Playback",
+    ) {
         context.dataStore.edit { prefs ->
             val map = decodeProgress(prefs[K.LOCAL_PROGRESS]).toMutableMap()
+            val previous = map[itemId]
+            val now = System.currentTimeMillis()
+            val isFinished = finished ?: previous?.finished ?: false
             map[itemId] = LocalProgress(
                 pos = currentTimeSec,
-                updatedAt = System.currentTimeMillis(),
-                finished = finished ?: map[itemId]?.finished ?: false,
+                updatedAt = now,
+                finished = isFinished,
             )
             prefs[K.LOCAL_PROGRESS] = progressJson.encodeToString<Map<String, LocalProgress>>(map)
+
+            // Keep this deliberately bounded: it is diagnostic data, not a second library
+            // database. A little over 200 writes covers the period around an interruption
+            // without making DataStore grow for long listening sessions.
+            appendProgressHistory(
+                prefs,
+                ProgressHistoryEntry(
+                    itemId = itemId,
+                    position = currentTimeSec,
+                    recordedAt = now,
+                    source = source,
+                    previousPosition = previous?.pos,
+                    finished = isFinished,
+                ),
+            )
         }
     }
 
@@ -445,6 +509,6 @@ class Store(private val context: Context) {
      * have no coroutine guaranteed to outlive them, and a position saved after the process
      * dies is a position lost.
      */
-    fun setLocalProgressBlocking(itemId: String, currentTimeSec: Double) =
-        runBlocking { setLocalProgress(itemId, currentTimeSec) }
+    fun setLocalProgressBlocking(itemId: String, currentTimeSec: Double, source: String = "Playback") =
+        runBlocking { setLocalProgress(itemId, currentTimeSec, source = source) }
 }

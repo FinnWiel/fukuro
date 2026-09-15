@@ -168,7 +168,7 @@ class PlayerService : MediaLibraryService() {
                 delay(15_000)
                 if (player.isPlaying) {
                     flushListening()
-                    syncProgress()
+                    syncProgress("Playback heartbeat")
                     publishNowPlaying() // moves the widget progress bar along
                 }
             }
@@ -205,7 +205,7 @@ class PlayerService : MediaLibraryService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (pendingBookSwitchId != null) return
                 if (isPlaying) startListeningSession()
-                else scope.launch { flushListening(); syncProgress() }
+                else scope.launch { flushListening(); syncProgress("Playback paused") }
                 publishNowPlaying()
             }
 
@@ -318,7 +318,7 @@ class PlayerService : MediaLibraryService() {
         finishedItemId = id
         val sleepStopsHere = sleepChapterEndSec?.let { currentItemDuration >= it - 0.25 } == true
         scope.launch {
-            store.setLocalProgress(id, currentItemDuration, finished = true)
+            store.setLocalProgress(id, currentItemDuration, finished = true, source = "Finished book")
             if (!LocalLibrary.isLocal(id)) {
                 runCatching { api.updateProgress(id, currentItemDuration, currentItemDuration) }
                 runCatching { api.markFinished(id, true) }
@@ -552,7 +552,7 @@ class PlayerService : MediaLibraryService() {
         }
     }
 
-    private suspend fun syncProgress() {
+    private suspend fun syncProgress(source: String = "Playback") {
         if (pendingBookSwitchId != null) return
         val id = currentItemId ?: return
         // onSetMediaItems builds the incoming playlist asynchronously. During that work the
@@ -566,11 +566,15 @@ class PlayerService : MediaLibraryService() {
         // reads back as position 0. Saving that would wipe the listener's place in the book,
         // and a genuine 0 is nothing to resume from anyway.
         if (pos <= 0.0 || player.mediaItemCount == 0) return
-        store.setLocalProgress(id, pos) // always cache locally (offline resume)
+        store.setLocalProgress(id, pos, source = source) // always cache locally (offline resume)
         if (LocalLibrary.isLocal(id)) return // on-device book: nothing to sync
         try {
             api.updateProgress(id, pos, currentItemDuration)
-        } catch (_: Exception) { /* offline: ignore, the app pushes it on reconnect */ }
+        } catch (_: Exception) {
+            // Preserve the transport failure in the same on-device history as the position.
+            // This makes a brief outage diagnosable without relying on transient logcat output.
+            store.recordProgressEvent(id, pos, "Server sync failed")
+        }
     }
 
     private fun startListeningSession() {
@@ -644,7 +648,7 @@ class PlayerService : MediaLibraryService() {
         if (!playerIsOnBook(id)) return
         val pos = bookPositionSec()
         if (pos <= 0.0) return // nothing worth recording, and never overwrite with a zero
-        store.setLocalProgressBlocking(id, pos)
+        store.setLocalProgressBlocking(id, pos, source = "App/service closed")
         if (LocalLibrary.isLocal(id)) return
         val duration = currentItemDuration
         ShelfApp.from(application).appScope.launch {
@@ -690,7 +694,7 @@ class PlayerService : MediaLibraryService() {
         if (pos <= 0.0 || player.mediaItemCount == 0) return
         val duration = currentItemDuration
         ShelfApp.from(application).appScope.launch {
-            store.setLocalProgress(id, pos)
+            store.setLocalProgress(id, pos, source = "Switched books")
             if (!LocalLibrary.isLocal(id)) {
                 runCatching { api.updateProgress(id, pos, duration) }
             }
