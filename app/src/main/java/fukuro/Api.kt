@@ -118,7 +118,7 @@ class AbsApi(private val store: Store) {
     suspend fun bookMatchCandidates(item: LibraryItem, provider: String): List<AbsBookMatch> {
         fun encoded(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
         val metadata = item.media.metadata
-        val selectedProvider = provider.ifBlank { "google" }
+        val selectedProvider = provider.ifBlank { "audible.uk" }
         val audibleAsin = metadata.asin?.takeIf {
             selectedProvider.startsWith("audible") && it.isNotBlank()
         }

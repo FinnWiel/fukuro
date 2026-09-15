@@ -669,6 +669,7 @@ fun AdminSettingsScreen(
     val permissions = state.currentUserPermissions
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
     val autoMatchNewBooks by vm.store.autoMatchNewBooksFlow.collectAsState(initial = false)
+    val metadataMatchProvider by vm.store.metadataMatchProviderFlow.collectAsState(initial = "audible.uk")
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
     val onlineUserIds = remember(admin.onlineUsers) { admin.onlineUsers.map { it.id }.toSet() }
@@ -742,6 +743,17 @@ fun AdminSettingsScreen(
                     Spacer(Modifier.height(4.dp))
                     SectionCaption("Scan runs on Audiobookshelf. Match metadata previews each proposed change in Fukuro and waits for your decision.")
                     Spacer(Modifier.height(8.dp))
+                    SettingLabel(
+                        "Metadata matching provider",
+                        "Fukuro defaults to Audible.co.uk for Match metadata and new-book review. ABS library follows the provider configured on your server; this setting does not change it.",
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SegmentedSelector(
+                        options = listOf("audible.uk" to "Audible UK", "library" to "ABS library"),
+                        selected = metadataMatchProvider,
+                        onSelect = { provider -> scope.launch { vm.store.setMetadataMatchProvider(provider) } },
+                    )
+                    Spacer(Modifier.height(12.dp))
                     Row(
                         Modifier.fillMaxWidth().height(64.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -759,7 +771,7 @@ fun AdminSettingsScreen(
                             )
                         }
                         SettingInfo(
-                            "Searches the library's configured ABS metadata provider once for each new book. Nothing is changed until you accept the suggested author, genres, tags and other missing details."
+                            "Searches the matching provider selected above once for each new book. Nothing is changed until you accept the suggested author, genres, tags and other missing details."
                         )
                     }
                     Spacer(Modifier.height(8.dp))

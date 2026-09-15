@@ -459,6 +459,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private suspend fun reviewProvider(library: AbsLibrary?): String =
+        if (store.metadataMatchProviderFlow.first() == "library") {
+            library?.provider?.takeIf(String::isNotBlank) ?: "audible.uk"
+        } else "audible.uk"
+
     private fun scheduleAutoMatchNewBooks(items: List<LibraryItem>, userRole: String?) {
         if (userRole != "root" && userRole != "admin") return
         if (_admin.value.runningAction?.startsWith("match-") == true) return
@@ -486,7 +491,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             val libraries = _state.value.libraries.associateBy { it.id }
             for (item in needsMatch) {
                 try {
-                    val provider = libraries[item.libraryId]?.provider ?: "google"
+                    val provider = reviewProvider(libraries[item.libraryId])
                     val suggestion = api.bookMatchCandidates(item, provider)
                         .firstOrNull { it.title.isNotBlank() }
                     val review = suggestion?.let { MetadataMatchReview(item, provider, it) }
@@ -962,6 +967,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         check(api.activeTasks().none { it.action == "library-scan" && it.data.libraryId == libraryId }) {
             "Wait for the Audiobookshelf library scan to finish before matching metadata"
         }
+        val provider = reviewProvider(library)
         val books = api.allLibraryItems(libraryId)
         var reviewed = 0
         var skipped = 0
@@ -971,15 +977,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                     message = "Checking metadata ${index + 1}/${books.size}: ${book.media.metadata.title ?: book.relPath}",
                     success = true,
                 )
-                val suggestion = api.bookMatchCandidates(book, library.provider)
+                val suggestion = api.bookMatchCandidates(book, provider)
                     .firstOrNull { it.title.isNotBlank() }
                 if (suggestion == null || proposedMatchFields(
-                        MetadataMatchReview(book, library.provider, suggestion, replaceExisting = true)
+                        MetadataMatchReview(book, provider, suggestion, replaceExisting = true)
                     ).isEmpty()) {
                     skipped++
                     return@forEachIndexed
                 }
-                val review = MetadataMatchReview(book, library.provider, suggestion, replaceExisting = true)
+                val review = MetadataMatchReview(book, provider, suggestion, replaceExisting = true)
                 manualReviewGate = CompletableDeferred()
                 _state.value = _state.value.copy(
                     metadataMatchError = null,

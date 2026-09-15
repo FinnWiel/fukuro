@@ -82,6 +82,7 @@ class Store(private val context: Context) {
         val AUTO_REMOVE_COMPLETED_DOWNLOADS = booleanPreferencesKey("auto_remove_completed_downloads")
         val AUTO_MATCH_NEW_BOOKS = booleanPreferencesKey("auto_match_new_books")
         val AUTO_MATCH_KNOWN_ITEMS = stringPreferencesKey("auto_match_known_items")
+        val METADATA_MATCH_PROVIDER = stringPreferencesKey("metadata_match_provider")
         val SWIPE_ACTION = stringPreferencesKey("swipe_action")      // "chapter" | "book"
         val UPDATE_LAST_CHECK = stringPreferencesKey("update_last_check") // epoch ms
         val API_KEY = stringPreferencesKey("abs_api_key")
@@ -124,11 +125,18 @@ class Store(private val context: Context) {
         context.dataStore.edit { it[K.AUTO_REMOVE_COMPLETED_DOWNLOADS] = v }
     fun autoRemoveCompletedDownloadsBlocking(): Boolean = mAutoRemoveCompletedDownloads
 
-    /** Server-side Quick Match for books first seen after the user enables it. */
+    /** Review-first metadata matching for books first seen after the user enables it. */
     val autoMatchNewBooksFlow: Flow<Boolean> =
         context.dataStore.data.map { it[K.AUTO_MATCH_NEW_BOOKS] ?: false }
     suspend fun setAutoMatchNewBooks(v: Boolean) =
         context.dataStore.edit { it[K.AUTO_MATCH_NEW_BOOKS] = v }
+    /** "audible.uk" by default; "library" follows each ABS library's own preference. */
+    val metadataMatchProviderFlow: Flow<String> = context.dataStore.data.map {
+        it[K.METADATA_MATCH_PROVIDER] ?: "audible.uk"
+    }
+    suspend fun setMetadataMatchProvider(provider: String) = context.dataStore.edit {
+        it[K.METADATA_MATCH_PROVIDER] = if (provider == "library") "library" else "audible.uk"
+    }
     suspend fun autoMatchKnownItems(): Set<String> = context.dataStore.data.first()
         .get(K.AUTO_MATCH_KNOWN_ITEMS).orEmpty().split(',').filter(String::isNotBlank).toSet()
     suspend fun setAutoMatchKnownItems(ids: Collection<String>) = context.dataStore.edit {

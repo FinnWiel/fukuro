@@ -760,7 +760,7 @@ fun MetadataMatchReviewDialog(
                         }
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            "Found with ${review.provider}",
+                            "Found with ${if (review.provider == "audible.uk") "Audible.co.uk" else review.provider}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
