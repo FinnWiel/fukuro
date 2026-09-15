@@ -585,7 +585,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
             if (theirs != null && theirs.lastUpdate >= own.updatedAt) continue
             val duration = _state.value.allItems.firstOrNull { it.id == itemId }?.media?.duration
                 ?: theirs?.duration ?: 0.0
-            runCatching {
+            try {
                 api.updateProgress(itemId, own.pos, duration)
                 // A manual bookmark can reopen a book while offline. Its later position
                 // upload must also clear the server's completed flag, otherwise the server
@@ -593,6 +593,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 if (theirs?.isFinished == true && !own.finished) {
                     api.markFinished(itemId, false)
                 }
+                store.recordProgressEvent(itemId, own.pos, "Reconnected sync completed")
+            } catch (_: Exception) {
+                store.recordProgressEvent(itemId, own.pos, "Reconnected sync failed")
             }
         }
     }
@@ -656,7 +659,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     /** Marked finished on the device first, so it holds with no server and syncs after. */
     fun markFinished(itemId: String, finished: Boolean) = viewModelScope.launch {
         val duration = _state.value.allItems.firstOrNull { it.id == itemId }?.media?.duration ?: 0.0
-        store.setLocalProgress(itemId, if (finished) duration else 0.0, finished = finished)
+        store.setLocalProgress(
+            itemId, if (finished) duration else 0.0, finished = finished,
+            source = if (finished) "Marked finished" else "Marked unfinished",
+        )
         try { api.markFinished(itemId, finished) } catch (_: Exception) {}
         removeDownloadIfCompleted(itemId, finished)
         refresh()
@@ -665,7 +671,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     fun resetProgress(itemId: String) = viewModelScope.launch {
         // clear the device's record first: it is the one the screens read, and it is the
         // only one there is when the server is away
-        store.setLocalProgress(itemId, 0.0, finished = false)
+        store.setLocalProgress(itemId, 0.0, finished = false, source = "Reset progress")
         // look up the progress record's own id; the item id is not accepted
         val progressId = _state.value.serverProgress[itemId]?.id
             ?: try { api.me().mediaProgress.firstOrNull { it.libraryItemId == itemId }?.id } catch (_: Exception) { null }
@@ -694,7 +700,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
         // Setting a place in a book means it is resumable, including if it was previously
         // marked finished. The local record updates the UI immediately and survives offline.
-        store.setLocalProgress(itemId, position, finished = false)
+        store.setLocalProgress(itemId, position, finished = false, source = "Manual position")
         if (LocalLibrary.isLocal(itemId)) return@launch
 
         try {

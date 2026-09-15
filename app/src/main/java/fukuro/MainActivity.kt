@@ -231,7 +231,7 @@ fun AppNav(
         mutableStateOf(bookId(controller?.currentMediaItem))
     }
     var controllerIsPlaying by androidx.compose.runtime.remember(controller) {
-        mutableStateOf(controller?.isPlaying == true)
+        mutableStateOf(controller?.playWhenReady == true)
     }
     androidx.compose.runtime.DisposableEffect(controller) {
         val activeController = controller
@@ -242,13 +242,13 @@ fun AppNav(
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     playingBookId = bookId(mediaItem)
                 }
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    controllerIsPlaying = isPlaying
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    controllerIsPlaying = playWhenReady
                 }
             }
             activeController.addListener(listener)
             playingBookId = bookId(activeController.currentMediaItem)
-            controllerIsPlaying = activeController.isPlaying
+            controllerIsPlaying = activeController.playWhenReady
             onDispose { activeController.removeListener(listener) }
         }
     }
@@ -335,7 +335,7 @@ fun AppNav(
                         onOpenNarrator = { name -> nav.navigate("narrator/${android.net.Uri.encode(name)}") },
                         onPlayBook = { id ->
                             if (playingBookId == id) {
-                                if (controller?.isPlaying == true) controller?.pause() else controller?.play()
+                                if (controller?.playWhenReady == true) controller?.pause() else controller?.play()
                             } else playBook(id)
                         },
                         playingBookId = playingBookId,
@@ -625,12 +625,12 @@ private fun MiniPlayer(
             onDispose { }
         } else {
             val listener = object : androidx.media3.common.Player.Listener {
-                override fun onIsPlayingChanged(value: Boolean) {
-                    isPlaying = value
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    isPlaying = playWhenReady
                 }
             }
             activeController.addListener(listener)
-            isPlaying = activeController.isPlaying
+            isPlaying = activeController.playWhenReady
             onDispose { activeController.removeListener(listener) }
         }
     }

@@ -259,6 +259,17 @@ data class LocalProgress(
     val finished: Boolean = false,
 )
 
+/** A small on-device audit trail for diagnosing unexpected resume positions. */
+@Serializable
+data class ProgressHistoryEntry(
+    val itemId: String,
+    val position: Double,
+    val recordedAt: Long,
+    val source: String,
+    val previousPosition: Double? = null,
+    val finished: Boolean = false,
+)
+
 @Serializable
 data class MeResponse(
     val id: String = "",

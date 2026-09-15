@@ -109,6 +109,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /* ---------------- Login ---------------- */
 
@@ -375,6 +378,11 @@ fun BookOptionsSheet(
     val downloading = dlStates[itemId] != null
     var showRename by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
+    var confirmFinish by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var showProgressHistory by remember { mutableStateOf(false) }
+    var progressHistory by remember(itemId) { mutableStateOf<List<ProgressHistoryEntry>?>(null) }
+    val scope = rememberCoroutineScope()
     var renameText by remember(title) { mutableStateOf(title) }
     var renameError by remember { mutableStateOf<String?>(null) }
     var coverError by remember { mutableStateOf<String?>(null) }
@@ -437,12 +445,22 @@ fun BookOptionsSheet(
                 if (p?.isFinished == true) Icons.Rounded.RemoveDone else Icons.Rounded.DoneAll,
                 if (p?.isFinished == true) "Mark unfinished" else "Mark finished"
             ) {
-                vm.markFinished(itemId, !(p?.isFinished ?: false)); onDismiss()
+                if (p?.isFinished == true) {
+                    vm.markFinished(itemId, false)
+                    onDismiss()
+                } else {
+                    confirmFinish = true
+                }
             }
             SheetRow(Icons.Rounded.RestartAlt, "Reset progress") {
-                onResetSeek()
-                vm.resetProgress(itemId)
-                onDismiss()
+                confirmReset = true
+            }
+            SheetRow(Icons.Rounded.Restore, "Progress history") {
+                showProgressHistory = true
+                progressHistory = null
+                scope.launch {
+                    progressHistory = withContext(Dispatchers.IO) { vm.store.progressHistory(itemId) }
+                }
             }
             // only worth offering while the book is actually on that shelf
             if (p != null && !p.isFinished && p.progress > 0.001) {
@@ -498,6 +516,104 @@ fun BookOptionsSheet(
             dismissButton = { TextButton(onClick = { showRename = false }, shape = FukuroButtonShape) { Text("Cancel") } }
         )
     }
+
+    if (confirmFinish) {
+        AlertDialog(
+            onDismissRequest = { confirmFinish = false },
+            title = { Text("Mark finished?") },
+            text = {
+                Text(
+                    "This sets your position to the end of the book and syncs it to your server." +
+                        if (isDownloaded) " Your offline copy may also be removed if automatic removal is enabled." else ""
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmFinish = false
+                    vm.markFinished(itemId, true)
+                    onDismiss()
+                }, shape = FukuroButtonShape) { Text("Mark finished") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmFinish = false }, shape = FukuroButtonShape) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset progress?") },
+            text = { Text("This clears the saved position on this device and removes the progress record from your server. It cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    onResetSeek()
+                    vm.resetProgress(itemId)
+                    onDismiss()
+                }, shape = FukuroButtonShape) { Text("Reset") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }, shape = FukuroButtonShape) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showProgressHistory) {
+        ProgressHistoryDialog(
+            entries = progressHistory,
+            onDismiss = { showProgressHistory = false },
+        )
+    }
+}
+
+private val progressHistoryTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM, HH:mm")
+
+@Composable
+private fun ProgressHistoryDialog(
+    entries: List<ProgressHistoryEntry>?,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Progress history") },
+        text = {
+            when {
+                entries == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Loading saved positions…")
+                }
+                entries.isEmpty() -> Text("No local progress saves have been recorded for this book yet.")
+                else -> LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    items(entries, key = { "${it.recordedAt}:${it.source}" }) { entry ->
+                        val movedBack = entry.previousPosition != null && entry.position + 1 < entry.previousPosition
+                        Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+                            Text(
+                                formatProgressPosition(entry.position),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                "${entry.source} · ${Instant.ofEpochMilli(entry.recordedAt).atZone(ZoneId.systemDefault()).format(progressHistoryTimeFormatter)}" +
+                                    if (movedBack) " · moved back from ${formatProgressPosition(entry.previousPosition ?: 0.0)}" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (movedBack) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss, shape = FukuroButtonShape) { Text("Close") } },
+    )
+}
+
+private fun formatProgressPosition(seconds: Double): String {
+    val total = seconds.coerceAtLeast(0.0).toLong()
+    val hours = total / 3600
+    val minutes = (total % 3600) / 60
+    val secs = total % 60
+    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, secs) else "%d:%02d".format(minutes, secs)
 }
 
 @Composable
@@ -1357,6 +1473,11 @@ fun SeriesScreen(
     val busy = ids.any { dlStates.containsKey(it) }
     var showRemoveDownloads by remember(seriesId) { mutableStateOf(false) }
     var selectedForRemoval by remember(seriesId) { mutableStateOf<Set<String>>(emptySet()) }
+    var optionsBookId by remember(seriesId) { mutableStateOf<String?>(null) }
+
+    optionsBookId?.let { itemId ->
+        BookOptionsSheet(vm, itemId, onDismiss = { optionsBookId = null })
+    }
 
     if (showRemoveDownloads) {
         val allSelected = downloadedIds.isNotEmpty() && downloadedIds.all { it in selectedForRemoval }
@@ -1438,6 +1559,7 @@ fun SeriesScreen(
             vm.prefetchBook(id)
             onOpenBook(id)
         },
+        onBookOptions = { optionsBookId = it },
         onToggleFavorite = { vm.toggleSeriesFavorite(allIds) },
         onPin = { vm.pinSeriesShortcut(seriesId) },
         onDownloadAll = { vm.downloadAll(ids) },

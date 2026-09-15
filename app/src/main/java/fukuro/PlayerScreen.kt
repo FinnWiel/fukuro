@@ -212,7 +212,9 @@ fun PlayerScreen(
                         liveDurSec = 0.0
                     }
                     playingId = newPlayingId
-                    isPlaying = player.isPlaying
+                    // `isPlaying` drops to false while a seek re-buffers. Keep the
+                    // transport on Pause when playback is still queued to resume.
+                    isPlaying = player.playWhenReady
                     isLoading = player.isPlaybackLoading()
                 }
             }
@@ -220,7 +222,7 @@ fun PlayerScreen(
             playingId = activeController.currentMediaItem?.mediaId
                 ?.takeIf { it.startsWith(PlayerService.BOOK_PREFIX) }
                 ?.removePrefix(PlayerService.BOOK_PREFIX)?.substringBefore('#')
-            isPlaying = activeController.isPlaying
+            isPlaying = activeController.playWhenReady
             isLoading = activeController.isPlaybackLoading()
             onDispose { activeController.removeListener(listener) }
         }
