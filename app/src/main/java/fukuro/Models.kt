@@ -178,14 +178,17 @@ data class LibraryItem(
     val libraryId: String = "",
     val relPath: String = "",
     val addedAt: Long = 0,
-    val tags: List<String> = emptyList(),
     val media: Media = Media(),
-)
+) {
+    /** ABS stores book tags on media, not on the library item itself. */
+    val tags: List<String> get() = media.tags
+}
 
 @Serializable
 data class Media(
     val metadata: Metadata = Metadata(),
     val coverPath: String? = null,
+    val tags: List<String> = emptyList(),
     val duration: Double = 0.0,
     val numAudioFiles: Int = 0,
     val audioFiles: List<AudioFile> = emptyList(),
