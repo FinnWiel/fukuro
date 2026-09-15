@@ -106,13 +106,13 @@ class RecommendationService(
     suspend fun cached(): List<BookRecommendation> = withContext(Dispatchers.IO) {
         val feedback = store.recommendationFeedback()
         val excludedTags = store.recommendationExcludedTags()
-        val preferredLanguage = store.recommendationLanguage()
+        val preferredLanguages = store.recommendationLanguages()
         runCatching {
             json.decodeFromString<RecommendationCache>(cacheFile.readText()).books
         }.getOrDefault(emptyList()).filterNot {
             recommendationKey(it) in feedback.dismissed ||
                 hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags) ||
-                !matchesLanguage(it.languages, preferredLanguage)
+                !matchesLanguage(it.languages, preferredLanguages)
         }
     }
 
@@ -128,11 +128,11 @@ class RecommendationService(
         val owned = OwnedIndex.from(library)
         val feedback = store.recommendationFeedback()
         val excludedTags = store.recommendationExcludedTags()
-        val preferredLanguage = store.recommendationLanguage()
+        val preferredLanguages = store.recommendationLanguages()
         val oldBooks = old?.books.orEmpty().filterNot {
             owned.contains(it) || recommendationKey(it) in feedback.dismissed ||
                 hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags) ||
-                !matchesLanguage(it.languages, preferredLanguage)
+                !matchesLanguage(it.languages, preferredLanguages)
         }
         if (!force && old != null && old.algorithmVersion == ALGORITHM_VERSION &&
             System.currentTimeMillis() - old.fetchedAt < CACHE_MS
@@ -159,13 +159,13 @@ class RecommendationService(
         // substantially faster without flooding either public books API.
         val candidates = coroutineScope {
             val permits = Semaphore(4)
-            val requests = openQueries.map { (field, value) ->
-                async { permits.withPermit { openLibrary(field, value, preferredLanguage) } }
+            val requests = languageSearches(openQueries, preferredLanguages).map { (field, value, language) ->
+                async { permits.withPermit { openLibrary(field, value, language) } }
             } + if (googleKey.isNotEmpty()) {
-                googleQueries.map { (field, value) ->
+                languageSearches(googleQueries, preferredLanguages).map { (field, value, language) ->
                     async {
                         permits.withPermit {
-                            googleBooks(field, value, googleKey, preferredLanguage)
+                            googleBooks(field, value, googleKey, language)
                         }
                     }
                 }
@@ -175,7 +175,7 @@ class RecommendationService(
 
         val ranked = candidates
             .filterNot { owned.contains(it) }
-            .filter { matchesLanguage(it.languages, preferredLanguage) }
+            .filter { matchesLanguage(it.languages, preferredLanguages) }
             .filterNot {
                 hasExcludedTag(it.subjects + listOfNotNull(it.queryTopic), excludedTags)
             }
@@ -184,7 +184,7 @@ class RecommendationService(
             .filterNot {
                 recommendationKey(it) in feedback.dismissed ||
                     hasExcludedTag(it.subjects + listOfNotNull(it.primaryTopic), excludedTags) ||
-                    !matchesLanguage(it.languages, preferredLanguage)
+                    !matchesLanguage(it.languages, preferredLanguages)
             }
             .sortedByDescending { it.score }
         val selected = diversify(ranked, profile)
@@ -223,7 +223,7 @@ class RecommendationService(
 
         val feedback = store.recommendationFeedback()
         val excludedTags = store.recommendationExcludedTags()
-        val preferredLanguage = store.recommendationLanguage()
+        val preferredLanguages = store.recommendationLanguages()
         val owned = OwnedIndex.from(library)
         val seedIsbn = seed.media.metadata.isbn
         val seedAsin = seed.media.metadata.asin
@@ -235,7 +235,7 @@ class RecommendationService(
             localSeedTopics.joinToString(","),
             seedIsbn.orEmpty(),
             seedAsin.orEmpty(),
-            preferredLanguage,
+            preferredLanguages.sorted().joinToString(","),
             excludedTags.joinToString(","),
         ).joinToString("|") { normalized(it) }
         val cached = runCatching {
@@ -254,6 +254,7 @@ class RecommendationService(
         // ABS often has no tags at all. Resolve the seed inside Fukuro using identifiers
         // plus title/author, then borrow only the categories from editions that clearly
         // represent this book. These calls happen only on a cache miss or manual reload.
+        val seedQueryLanguage = preferredLanguages.singleOrNull().orEmpty()
         val seedCandidates = coroutineScope {
             val permits = Semaphore(4)
             val openQueries = buildList {
@@ -271,9 +272,9 @@ class RecommendationService(
                 add("q" to titleAuthor)
             }.distinct()
             val requests = openQueries.map { (field, value) ->
-                async { permits.withPermit { openLibrary(field, value, preferredLanguage) } }
+                async { permits.withPermit { openLibrary(field, value, seedQueryLanguage) } }
             } + googleQueries.map { (field, value) ->
-                async { permits.withPermit { googleBooks(field, value, googleKey, preferredLanguage) } }
+                async { permits.withPermit { googleBooks(field, value, googleKey, seedQueryLanguage) } }
             }
             requests.awaitAll().flatten()
         }
@@ -315,11 +316,11 @@ class RecommendationService(
         }
         val candidates = coroutineScope {
             val permits = Semaphore(4)
-            val requests = openQueries.map { (field, value) ->
-                async { permits.withPermit { openLibrary(field, value, preferredLanguage) } }
+            val requests = languageSearches(openQueries, preferredLanguages).map { (field, value, language) ->
+                async { permits.withPermit { openLibrary(field, value, language) } }
             } + if (googleKey.isNotEmpty()) {
-                googleQueries.map { (field, value) ->
-                    async { permits.withPermit { googleBooks(field, value, googleKey, preferredLanguage) } }
+                languageSearches(googleQueries, preferredLanguages).map { (field, value, language) ->
+                    async { permits.withPermit { googleBooks(field, value, googleKey, language) } }
                 }
             } else emptyList()
             requests.awaitAll().flatten()
@@ -339,7 +340,7 @@ class RecommendationService(
         )
         val books = candidates
             .filterNot { owned.contains(it) }
-            .filter { matchesLanguage(it.languages, preferredLanguage) }
+            .filter { matchesLanguage(it.languages, preferredLanguages) }
             .filterNot { hasExcludedTag(it.subjects + listOfNotNull(it.queryTopic), excludedTags) }
             .groupBy { bookKey(it.title, it.authors.firstOrNull()) }
             .mapNotNull { (_, editions) -> merge(editions, profile, feedback) }
@@ -424,6 +425,28 @@ class RecommendationService(
             }
         }
         enriched
+    }
+
+    /** Keep single-language requests unchanged; add bounded, focused searches for multi-select. */
+    private fun languageSearches(
+        queries: List<Pair<String, String>>,
+        languages: Set<String>,
+    ): List<Triple<String, String, String>> {
+        val selected = languages.sorted()
+        if (selected.size <= 1) {
+            return queries.map { (field, value) -> Triple(field, value, selected.firstOrNull().orEmpty()) }
+        }
+        val topics = queries.filter { it.first == "subject" }.take(2)
+        val author = queries.firstOrNull { it.first == "author" || it.first == "inauthor" }
+        val anchors = (topics + listOfNotNull(author)).ifEmpty { queries.take(1) }
+        // At most 12 extra queries per provider, even if every language is selected.
+        val focused = selected.flatMap { language ->
+            anchors.take(if (selected.size <= 4) 3 else 1).map { (field, value) ->
+                Triple(field, value, language)
+            }
+        }.take(12)
+        return (queries.map { (field, value) -> Triple(field, value, "") } + focused)
+            .distinctBy { (field, value, language) -> "$field:${normalized(value)}:$language" }
     }
 
     private fun openLibrary(field: String, value: String, preferredLanguage: String): List<Candidate> {
@@ -927,8 +950,8 @@ class RecommendationService(
     @Serializable private data class GoogleIdentifier(val type: String = "", val identifier: String = "")
 
     companion object {
-        private const val ALGORITHM_VERSION = 3
-        private const val SIMILAR_ALGORITHM_VERSION = 2
+        private const val ALGORITHM_VERSION = 4
+        private const val SIMILAR_ALGORITHM_VERSION = 3
         private const val CACHE_MS = 24 * 60 * 60 * 1000L
         private val STRICT_GENERIC_TOPICS = setOf(
             "book", "books", "audiobook", "audiobooks", "fiction", "literature", "novel", "novels",
@@ -998,10 +1021,10 @@ class RecommendationService(
             }
         }
 
-        private fun matchesLanguage(languages: List<String>, preferred: String): Boolean {
-            if (preferred.isBlank()) return true
-            val wanted = canonicalLanguage(preferred)
-            return languages.any { canonicalLanguage(it) == wanted }
+        private fun matchesLanguage(languages: List<String>, preferred: Set<String>): Boolean {
+            if (preferred.isEmpty()) return true
+            val wanted = preferred.map(::canonicalLanguage).toSet()
+            return languages.any { canonicalLanguage(it) in wanted }
         }
 
         private fun openLibraryLanguage(language: String): String = when (canonicalLanguage(language)) {

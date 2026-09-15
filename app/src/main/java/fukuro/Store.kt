@@ -219,8 +219,9 @@ class Store(private val context: Context) {
     val recommendationExcludedTagsFlow: Flow<String> = context.dataStore.data.map {
         it[K.RECOMMENDATION_EXCLUDED_TAGS] ?: ""
     }
-    val recommendationLanguageFlow: Flow<String> = context.dataStore.data.map {
-        it[K.RECOMMENDATION_LANGUAGE] ?: ""
+    /** An empty set means Any; legacy single-language values remain valid. */
+    val recommendationLanguagesFlow: Flow<Set<String>> = context.dataStore.data.map {
+        parseRecommendationLanguages(it[K.RECOMMENDATION_LANGUAGE].orEmpty())
     }
     val serverFlow: Flow<String?> = context.dataStore.data.map { it[K.SERVER] }
     val usernameFlow: Flow<String?> = context.dataStore.data.map { it[K.USERNAME] }
@@ -255,13 +256,17 @@ class Store(private val context: Context) {
             .filter(String::isNotEmpty)
             .distinctBy { it.lowercase() }
     }
-    suspend fun setRecommendationLanguage(v: String) = context.dataStore.edit {
-        it[K.RECOMMENDATION_LANGUAGE] = v.trim().lowercase()
+    suspend fun setRecommendationLanguages(languages: Set<String>) = context.dataStore.edit {
+        it[K.RECOMMENDATION_LANGUAGE] = languages.map(String::trim).map(String::lowercase)
+            .filter { code -> code.matches(Regex("[a-z]{2}")) }
+            .distinct().sorted().joinToString(",")
     }
-    suspend fun recommendationLanguage(): String {
-        return context.dataStore.data.first()[K.RECOMMENDATION_LANGUAGE]
-            .orEmpty().trim().lowercase()
-    }
+    suspend fun recommendationLanguages(): Set<String> =
+        parseRecommendationLanguages(context.dataStore.data.first()[K.RECOMMENDATION_LANGUAGE].orEmpty())
+
+    private fun parseRecommendationLanguages(raw: String): Set<String> =
+        raw.split(',').map(String::trim).map(String::lowercase)
+            .filter { it.matches(Regex("[a-z]{2}")) }.toSet()
     suspend fun playbackSpeed(): Float = context.dataStore.data.first()[K.SPEED]?.toFloatOrNull() ?: 1.0f
     suspend fun setPlaybackSpeed(v: Float) = context.dataStore.edit { it[K.SPEED] = v.toString() }
 

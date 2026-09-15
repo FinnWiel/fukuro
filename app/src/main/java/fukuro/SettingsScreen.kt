@@ -15,11 +15,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -29,12 +32,12 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Colorize
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -200,6 +203,73 @@ private val RECOMMENDATION_LANGUAGES = listOf(
     "fi" to "Finnish",
 )
 
+@Composable
+private fun PreferredLanguagePicker(
+    selected: Set<String>,
+    onApply: (Set<String>) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf(selected) }
+    val names = RECOMMENDATION_LANGUAGES.filter { it.first in selected }.map { it.second }
+    val summary = when {
+        names.isEmpty() -> "Any language"
+        names.size <= 2 -> names.joinToString(", ")
+        else -> "${names.take(2).joinToString(", ")} +${names.size - 2}"
+    }
+    OutlinedButton(
+        onClick = { draft = selected; open = true },
+        modifier = Modifier.fillMaxWidth(),
+        shape = FukuroButtonShape,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Fukuro.colors.onBackground),
+    ) {
+        Text(summary, modifier = Modifier.weight(1f), maxLines = 1)
+        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Choose languages")
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Preferred languages") },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Choose any combination. Recommendations refresh once when you apply.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LanguagePickerRow("Any language", draft.isEmpty()) { draft = emptySet() }
+                    HorizontalDivider(color = Fukuro.colors.outline)
+                    RECOMMENDATION_LANGUAGES.filter { it.first.isNotBlank() }.forEach { (code, label) ->
+                        LanguagePickerRow(label, code in draft) {
+                            draft = if (code in draft) draft - code else draft + code
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    open = false
+                    if (draft != selected) onApply(draft)
+                }) { Text("Apply") }
+            },
+            dismissButton = {
+                TextButton(onClick = { open = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LanguagePickerRow(label: String, checked: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = { onClick() })
+        Text(label, modifier = Modifier.weight(1f).clickable(onClick = onClick))
+    }
+}
+
 /** Hue / saturation / lightness picker for a custom accent colour. */
 @Composable
 private fun AccentPickerDialog(initial: Color, onDismiss: () -> Unit, onPick: (String) -> Unit) {
@@ -279,7 +349,7 @@ fun SettingsScreen(
     }
     val storedGoogleBooksKey by vm.store.googleBooksKeyFlow.collectAsState(initial = "")
     val storedExcludedTags by vm.store.recommendationExcludedTagsFlow.collectAsState(initial = "")
-    val recommendationLanguage by vm.store.recommendationLanguageFlow.collectAsState(initial = "")
+    val recommendationLanguages by vm.store.recommendationLanguagesFlow.collectAsState(initial = emptySet())
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
@@ -572,30 +642,22 @@ fun SettingsScreen(
                 }
             }) { Text("Save exclusions and refresh") }
             Spacer(Modifier.height(16.dp))
-            Text("Preferred recommendation language", style = MaterialTheme.typography.bodyMedium)
+            Text("Preferred recommendation languages", style = MaterialTheme.typography.bodyMedium)
             Text(
-                "Any keeps recommendations in all languages. Choosing one restricts both providers.",
+                "Choose one or more languages. Any allows all languages; Apply refreshes recommendations.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                RECOMMENDATION_LANGUAGES.forEach { (code, label) ->
-                    FilterChip(
-                        selected = recommendationLanguage == code,
-                        onClick = {
-                            scope.launch {
-                                vm.store.setRecommendationLanguage(code)
-                                vm.refreshRecommendations(force = true)
-                            }
-                        },
-                        label = { Text(label) },
-                    )
-                }
-            }
+            PreferredLanguagePicker(
+                selected = recommendationLanguages,
+                onApply = { languages ->
+                    scope.launch {
+                        vm.store.setRecommendationLanguages(languages)
+                        vm.refreshRecommendations(force = true)
+                    }
+                },
+            )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = {
                 scope.launch {
