@@ -3,6 +3,7 @@ package fukuro
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.putJsonArray
@@ -16,6 +17,8 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import java.io.InputStream
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import java.time.Instant
 import java.time.ZoneId
@@ -108,8 +111,75 @@ class AbsApi(private val store: Store) {
         raw("POST", "/api/libraries/$libraryId/scan?force=${if (force) 1 else 0}", preferApiKey = true)
     }
 
-    suspend fun matchLibrary(libraryId: String) {
-        raw("GET", "/api/libraries/$libraryId/matchall", preferApiKey = true)
+    suspend fun activeTasks(): List<AbsTask> =
+        json.decodeFromString<AbsTasksResponse>(raw("GET", "/api/tasks", preferApiKey = true)).tasks
+
+    /** Same non-mutating provider search used by the ABS manual Match screen. */
+    suspend fun bookMatchCandidates(item: LibraryItem, provider: String): List<AbsBookMatch> {
+        fun encoded(value: String) = URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
+        val metadata = item.media.metadata
+        val selectedProvider = provider.ifBlank { "audible.uk" }
+        val audibleAsin = metadata.asin?.takeIf {
+            selectedProvider.startsWith("audible") && it.isNotBlank()
+        }
+        val title = audibleAsin ?: metadata.title.orEmpty()
+        val author = if (audibleAsin == null) metadata.authorName.orEmpty() else ""
+        val path = "/api/search/books?provider=${encoded(selectedProvider)}" +
+            "&fallbackTitleOnly=1&title=${encoded(title)}&author=${encoded(author)}&id=${encoded(item.id)}"
+        return json.decodeFromString(raw("GET", path, preferApiKey = true))
+    }
+
+    /** Apply the fields explicitly accepted in Fukuro's review popup. */
+    suspend fun applyBookMatch(review: MetadataMatchReview, selected: Set<MatchField>) {
+        val current = review.item
+        val proposed = review.suggestion
+        val fields = selected.intersect(proposedMatchFields(review))
+        require(fields.isNotEmpty()) { "Select at least one metadata field" }
+        val body = buildJsonObject {
+            if (MatchField.COVER in fields) {
+                put("url", proposed.cover)
+            }
+            putJsonObject("metadata") {
+                if (MatchField.TITLE in fields) {
+                    put("title", proposed.title)
+                }
+                if (MatchField.SUBTITLE in fields) {
+                    put("subtitle", proposed.subtitle)
+                }
+                if (MatchField.AUTHOR in fields) {
+                    putJsonArray("authors") {
+                        proposed.author.orEmpty().split(',', ';', '&').map(String::trim)
+                            .filter(String::isNotBlank).forEachIndexed { index, name ->
+                                add(buildJsonObject {
+                                    put("id", "new-fukuro-$index")
+                                    put("name", name)
+                                })
+                            }
+                    }
+                }
+                if (MatchField.GENRES in fields) {
+                    putJsonArray("genres") { proposed.genres.orEmpty().forEach { add(JsonPrimitive(it)) } }
+                }
+                if (MatchField.DESCRIPTION in fields) {
+                    put("description", proposed.description)
+                }
+                if (MatchField.PUBLISHER in fields) {
+                    put("publisher", proposed.publisher)
+                }
+                if (MatchField.YEAR in fields) {
+                    put("publishedYear", proposed.publishedYear)
+                }
+                if (MatchField.ISBN in fields) put("isbn", proposed.isbn)
+                if (MatchField.ASIN in fields) put("asin", proposed.asin)
+                if (MatchField.LANGUAGE in fields) {
+                    put("language", proposed.language)
+                }
+            }
+            if (MatchField.TAGS in fields) {
+                putJsonArray("tags") { proposed.tags.orEmpty().forEach { add(JsonPrimitive(it)) } }
+            }
+        }.toString()
+        raw("PATCH", "/api/items/${current.id}/media", body, preferApiKey = true)
     }
 
     suspend fun users(): List<AbsUser> =
@@ -122,6 +192,22 @@ class AbsApi(private val store: Store) {
         json.decodeFromString<ItemsResponse>(
             raw("GET", "/api/libraries/$libraryId/items?limit=1000&sort=media.metadata.title&minified=0")
         ).results
+
+    /** Match maintenance must cover the whole library, not just the home screen's first page. */
+    suspend fun allLibraryItems(libraryId: String): List<LibraryItem> {
+        val result = mutableListOf<LibraryItem>()
+        val limit = 500
+        var page = 0
+        while (true) {
+            val response = json.decodeFromString<ItemsResponse>(
+                raw("GET", "/api/libraries/$libraryId/items?limit=$limit&page=$page&sort=media.metadata.title&minified=0")
+            )
+            result += response.results
+            if (response.results.size < limit || result.size >= response.total) break
+            page++
+        }
+        return result.distinctBy { it.id }
+    }
 
     /**
      * Pulls the first chunk of an audio file and throws it away. That opens the

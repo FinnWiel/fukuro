@@ -68,8 +68,82 @@ data class AbsLibrary(
     val id: String,
     val name: String,
     val mediaType: String = "book",
+    val provider: String = "google",
     val folders: List<LibFolder> = emptyList(),
 )
+
+@Serializable
+data class AbsBookMatch(
+    val id: String? = null,
+    val title: String = "",
+    val subtitle: String? = null,
+    val author: String? = null,
+    val publisher: String? = null,
+    val publishedYear: String? = null,
+    val description: String? = null,
+    val cover: String? = null,
+    val isbn: String? = null,
+    val asin: String? = null,
+    val language: String? = null,
+    val genres: List<String>? = null,
+    val tags: List<String>? = null,
+    val matchConfidence: Double? = null,
+)
+
+data class MetadataMatchReview(
+    val item: LibraryItem,
+    val provider: String,
+    val suggestion: AbsBookMatch,
+    val replaceExisting: Boolean = false,
+)
+
+enum class MatchField(val label: String) {
+    TITLE("Title"), SUBTITLE("Subtitle"), AUTHOR("Author"), GENRES("Genres"), TAGS("Tags"),
+    DESCRIPTION("Description"), PUBLISHER("Publisher"), YEAR("Year"), ISBN("ISBN"),
+    ASIN("ASIN"), LANGUAGE("Language"), COVER("Cover"),
+}
+
+/** The exact fields the match would add or replace, before the user selects a subset. */
+fun proposedMatchFields(review: MetadataMatchReview): Set<MatchField> {
+    val current = review.item.media.metadata
+    val suggestion = review.suggestion
+    fun changed(old: String?, new: String?): Boolean =
+        !new.isNullOrBlank() && (old.isNullOrBlank() ||
+            (review.replaceExisting && !old.trim().equals(new.trim(), ignoreCase = true)))
+    fun changedList(old: List<String>, new: List<String>?): Boolean =
+        !new.isNullOrEmpty() && (old.isEmpty() ||
+            (review.replaceExisting && old.map { it.trim().lowercase() }.toSet() !=
+                new.map { it.trim().lowercase() }.toSet()))
+    return buildSet {
+        if (changed(current.title, suggestion.title)) add(MatchField.TITLE)
+        if (changed(current.subtitle, suggestion.subtitle)) add(MatchField.SUBTITLE)
+        if (changed(current.authorName, suggestion.author)) add(MatchField.AUTHOR)
+        if (changedList(current.genres, suggestion.genres)) add(MatchField.GENRES)
+        if (changedList(review.item.tags, suggestion.tags)) add(MatchField.TAGS)
+        if (changed(current.description, suggestion.description)) add(MatchField.DESCRIPTION)
+        if (changed(current.publisher, suggestion.publisher)) add(MatchField.PUBLISHER)
+        if (changed(current.publishedYear, suggestion.publishedYear)) add(MatchField.YEAR)
+        if (changed(current.isbn, suggestion.isbn)) add(MatchField.ISBN)
+        if (changed(current.asin, suggestion.asin)) add(MatchField.ASIN)
+        if (changed(current.language, suggestion.language)) add(MatchField.LANGUAGE)
+        if (review.item.media.coverPath.isNullOrBlank() && !suggestion.cover.isNullOrBlank()) {
+            add(MatchField.COVER)
+        }
+    }
+}
+
+@Serializable
+data class AbsTasksResponse(val tasks: List<AbsTask> = emptyList())
+
+@Serializable
+data class AbsTask(
+    val id: String = "",
+    val action: String = "",
+    val data: AbsTaskData = AbsTaskData(),
+)
+
+@Serializable
+data class AbsTaskData(val libraryId: String = "")
 
 @Serializable
 data class LibFolder(val id: String = "", val fullPath: String = "")
@@ -105,11 +179,16 @@ data class LibraryItem(
     val relPath: String = "",
     val addedAt: Long = 0,
     val media: Media = Media(),
-)
+) {
+    /** ABS stores book tags on media, not on the library item itself. */
+    val tags: List<String> get() = media.tags
+}
 
 @Serializable
 data class Media(
     val metadata: Metadata = Metadata(),
+    val coverPath: String? = null,
+    val tags: List<String> = emptyList(),
     val duration: Double = 0.0,
     val numAudioFiles: Int = 0,
     val audioFiles: List<AudioFile> = emptyList(),
@@ -128,13 +207,18 @@ data class Chapter(
 data class Metadata(
     val title: String? = null,
     val titleIgnorePrefix: String? = null,
+    val subtitle: String? = null,
     val authorName: String? = null,
     val seriesName: String? = null,
     val series: List<SeriesRef> = emptyList(),
     val narratorName: String? = null,
     val description: String? = null,
+    val publisher: String? = null,
     val publishedYear: String? = null,
     val genres: List<String> = emptyList(),
+    val isbn: String? = null,
+    val asin: String? = null,
+    val language: String? = null,
 )
 
 @Serializable

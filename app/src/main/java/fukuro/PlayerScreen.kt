@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RemoveDone
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.AlertDialog
@@ -77,6 +79,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -159,6 +162,7 @@ fun PlayerScreen(
     onOpenBook: (String) -> Unit = {},
     onOpenSeries: (String) -> Unit = {},
     onOpenAuthor: (String) -> Unit = {},
+    onOpenRecommendation: (BookRecommendation) -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val skipBack by vm.store.skipBackFlow.collectAsState(initial = 10)
@@ -181,6 +185,12 @@ fun PlayerScreen(
     var showSpeedDialog by remember { mutableStateOf(false) }
     var chaptersExpanded by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    var similarBooks by remember { mutableStateOf<List<BookRecommendation>>(emptyList()) }
+    var similarBooksLoading by remember { mutableStateOf(false) }
+    var similarBooksLoaded by remember { mutableStateOf(false) }
+    var similarRefreshRequest by remember { mutableIntStateOf(0) }
+    var handledSimilarRefresh by remember { mutableIntStateOf(0) }
+    var similarBooksForId by remember { mutableStateOf<String?>(null) }
 
     androidx.compose.runtime.DisposableEffect(controller) {
         val activeController = controller
@@ -317,6 +327,14 @@ fun PlayerScreen(
         label = "playerArtworkBackground",
     )
     val seriesOfBook = state.series.firstOrNull { s -> s.books.any { b -> b.id == displayId } }
+    val recommendationSeed = detail ?: libItem
+    val playerListState = rememberLazyListState()
+    val shouldLoadSimilarBooks by remember(displayId) {
+        derivedStateOf {
+            playerListState.firstVisibleItemIndex > 0 ||
+                playerListState.firstVisibleItemScrollOffset > 240
+        }
+    }
     val saved = state.progress[displayId]
     val bookDuration = detail?.media?.duration ?: libItem?.media?.duration ?: 0.0
 
@@ -330,6 +348,30 @@ fun PlayerScreen(
         absolutePosSec >= it.start && absolutePosSec < it.end
     }
     val showCoverBookProgress = trackScope == "chapter_cover" && currentChapter != null
+
+    LaunchedEffect(
+        displayId,
+        shouldLoadSimilarBooks,
+        similarRefreshRequest,
+        recommendationSeed?.tags,
+        recommendationSeed?.media?.metadata?.genres,
+    ) {
+        if (similarBooksForId != displayId) {
+            similarBooksForId = displayId
+            similarBooks = emptyList()
+            similarBooksLoaded = false
+            similarBooksLoading = false
+        }
+        if (!shouldLoadSimilarBooks) return@LaunchedEffect
+        val seed = recommendationSeed ?: return@LaunchedEffect
+        val force = similarRefreshRequest != handledSimilarRefresh
+        handledSimilarRefresh = similarRefreshRequest
+        similarBooksLoading = true
+        val result = runCatching { vm.similarRecommendations(seed, force = force) }
+        if (result.isSuccess) similarBooks = result.getOrDefault(emptyList())
+        similarBooksLoading = false
+        similarBooksLoaded = true
+    }
 
     fun seekAbsolute(sec: Double) {
         // the service owns the track layout; hand it book seconds and let it land the seek
@@ -449,6 +491,7 @@ fun PlayerScreen(
             // held by a spacer inside the washed block instead.
             LazyColumn(
                 Modifier.fillMaxSize(),
+                state = playerListState,
                 contentPadding = PaddingValues(bottom = pad.calculateBottomPadding()),
             ) {
                 item {
@@ -909,6 +952,69 @@ fun PlayerScreen(
                                 Text(author, style = MaterialTheme.typography.bodyMedium, color = TxtSecondary)
                             }
                             Text("View", color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+
+                // ----- strictly similar books -----
+                item {
+                    Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Different books like this",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TxtPrimary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(
+                                enabled = !similarBooksLoading,
+                                onClick = { similarRefreshRequest += 1 },
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Refresh,
+                                    "Reload similar books",
+                                    tint = if (similarBooksLoading) TxtSecondary.copy(alpha = 0.45f)
+                                    else TxtPrimary,
+                                )
+                            }
+                        }
+                        Text(
+                            "Strict matches based only on this book's tags and author",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TxtSecondary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
+                        )
+                        when {
+                            similarBooksLoading -> Box(
+                                Modifier.fillMaxWidth().height(96.dp),
+                                contentAlignment = Alignment.Center,
+                            ) { CircularProgressIndicator(Modifier.size(28.dp)) }
+                            similarBooks.isNotEmpty() -> LazyRow(
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                items(similarBooks, key = { recommendationFeedbackKey(it) }) { book ->
+                                    CarouselCell(
+                                        title = book.title,
+                                        meta = book.reason.substringAfter(": ", book.reason),
+                                        cover = book.coverUrl,
+                                        progress = 0f,
+                                        finished = false,
+                                        coverSize = state.coverSize,
+                                        onClick = { onOpenRecommendation(book) },
+                                        progressStyle = state.progressStyle,
+                                    )
+                                }
+                            }
+                            similarBooksLoaded -> Text(
+                                "No sufficiently close matches found.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TxtSecondary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
+                            )
                         }
                     }
                 }

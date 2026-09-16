@@ -15,11 +15,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Colorize
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Slider
@@ -183,6 +187,89 @@ private fun prettyFolder(uri: String): String {
     return if (tail.isBlank()) decoded.takeLast(40) else "…/$tail"
 }
 
+private val RECOMMENDATION_LANGUAGES = listOf(
+    "" to "Any",
+    "en" to "English",
+    "nl" to "Dutch",
+    "de" to "German",
+    "fr" to "French",
+    "es" to "Spanish",
+    "it" to "Italian",
+    "pt" to "Portuguese",
+    "pl" to "Polish",
+    "sv" to "Swedish",
+    "da" to "Danish",
+    "no" to "Norwegian",
+    "fi" to "Finnish",
+)
+
+@Composable
+private fun PreferredLanguagePicker(
+    selected: Set<String>,
+    onApply: (Set<String>) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf(selected) }
+    val names = RECOMMENDATION_LANGUAGES.filter { it.first in selected }.map { it.second }
+    val summary = when {
+        names.isEmpty() -> "Any language"
+        names.size <= 2 -> names.joinToString(", ")
+        else -> "${names.take(2).joinToString(", ")} +${names.size - 2}"
+    }
+    OutlinedButton(
+        onClick = { draft = selected; open = true },
+        modifier = Modifier.fillMaxWidth(),
+        shape = FukuroButtonShape,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Fukuro.colors.onBackground),
+    ) {
+        Text(summary, modifier = Modifier.weight(1f), maxLines = 1)
+        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Choose languages")
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Preferred languages") },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Choose any combination. Recommendations refresh once when you apply.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LanguagePickerRow("Any language", draft.isEmpty()) { draft = emptySet() }
+                    HorizontalDivider(color = Fukuro.colors.outline)
+                    RECOMMENDATION_LANGUAGES.filter { it.first.isNotBlank() }.forEach { (code, label) ->
+                        LanguagePickerRow(label, code in draft) {
+                            draft = if (code in draft) draft - code else draft + code
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    open = false
+                    if (draft != selected) onApply(draft)
+                }) { Text("Apply") }
+            },
+            dismissButton = {
+                TextButton(onClick = { open = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LanguagePickerRow(label: String, checked: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = { onClick() })
+        Text(label, modifier = Modifier.weight(1f).clickable(onClick = onClick))
+    }
+}
+
 /** Hue / saturation / lightness picker for a custom accent colour. */
 @Composable
 private fun AccentPickerDialog(initial: Color, onDismiss: () -> Unit, onPick: (String) -> Unit) {
@@ -260,9 +347,14 @@ fun SettingsScreen(
             vm.setLocalFolder(uri.toString())
         }
     }
+    val storedGoogleBooksKey by vm.store.googleBooksKeyFlow.collectAsState(initial = "")
+    val storedExcludedTags by vm.store.recommendationExcludedTagsFlow.collectAsState(initial = "")
+    val recommendationLanguages by vm.store.recommendationLanguagesFlow.collectAsState(initial = emptySet())
     val server by vm.store.serverFlow.collectAsState(initial = null)
     val username by vm.store.usernameFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
+    var googleBooksKeyText by remember(storedGoogleBooksKey) { mutableStateOf(storedGoogleBooksKey) }
+    var excludedTagsText by remember(storedExcludedTags) { mutableStateOf(storedExcludedTags) }
     if (showPicker) {
         AccentPickerDialog(
             initial = accentColorOf(accent),
@@ -510,6 +602,70 @@ fun SettingsScreen(
 
             item(key = "account-and-updates") {
                 Column {
+            SectionTitle("Recommendations")
+            Spacer(Modifier.height(4.dp))
+            SectionCaption(
+                "Open Library works automatically. Add a Google Books API key to improve covers, descriptions, categories, and matching."
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                googleBooksKeyText,
+                { googleBooksKeyText = it },
+                singleLine = true,
+                label = { Text("Google Books API key (optional)") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            SettingsButton(onClick = {
+                scope.launch {
+                    vm.store.setGoogleBooksKey(googleBooksKeyText.trim())
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Save and refresh") }
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                excludedTagsText,
+                { excludedTagsText = it },
+                label = { Text("Excluded recommendation tags") },
+                supportingText = {
+                    Text("Separate tags with commas, for example: children, juvenile fiction, young adult")
+                },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = {
+                scope.launch {
+                    vm.store.setRecommendationExcludedTags(excludedTagsText.trim())
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Save exclusions and refresh") }
+            Spacer(Modifier.height(16.dp))
+            Text("Preferred recommendation languages", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Choose one or more languages. Any allows all languages; Apply refreshes recommendations.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            PreferredLanguagePicker(
+                selected = recommendationLanguages,
+                onApply = { languages ->
+                    scope.launch {
+                        vm.store.setRecommendationLanguages(languages)
+                        vm.refreshRecommendations(force = true)
+                    }
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = {
+                scope.launch {
+                    vm.store.clearRecommendationFeedback()
+                    vm.refreshRecommendations(force = true)
+                }
+            }) { Text("Reset recommendation feedback") }
+
             Spacer(Modifier.height(24.dp))
             HorizontalDivider(color = Fukuro.colors.outline)
             Spacer(Modifier.height(16.dp))
@@ -574,6 +730,8 @@ fun AdminSettingsScreen(
     val admin by vm.admin.collectAsState()
     val permissions = state.currentUserPermissions
     val storedApiKey by vm.store.apiKeyFlow.collectAsState(initial = "")
+    val autoMatchNewBooks by vm.store.autoMatchNewBooksFlow.collectAsState(initial = false)
+    val metadataMatchProvider by vm.store.metadataMatchProviderFlow.collectAsState(initial = "audible.uk")
     val scope = rememberCoroutineScope()
     var apiKeyText by remember(storedApiKey) { mutableStateOf(storedApiKey) }
     val onlineUserIds = remember(admin.onlineUsers) { admin.onlineUsers.map { it.id }.toSet() }
@@ -645,7 +803,39 @@ fun AdminSettingsScreen(
                     Spacer(Modifier.height(16.dp))
                     SectionTitle("Library maintenance")
                     Spacer(Modifier.height(4.dp))
-                    SectionCaption("Start the same server-side scans and metadata matching available in Audiobookshelf.")
+                    SectionCaption("Scan runs on Audiobookshelf. Match metadata previews each proposed change in Fukuro and waits for your decision.")
+                    Spacer(Modifier.height(8.dp))
+                    SettingLabel(
+                        "Metadata matching provider",
+                        "Fukuro defaults to Audible.co.uk for Match metadata and new-book review. ABS library follows the provider configured on your server; this setting does not change it.",
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SegmentedSelector(
+                        options = listOf("audible.uk" to "Audible UK", "library" to "ABS library"),
+                        selected = metadataMatchProvider,
+                        onSelect = { provider -> scope.launch { vm.store.setMetadataMatchProvider(provider) } },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        Modifier.fillMaxWidth().height(64.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = autoMatchNewBooks,
+                            onCheckedChange = vm::setAutoMatchNewBooks,
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text("Review metadata for new books")
+                            Text(
+                                "Shows a review popup before adding missing metadata.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        SettingInfo(
+                            "Searches the matching provider selected above once for each new book. Nothing is changed until you accept the suggested author, genres, tags and other missing details."
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     if (state.libraries.isEmpty()) {
                         SectionCaption("No server libraries are loaded.")
@@ -734,7 +924,7 @@ private fun AdminLibraryActions(
         onClick = onMatch,
         modifier = Modifier.fillMaxWidth(),
         enabled = runningAction == null,
-    ) { Text(if (runningAction == "match-${library.id}") "Matching..." else "Match metadata") }
+    ) { Text(if (runningAction == "match-${library.id}") "Reviewing..." else "Match metadata") }
 }
 
 @Composable

@@ -14,6 +14,8 @@ Fukuro is a personal Android client for [Audiobookshelf](https://www.audiobooksh
 - Downloads books for offline listening, including offline Android Auto browsing.
 - Saves playback position locally first, then syncs progress back to Audiobookshelf.
 - Keeps listening stats available offline by caching server stats and merging them with local sessions.
+- Discovers books from Open Library and optional Google Books using library authors, tags, genres, series, favorites, and listening history, with tag exclusions and multi-language preferences.
+- Offers a review-before-update workflow for matching missing book metadata, with Audible.co.uk as the default review source.
 - Supports series, authors, narrators, favorites, chapters, sleep timers, playback speed, uploads, and home-screen customization.
 
 ## Highlights
@@ -35,6 +37,12 @@ The Stats page combines Audiobookshelf listening history with local sessions rec
   <img src="docs/images/stats-bars.jpg" alt="Fukuro stats screen with bar chart" width="220">
 </p>
 
+### Book discovery and metadata review
+
+Home recommendations use library metadata and listening activity to search Open Library and, when a Google Books API key is configured, Google Books. Fukuro favors relevant books with strong ratings backed by many ratings, balances recommendations across interests, and hides books already in the library. You can refresh the shelf, exclude unwanted tags, select several preferred languages, and open an in-app page with a synopsis and tags. The full player also offers a narrower, reloadable "similar books" shelf based on the current book. These are book-metadata matches; Fukuro does not verify audiobook-edition availability.
+
+Metadata matching is separate from recommendations. In Settings, you can review proposed updates for a library or opt in to reviews when newly added books are missing metadata. Fukuro previews each proposed field and applies only the fields you select after you accept. Audible.co.uk is the default source for Fukuro's review suggestions; it does not change the metadata provider configured on the Audiobookshelf server.
+
 ### Designed for a personal server
 
 Fukuro assumes a self-hosted Audiobookshelf setup and keeps LAN HTTP support enabled for home use. For remote access, put Audiobookshelf behind HTTPS or connect through a VPN.
@@ -48,6 +56,8 @@ Fukuro assumes a self-hosted Audiobookshelf setup and keeps LAN HTTP support ena
 | Offline | Downloaded books, on-device library support, offline playback, Android Auto access to downloaded items |
 | Library | Home shelves, full library grid, series pages, author and narrator pages, cover caching |
 | Organization | Favorites, custom home shelves, continue-listening hiding, sort and filter controls |
+| Discovery | Home recommendations, in-app details, similar books in the full player, refresh, feedback, tag exclusions, preferred languages |
+| Metadata review | Manual library matching, optional new-book reviews, selectable fields before applying changes |
 | Player | Chapter list, sleep timer, playback speed up to 10x, configurable chapter/book progress display |
 | Stats | Period summaries, activity chart, streaks, recent sessions, completion highlights, year-in-review card |
 | Server tools | Rename, mark finished, reset progress, upload books with an Audiobookshelf API key |
@@ -64,7 +74,8 @@ If Android blocks the install, allow installs from the app you used to open the 
 1. Enter your Audiobookshelf server URL, for example `http://192.168.x.x:13378`.
 2. Log in with your Audiobookshelf username and password.
 3. Optional: add an Audiobookshelf API key in Settings to enable uploads.
-4. Optional: download books you want available away from the server.
+4. Optional: add a Google Books API key in Settings for a second recommendation source.
+5. Optional: download books you want available away from the server.
 
 ## Building
 
@@ -111,6 +122,7 @@ app/src/main/
     Screens.kt            Login, library, series, author, narrator, book sheets
     HomeScreen.kt         Home shelves
     PlayerScreen.kt       Full player
+    Recommendations.kt    Book discovery, ranking, and recommendation details
     StatsScreen.kt        Listening charts, habits, recent sessions
     SettingsScreen.kt     Settings and admin settings
     UploadScreen.kt       Upload a book

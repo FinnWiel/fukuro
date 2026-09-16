@@ -222,7 +222,8 @@ fun AppNav(
     )
     // the app always opens straight into the library; the server is optional and is
     // added from the status chip on Home or from Settings
-    val showChrome = route != "player" && route != "login" && !route.startsWith("book/")
+    val showChrome = route != "player" && route != "login" && route != "recommendation" &&
+        !route.startsWith("book/")
 
     fun bookId(item: MediaItem?): String? = playingBookId(item)
 
@@ -254,6 +255,9 @@ fun AppNav(
 
     // book sheet: null = closed, SHEET_CURRENT = whatever is playing, else an item id
     var sheetItem by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
+    var selectedRecommendation by androidx.compose.runtime.remember {
+        mutableStateOf<BookRecommendation?>(null)
+    }
 
     fun playBook(itemId: String, startAtSec: Double? = null) {
         val c = controller ?: return
@@ -336,7 +340,21 @@ fun AppNav(
                         },
                         playingBookId = playingBookId,
                         isPlaying = controllerIsPlaying,
-                        miniPlayerVisible = miniPlayerVisible)
+                        miniPlayerVisible = miniPlayerVisible,
+                        onOpenRecommendation = { book ->
+                            selectedRecommendation = book
+                            nav.navigate("recommendation")
+                        },
+                    )
+                }
+                composable("recommendation") {
+                    selectedRecommendation?.let { book ->
+                        RecommendationDetailScreen(
+                            vm = vm,
+                            recommendation = book,
+                            onBack = { nav.popBackStack() },
+                        )
+                    } ?: LaunchedEffect(Unit) { nav.popBackStack() }
                 }
                 composable("library") {
                     LibraryScreen(
@@ -480,6 +498,11 @@ fun AppNav(
                     sheetItem = null
                     nav.navigate("author/${android.net.Uri.encode(name)}")
                 },
+                onOpenRecommendation = { book ->
+                    selectedRecommendation = book
+                    sheetItem = null
+                    nav.navigate("recommendation")
+                },
             )
         }
 
@@ -488,6 +511,17 @@ fun AppNav(
         // player into the mini player without popping the series underneath it.
         androidx.activity.compose.BackHandler(enabled = sheetItem != null) {
             sheetItem = null
+        }
+
+        state.metadataMatchReviews.firstOrNull()?.let { review ->
+            MetadataMatchReviewDialog(
+                review = review,
+                applying = state.metadataMatchApplying,
+                error = state.metadataMatchError,
+                onAccept = { fields -> vm.acceptMetadataMatch(review, fields) },
+                onDecline = { vm.declineMetadataMatch(review) },
+                onStop = { vm.stopMetadataMatching(review) },
+            )
         }
     }
 }

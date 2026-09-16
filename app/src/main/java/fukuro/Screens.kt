@@ -9,6 +9,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -72,6 +75,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -90,6 +94,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -684,6 +689,374 @@ val COVER_SIZE_LABELS = listOf("XS", "S", "M", "L", "XL")
 private val COVER_GRID_COLUMNS = listOf(5, 4, 3, 2, 1)
 
 fun coverGridColumns(size: Int) = COVER_GRID_COLUMNS[size.coerceIn(0, 4)]
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun RecommendationDetailScreen(
+    vm: ShelfViewModel,
+    recommendation: BookRecommendation,
+    onBack: () -> Unit,
+) {
+    var book by remember(recommendation) { mutableStateOf(recommendation) }
+    var loading by remember(recommendation) { mutableStateOf(true) }
+    val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(recommendation) {
+        book = runCatching { vm.recommendationDetails(recommendation) }.getOrDefault(recommendation)
+        loading = false
+    }
+
+    Scaffold(
+        containerColor = Fukuro.colors.background,
+        topBar = { FlatTopBar("Recommendation", onBack) },
+    ) { pad ->
+        Column(
+            Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())
+                .padding(horizontal = Fukuro.dims.screenPadding, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CoverImage(
+                model = book.coverUrl,
+                contentDescription = book.title,
+                modifier = Modifier.size(196.dp).clip(RoundedCornerShape(Fukuro.dims.coverRadius)),
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(book.title, style = Fukuro.type.greeting, color = Fukuro.colors.onBackground)
+            if (book.authors.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    book.authors.joinToString(", "),
+                    style = Fukuro.type.body,
+                    color = Fukuro.colors.onSurfaceVariant,
+                )
+            }
+            val facts = listOfNotNull(
+                book.publishedYear?.toString(),
+                book.isbn?.let { "ISBN $it" },
+                book.asin?.let { "ASIN $it" },
+            )
+            if (facts.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    facts.joinToString(" · "),
+                    style = Fukuro.type.captionMeta,
+                    color = Fukuro.colors.tertiaryText,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Surface(shape = RoundedCornerShape(12.dp), color = Fukuro.colors.surface) {
+                Text(
+                    book.reason,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    style = Fukuro.type.body,
+                    color = Fukuro.colors.onBackground,
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionTitle("Tune recommendations", Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { vm.boostRecommendation(book); onBack() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("More like this") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { vm.dismissRecommendation(book); onBack() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Not interested") }
+            if (book.authors.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { vm.reduceRecommendationAuthor(book); onBack() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Less from this author") }
+            }
+            if (!book.primaryTopic.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { vm.reduceRecommendationTopic(book); onBack() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Less like this topic") }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionTitle("Synopsis", Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            when {
+                loading -> CircularProgressIndicator(Modifier.size(28.dp))
+                book.description.isNullOrBlank() -> SectionCaption(
+                    "No synopsis is available from ${book.provider}.",
+                    Modifier.fillMaxWidth(),
+                )
+                else -> Text(
+                    android.text.Html.fromHtml(
+                        book.description.orEmpty(), android.text.Html.FROM_HTML_MODE_COMPACT,
+                    ).toString(),
+                    modifier = Modifier.fillMaxWidth(),
+                    style = Fukuro.type.body,
+                    color = Fukuro.colors.onBackground,
+                )
+            }
+
+            if (book.subjects.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
+                SectionTitle("Tags", Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    book.subjects.forEach { subject ->
+                        Surface(shape = RoundedCornerShape(50), color = Fukuro.colors.surface) {
+                            Text(
+                                subject,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                                style = Fukuro.type.chip,
+                                color = Fukuro.colors.onBackground,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionCaption("Metadata from ${book.provider}")
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { uriHandler.openUri(book.detailUrl) }) {
+                Text("View source")
+            }
+            Spacer(Modifier.height(140.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun MetadataMatchReviewDialog(
+    review: MetadataMatchReview,
+    applying: Boolean,
+    error: String?,
+    onAccept: (Set<MatchField>) -> Unit,
+    onDecline: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val current = review.item.media.metadata
+    val proposed = review.suggestion
+    val available = remember(review) { proposedMatchFields(review) }
+    var selected by remember(review) { mutableStateOf(available) }
+    fun toggle(field: MatchField, checked: Boolean) {
+        selected = if (checked) selected + field else selected - field
+    }
+    AlertDialog(
+        onDismissRequest = { },
+        title = { Text(if (review.replaceExisting) "Review metadata change" else "New book metadata found") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(verticalAlignment = Alignment.Top) {
+                    CoverImage(
+                        model = proposed.cover,
+                        contentDescription = proposed.title,
+                        modifier = Modifier.width(72.dp).height(108.dp)
+                            .clip(RoundedCornerShape(Fukuro.dims.coverRadius)),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            proposed.title,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        proposed.author?.takeIf(String::isNotBlank)?.let {
+                            Spacer(Modifier.height(3.dp))
+                            Text(it, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Found with ${if (review.provider == "audible.uk") "Audible.co.uk" else review.provider}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "For ${current.title ?: review.item.relPath}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                if (review.replaceExisting) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "This is the provider's first result, not a guaranteed match. Check it before replacing metadata.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Check the fields you want to apply:", style = MaterialTheme.typography.labelLarge)
+                @Composable fun line(field: MatchField, old: String?, new: String?) {
+                    if (field in available) {
+                        SelectableMatchLine(field, old, new, field in selected) { toggle(field, it) }
+                    }
+                }
+                line(MatchField.TITLE, current.title, proposed.title)
+                line(MatchField.SUBTITLE, current.subtitle, proposed.subtitle)
+                line(MatchField.AUTHOR, current.authorName, proposed.author)
+                line(MatchField.PUBLISHER, current.publisher, proposed.publisher)
+                line(MatchField.YEAR, current.publishedYear, proposed.publishedYear)
+                line(MatchField.ISBN, current.isbn, proposed.isbn)
+                line(MatchField.ASIN, current.asin, proposed.asin)
+                line(MatchField.LANGUAGE, current.language, proposed.language)
+                if (MatchField.COVER in available) {
+                    SelectableMatchLine(MatchField.COVER, null, "Use suggested cover", MatchField.COVER in selected) {
+                        toggle(MatchField.COVER, it)
+                    }
+                }
+
+                val categories = proposed.genres.orEmpty()
+                val tags = proposed.tags.orEmpty()
+                if (MatchField.GENRES in available) {
+                    Spacer(Modifier.height(12.dp))
+                    SelectableMatchHeader(MatchField.GENRES, MatchField.GENRES in selected) {
+                        toggle(MatchField.GENRES, it)
+                    }
+                    if (review.replaceExisting && current.genres.isNotEmpty()) {
+                        Text("Current: ${current.genres.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    MatchReviewChips(categories)
+                }
+                if (MatchField.TAGS in available) {
+                    Spacer(Modifier.height(12.dp))
+                    SelectableMatchHeader(MatchField.TAGS, MatchField.TAGS in selected) {
+                        toggle(MatchField.TAGS, it)
+                    }
+                    if (review.replaceExisting && review.item.tags.isNotEmpty()) {
+                        Text("Current: ${review.item.tags.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    MatchReviewChips(tags)
+                }
+                if (MatchField.GENRES !in available && MatchField.TAGS !in available) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "This match contains no genres or tags.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                proposed.description?.takeIf(String::isNotBlank)
+                    ?.takeIf { MatchField.DESCRIPTION in available }?.let { description ->
+                    Spacer(Modifier.height(12.dp))
+                    SelectableMatchHeader(MatchField.DESCRIPTION, MatchField.DESCRIPTION in selected) {
+                        toggle(MatchField.DESCRIPTION, it)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    if (review.replaceExisting && !current.description.isNullOrBlank()) {
+                        Text(
+                            "Current: ${android.text.Html.fromHtml(current.description, android.text.Html.FROM_HTML_MODE_COMPACT)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text("Suggested:", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Text(
+                        android.text.Html.fromHtml(
+                            description, android.text.Html.FROM_HTML_MODE_COMPACT,
+                        ).toString(),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (review.replaceExisting)
+                        "Accept applies only checked fields, including replacements. Existing cover art is kept."
+                    else "Accept fills only checked fields that are currently empty.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                error?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onAccept(selected) }, enabled = !applying && selected.isNotEmpty()) {
+                Text(if (applying) "Applying…" else "Accept")
+            }
+        },
+        dismissButton = {
+            Row {
+                if (review.replaceExisting) {
+                    TextButton(onClick = onStop, enabled = !applying) { Text("Stop matching") }
+                }
+                TextButton(onClick = onDecline, enabled = !applying) { Text("Decline") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun SelectableMatchLine(
+    field: MatchField,
+    current: String?,
+    proposed: String?,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+) {
+    if (proposed.isNullOrBlank()) return
+    Spacer(Modifier.height(8.dp))
+    SelectableMatchHeader(field, checked, onChecked)
+    Text(
+        if (current.isNullOrBlank()) "Suggested: $proposed" else "Current: $current\nSuggested: $proposed",
+        modifier = Modifier.padding(start = 48.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun SelectableMatchHeader(
+    field: MatchField,
+    checked: Boolean,
+    onChecked: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = onChecked)
+        Text(
+            field.label,
+            modifier = Modifier.clickable { onChecked(!checked) },
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MatchReviewChips(values: List<String>) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        values.distinct().forEach { value ->
+            Surface(shape = RoundedCornerShape(50), color = Fukuro.colors.surface) {
+                Text(
+                    value,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
 
 /* ---------------- Library (full grid + search) ---------------- */
 

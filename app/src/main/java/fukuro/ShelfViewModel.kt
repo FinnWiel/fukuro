@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,12 @@ data class UiState(
     val coverRevision: Int = 0,
     val currentUserRole: String? = null,
     val currentUserPermissions: AbsUserPermissions? = null,
+    val recommendations: List<BookRecommendation> = emptyList(),
+    val recommendationsLoading: Boolean = false,
+    val recommendationsError: String? = null,
+    val metadataMatchReviews: List<MetadataMatchReview> = emptyList(),
+    val metadataMatchApplying: Boolean = false,
+    val metadataMatchError: String? = null,
 ) {
     /** ABS admin areas are role-gated; never infer them from a hardcoded username. */
     val canOpenAdminSettings: Boolean
@@ -149,6 +156,91 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
     val local get() = shelf.local
     private val cache get() = shelf.cache
+    private val recommendationService get() = shelf.recommendations
+    private var recommendationJob: kotlinx.coroutines.Job? = null
+    private var autoMatchJob: kotlinx.coroutines.Job? = null
+    private var manualReviewGate: CompletableDeferred<Boolean>? = null
+
+    /** Loads the last discovery result immediately, then refreshes it when its daily cache expires. */
+    fun refreshRecommendations(force: Boolean = false) {
+        if (recommendationJob?.isActive == true && !force) return
+        recommendationJob?.cancel()
+        recommendationJob = viewModelScope.launch {
+            val snapshot = _state.value
+            if (snapshot.allItems.isEmpty()) return@launch
+            if (snapshot.recommendations.isEmpty()) {
+                val cached = recommendationService.cached()
+                if (cached.isNotEmpty()) _state.value = _state.value.copy(recommendations = cached)
+            }
+            _state.value = _state.value.copy(
+                recommendationsLoading = true,
+                recommendationsError = null,
+            )
+            try {
+                val current = _state.value
+                val books = recommendationService.recommendations(
+                    library = current.allItems,
+                    favorites = current.favorites,
+                    progress = current.progress,
+                    force = force,
+                )
+                _state.value = _state.value.copy(
+                    recommendations = books,
+                    recommendationsLoading = false,
+                    recommendationsError = if (books.isEmpty()) "No matches yet" else null,
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    recommendationsLoading = false,
+                    recommendationsError = if (_state.value.recommendations.isEmpty()) {
+                        e.message ?: "Could not load recommendations"
+                    } else null,
+                )
+            }
+        }
+    }
+
+    suspend fun recommendationDetails(book: BookRecommendation): BookRecommendation =
+        recommendationService.details(book)
+
+    suspend fun similarRecommendations(
+        book: LibraryItem,
+        force: Boolean = false,
+    ): List<BookRecommendation> =
+        recommendationService.similarTo(book, _state.value.allItems, force = force)
+
+    fun dismissRecommendation(book: BookRecommendation) = viewModelScope.launch {
+        store.dismissRecommendation(recommendationFeedbackKey(book))
+        _state.value = _state.value.copy(
+            recommendations = _state.value.recommendations.filterNot {
+                recommendationFeedbackKey(it) == recommendationFeedbackKey(book)
+            }
+        )
+    }
+
+    fun reduceRecommendationAuthor(book: BookRecommendation) = viewModelScope.launch {
+        val author = book.authors.firstOrNull() ?: return@launch
+        store.reduceRecommendationAuthor(author)
+        _state.value = _state.value.copy(
+            recommendations = _state.value.recommendations.filterNot { candidate ->
+                candidate.authors.any { it.equals(author, ignoreCase = true) }
+            }
+        )
+    }
+
+    fun reduceRecommendationTopic(book: BookRecommendation) = viewModelScope.launch {
+        val topic = book.primaryTopic ?: return@launch
+        store.reduceRecommendationTopic(topic)
+        _state.value = _state.value.copy(
+            recommendations = _state.value.recommendations.filterNot {
+                it.primaryTopic?.equals(topic, ignoreCase = true) == true
+            }
+        )
+    }
+
+    fun boostRecommendation(book: BookRecommendation) = viewModelScope.launch {
+        store.boostRecommendation(book.authors.firstOrNull(), book.primaryTopic)
+    }
 
     /**
      * Cover for any book. On-device books use the file scanned out of their folder and
@@ -338,6 +430,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 prefetchContinue()
                 pushLocalProgress(progress)
                 runCatching { api.syncListeningSessions() }
+                scheduleAutoMatchNewBooks(items, me.type)
             } catch (e: Exception) {
                 // keep whatever is already on screen (cache + local + downloads)
                 _state.value = _state.value.copy(
@@ -348,6 +441,131 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         }
+    }
+
+    /**
+     * Enabling starts with the currently visible library as the baseline. Consequently
+     * only genuinely new server items are changed, never a user's existing collection.
+     */
+    fun setAutoMatchNewBooks(enabled: Boolean) = viewModelScope.launch {
+        if (enabled) {
+            store.setAutoMatchKnownItems(
+                _state.value.allItems.filterNot { LocalLibrary.isLocal(it.id) }.map { it.id }
+            )
+        }
+        store.setAutoMatchNewBooks(enabled)
+        if (!enabled) {
+            _state.value = _state.value.copy(metadataMatchReviews = emptyList())
+        }
+    }
+
+    private suspend fun reviewProvider(library: AbsLibrary?): String =
+        if (store.metadataMatchProviderFlow.first() == "library") {
+            library?.provider?.takeIf(String::isNotBlank) ?: "audible.uk"
+        } else "audible.uk"
+
+    private fun scheduleAutoMatchNewBooks(items: List<LibraryItem>, userRole: String?) {
+        if (userRole != "root" && userRole != "admin") return
+        if (_admin.value.runningAction?.startsWith("match-") == true) return
+        if (autoMatchJob?.isActive == true) return
+        autoMatchJob = viewModelScope.launch {
+            if (!store.autoMatchNewBooksFlow.first()) return@launch
+            val known = store.autoMatchKnownItems()
+            // Migration/first enable safety: establish a baseline instead of matching an
+            // existing library that the user never asked Fukuro to change.
+            if (known.isEmpty()) {
+                store.setAutoMatchKnownItems(items.map { it.id })
+                return@launch
+            }
+            val alreadyQueued = _state.value.metadataMatchReviews.map { it.item.id }.toSet()
+            val added = items.filterNot { it.id in known || it.id in alreadyQueued }
+            if (added.isEmpty()) return@launch
+            val needsMatch = added.filter { item ->
+                val metadata = item.media.metadata
+                metadata.authorName.isNullOrBlank() || metadata.genres.isEmpty() || item.tags.isEmpty() ||
+                    metadata.description.isNullOrBlank() ||
+                    (metadata.isbn.isNullOrBlank() && metadata.asin.isNullOrBlank())
+            }
+            store.addAutoMatchKnownItems(added.filterNot { it in needsMatch }.map { it.id })
+            if (needsMatch.isEmpty()) return@launch
+            val libraries = _state.value.libraries.associateBy { it.id }
+            for (item in needsMatch) {
+                try {
+                    val provider = reviewProvider(libraries[item.libraryId])
+                    val suggestion = api.bookMatchCandidates(item, provider)
+                        .firstOrNull { it.title.isNotBlank() }
+                    val review = suggestion?.let { MetadataMatchReview(item, provider, it) }
+                    if (review == null || proposedMatchFields(review).isEmpty()) {
+                        store.addAutoMatchKnownItems(listOf(item.id))
+                        _admin.value = _admin.value.copy(
+                            message = "No usable metadata changes found for ${item.media.metadata.title ?: item.relPath}",
+                            success = false,
+                        )
+                    } else {
+                        if (_state.value.metadataMatchReviews.none { it.item.id == item.id }) {
+                            _state.value = _state.value.copy(
+                                metadataMatchReviews = _state.value.metadataMatchReviews + review
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    _admin.value = _admin.value.copy(
+                        message = "Metadata preview failed: ${e.message ?: "unknown error"}",
+                        success = false,
+                    )
+                    // Failed IDs stay unknown, so a later library refresh can retry them.
+                }
+            }
+        }
+    }
+
+    fun acceptMetadataMatch(review: MetadataMatchReview, selected: Set<MatchField>) = viewModelScope.launch {
+        if (_state.value.metadataMatchApplying) return@launch
+        _state.value = _state.value.copy(metadataMatchApplying = true, metadataMatchError = null)
+        try {
+            api.applyBookMatch(review, selected)
+            store.addAutoMatchKnownItems(listOf(review.item.id))
+            _state.value = _state.value.copy(
+                metadataMatchReviews = _state.value.metadataMatchReviews.filterNot {
+                    it.item.id == review.item.id
+                },
+                metadataMatchApplying = false,
+                metadataMatchError = null,
+            )
+            _admin.value = _admin.value.copy(message = "Metadata accepted", success = true)
+            refresh()
+            if (review.replaceExisting) manualReviewGate?.complete(true)
+        } catch (e: Exception) {
+            _state.value = _state.value.copy(
+                metadataMatchApplying = false,
+                metadataMatchError = e.message?.take(200) ?: "Could not apply metadata",
+            )
+            _admin.value = _admin.value.copy(
+                message = "Could not apply metadata: ${e.message ?: "unknown error"}",
+                success = false,
+            )
+        }
+    }
+
+    fun declineMetadataMatch(review: MetadataMatchReview) = viewModelScope.launch {
+        store.addAutoMatchKnownItems(listOf(review.item.id))
+        _state.value = _state.value.copy(
+            metadataMatchReviews = _state.value.metadataMatchReviews.filterNot {
+                it.item.id == review.item.id
+            },
+            metadataMatchError = null,
+        )
+        _admin.value = _admin.value.copy(message = "Metadata match declined", success = true)
+        if (review.replaceExisting) manualReviewGate?.complete(true)
+    }
+
+    fun stopMetadataMatching(review: MetadataMatchReview) {
+        if (!review.replaceExisting || _state.value.metadataMatchApplying) return
+        _state.value = _state.value.copy(
+            metadataMatchReviews = _state.value.metadataMatchReviews.filterNot { it.item.id == review.item.id },
+            metadataMatchError = null,
+        )
+        manualReviewGate?.complete(false)
     }
 
     /**
@@ -727,14 +945,74 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         if (force) "force-scan-$libraryId" else "scan-$libraryId"
     ) {
         api.scanLibrary(libraryId, force)
-        refresh()
-        if (force) "Force rescan started" else "Library scan started"
+        _admin.value = _admin.value.copy(
+            message = if (force) "Force rescan running on Audiobookshelf…" else "Library scan running on Audiobookshelf…",
+            success = true,
+        )
+        // The scan endpoint acknowledges the request before the server task completes.
+        // Keep the button in its running state until ABS removes that task.
+        var observed = false
+        repeat(900) { poll ->
+            val active = api.activeTasks().any {
+                it.action == "library-scan" && it.data.libraryId == libraryId
+            }
+            if (active) observed = true
+            if (!active && (observed || poll >= 2)) {
+                refresh()
+                return@runAdminAction if (force) "Force rescan finished" else "Library scan finished"
+            }
+            delay(2_000)
+        }
+        throw IllegalStateException("Scan is still running after 30 minutes. Check Audiobookshelf tasks.")
     }
 
     fun matchLibrary(libraryId: String) = runAdminAction("match-$libraryId") {
-        api.matchLibrary(libraryId)
-        refresh()
-        "Metadata quick match started"
+        val library = _state.value.libraries.firstOrNull { it.id == libraryId }
+            ?: throw IllegalStateException("Library not loaded")
+        require(library.mediaType == "book") { "Metadata matching is only available for book libraries" }
+        check(api.activeTasks().none { it.action == "library-scan" && it.data.libraryId == libraryId }) {
+            "Wait for the Audiobookshelf library scan to finish before matching metadata"
+        }
+        val provider = reviewProvider(library)
+        val books = api.allLibraryItems(libraryId)
+        var reviewed = 0
+        var skipped = 0
+        try {
+            books.forEachIndexed { index, book ->
+                _admin.value = _admin.value.copy(
+                    message = "Checking metadata ${index + 1}/${books.size}: ${book.media.metadata.title ?: book.relPath}",
+                    success = true,
+                )
+                val suggestion = api.bookMatchCandidates(book, provider)
+                    .firstOrNull { it.title.isNotBlank() }
+                if (suggestion == null || proposedMatchFields(
+                        MetadataMatchReview(book, provider, suggestion, replaceExisting = true)
+                    ).isEmpty()) {
+                    skipped++
+                    return@forEachIndexed
+                }
+                val review = MetadataMatchReview(book, provider, suggestion, replaceExisting = true)
+                manualReviewGate = CompletableDeferred()
+                _state.value = _state.value.copy(
+                    metadataMatchError = null,
+                    metadataMatchReviews = listOf(review) + _state.value.metadataMatchReviews.filterNot {
+                        it.item.id == book.id
+                    },
+                )
+                _admin.value = _admin.value.copy(
+                    message = "Review ${index + 1}/${books.size}: ${book.media.metadata.title ?: book.relPath}",
+                    success = true,
+                )
+                if (manualReviewGate?.await() == false) {
+                    return@runAdminAction "Metadata review stopped after $reviewed book(s)"
+                }
+                reviewed++
+                manualReviewGate = null
+            }
+        } finally {
+            manualReviewGate = null
+        }
+        "Metadata review finished: $reviewed reviewed, $skipped unchanged or unmatched"
     }
 
     fun loadAdminUsers() = runAdminAction("users") {

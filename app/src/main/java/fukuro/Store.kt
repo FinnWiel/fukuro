@@ -82,9 +82,13 @@ class Store(private val context: Context) {
         val AUTO_UPDATE = booleanPreferencesKey("auto_update_check")
         val AUTO_NEXT = booleanPreferencesKey("auto_next_in_series") // off: finishing stops
         val AUTO_REMOVE_COMPLETED_DOWNLOADS = booleanPreferencesKey("auto_remove_completed_downloads")
+        val AUTO_MATCH_NEW_BOOKS = booleanPreferencesKey("auto_match_new_books")
+        val AUTO_MATCH_KNOWN_ITEMS = stringPreferencesKey("auto_match_known_items")
+        val METADATA_MATCH_PROVIDER = stringPreferencesKey("metadata_match_provider")
         val SWIPE_ACTION = stringPreferencesKey("swipe_action")      // "chapter" | "book"
         val UPDATE_LAST_CHECK = stringPreferencesKey("update_last_check") // epoch ms
         val API_KEY = stringPreferencesKey("abs_api_key")
+        val GOOGLE_BOOKS_KEY = stringPreferencesKey("google_books_api_key")
         val SPEED = stringPreferencesKey("playback_speed")
         val LAST_ITEM = stringPreferencesKey("last_item") // what the system offers to resume
         val FAVORITES = stringPreferencesKey("favorites") // csv of item ids
@@ -93,6 +97,9 @@ class Store(private val context: Context) {
         val LISTENING_SESSIONS = stringPreferencesKey("listening_sessions") // most recent local sessions
         val SERVER_LISTENING_STATS = stringPreferencesKey("server_listening_stats")
         val SERVER_LISTENING_SESSIONS = stringPreferencesKey("server_listening_sessions")
+        val RECOMMENDATION_FEEDBACK = stringPreferencesKey("recommendation_feedback")
+        val RECOMMENDATION_EXCLUDED_TAGS = stringPreferencesKey("recommendation_excluded_tags")
+        val RECOMMENDATION_LANGUAGE = stringPreferencesKey("recommendation_language")
     }
 
     val themeFlow: Flow<String> = context.dataStore.data.map { it[K.THEME] ?: "system" }
@@ -119,6 +126,29 @@ class Store(private val context: Context) {
     suspend fun setAutoRemoveCompletedDownloads(v: Boolean) =
         context.dataStore.edit { it[K.AUTO_REMOVE_COMPLETED_DOWNLOADS] = v }
     fun autoRemoveCompletedDownloadsBlocking(): Boolean = mAutoRemoveCompletedDownloads
+
+    /** Review-first metadata matching for books first seen after the user enables it. */
+    val autoMatchNewBooksFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[K.AUTO_MATCH_NEW_BOOKS] ?: false }
+    suspend fun setAutoMatchNewBooks(v: Boolean) =
+        context.dataStore.edit { it[K.AUTO_MATCH_NEW_BOOKS] = v }
+    /** "audible.uk" by default; "library" follows each ABS library's own preference. */
+    val metadataMatchProviderFlow: Flow<String> = context.dataStore.data.map {
+        it[K.METADATA_MATCH_PROVIDER] ?: "audible.uk"
+    }
+    suspend fun setMetadataMatchProvider(provider: String) = context.dataStore.edit {
+        it[K.METADATA_MATCH_PROVIDER] = if (provider == "library") "library" else "audible.uk"
+    }
+    suspend fun autoMatchKnownItems(): Set<String> = context.dataStore.data.first()
+        .get(K.AUTO_MATCH_KNOWN_ITEMS).orEmpty().split(',').filter(String::isNotBlank).toSet()
+    suspend fun setAutoMatchKnownItems(ids: Collection<String>) = context.dataStore.edit {
+        it[K.AUTO_MATCH_KNOWN_ITEMS] = ids.distinct().joinToString(",")
+    }
+    suspend fun addAutoMatchKnownItems(ids: Collection<String>) = context.dataStore.edit { prefs ->
+        val known = prefs[K.AUTO_MATCH_KNOWN_ITEMS].orEmpty()
+            .split(',').filter(String::isNotBlank).toSet()
+        prefs[K.AUTO_MATCH_KNOWN_ITEMS] = (known + ids).joinToString(",")
+    }
 
     /** What a sideways swipe on either player does: "chapter" or "book". */
     val swipeActionFlow: Flow<String> = context.dataStore.data.map { it[K.SWIPE_ACTION] ?: "chapter" }
@@ -158,6 +188,7 @@ class Store(private val context: Context) {
     fun skipForwardBlocking(): Int = mSkipForward
     fun downloadDirBlocking(): String = mDownloadDir
     val apiKeyFlow: Flow<String> = context.dataStore.data.map { it[K.API_KEY] ?: "" }
+    val googleBooksKeyFlow: Flow<String> = context.dataStore.data.map { it[K.GOOGLE_BOOKS_KEY] ?: "" }
     /*
      * Home shelves. Nothing saved yet means one of two things: a fresh install,
      * which gets the designed defaults, or an existing one that only ever knew the
@@ -186,6 +217,14 @@ class Store(private val context: Context) {
         it[K.HOME_SHELVES] = shelfJson.encodeToString(DEFAULT_SHELVES)
         it.remove(K.HOME_SECTIONS)
     }
+
+    val recommendationExcludedTagsFlow: Flow<String> = context.dataStore.data.map {
+        it[K.RECOMMENDATION_EXCLUDED_TAGS] ?: ""
+    }
+    /** An empty set means Any; legacy single-language values remain valid. */
+    val recommendationLanguagesFlow: Flow<Set<String>> = context.dataStore.data.map {
+        parseRecommendationLanguages(it[K.RECOMMENDATION_LANGUAGE].orEmpty())
+    }
     val serverFlow: Flow<String?> = context.dataStore.data.map { it[K.SERVER] }
     val usernameFlow: Flow<String?> = context.dataStore.data.map { it[K.USERNAME] }
 
@@ -207,6 +246,29 @@ class Store(private val context: Context) {
     suspend fun setSkipForward(v: Int) = context.dataStore.edit { it[K.SKIP_FORWARD] = v.toString() }
     suspend fun setApiKey(v: String) = context.dataStore.edit { it[K.API_KEY] = v }
     suspend fun apiKey(): String? = context.dataStore.data.first()[K.API_KEY]
+    suspend fun setGoogleBooksKey(v: String) = context.dataStore.edit { it[K.GOOGLE_BOOKS_KEY] = v }
+    suspend fun googleBooksKey(): String = context.dataStore.data.first()[K.GOOGLE_BOOKS_KEY] ?: ""
+    suspend fun setRecommendationExcludedTags(v: String) = context.dataStore.edit {
+        it[K.RECOMMENDATION_EXCLUDED_TAGS] = v
+    }
+    suspend fun recommendationExcludedTags(): List<String> {
+        val raw = context.dataStore.data.first()[K.RECOMMENDATION_EXCLUDED_TAGS].orEmpty()
+        return raw.split(',', '\n')
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinctBy { it.lowercase() }
+    }
+    suspend fun setRecommendationLanguages(languages: Set<String>) = context.dataStore.edit {
+        it[K.RECOMMENDATION_LANGUAGE] = languages.map(String::trim).map(String::lowercase)
+            .filter { code -> code.matches(Regex("[a-z]{2}")) }
+            .distinct().sorted().joinToString(",")
+    }
+    suspend fun recommendationLanguages(): Set<String> =
+        parseRecommendationLanguages(context.dataStore.data.first()[K.RECOMMENDATION_LANGUAGE].orEmpty())
+
+    private fun parseRecommendationLanguages(raw: String): Set<String> =
+        raw.split(',').map(String::trim).map(String::lowercase)
+            .filter { it.matches(Regex("[a-z]{2}")) }.toSet()
     suspend fun playbackSpeed(): Float = context.dataStore.data.first()[K.SPEED]?.toFloatOrNull() ?: 1.0f
     suspend fun setPlaybackSpeed(v: Float) = context.dataStore.edit { it[K.SPEED] = v.toString() }
 
@@ -218,6 +280,46 @@ class Store(private val context: Context) {
         val raw = prefs[K.CUSTOM_SHELF]
         if (raw.isNullOrBlank()) emptyList()
         else runCatching { Json.decodeFromString<List<CustomShelfEntry>>(raw) }.getOrDefault(emptyList())
+    }
+
+    val recommendationFeedbackFlow: Flow<RecommendationFeedback> = context.dataStore.data.map { prefs ->
+        prefs[K.RECOMMENDATION_FEEDBACK]?.let { raw ->
+            runCatching { Json.decodeFromString<RecommendationFeedback>(raw) }.getOrNull()
+        } ?: RecommendationFeedback()
+    }
+
+    suspend fun recommendationFeedback(): RecommendationFeedback = recommendationFeedbackFlow.first()
+
+    private suspend fun updateRecommendationFeedback(
+        update: (RecommendationFeedback) -> RecommendationFeedback,
+    ) = context.dataStore.edit { prefs ->
+        val current = prefs[K.RECOMMENDATION_FEEDBACK]?.let { raw ->
+            runCatching { Json.decodeFromString<RecommendationFeedback>(raw) }.getOrNull()
+        } ?: RecommendationFeedback()
+        prefs[K.RECOMMENDATION_FEEDBACK] = Json.encodeToString(update(current))
+    }
+
+    suspend fun dismissRecommendation(key: String) = updateRecommendationFeedback {
+        it.copy(dismissed = it.dismissed + key)
+    }
+
+    suspend fun reduceRecommendationAuthor(author: String) = updateRecommendationFeedback {
+        it.copy(reducedAuthors = it.reducedAuthors + author)
+    }
+
+    suspend fun reduceRecommendationTopic(topic: String) = updateRecommendationFeedback {
+        it.copy(reducedTopics = it.reducedTopics + topic)
+    }
+
+    suspend fun boostRecommendation(author: String?, topic: String?) = updateRecommendationFeedback {
+        it.copy(
+            boostedAuthors = author?.let { name -> it.boostedAuthors + name } ?: it.boostedAuthors,
+            boostedTopics = topic?.let { name -> it.boostedTopics + name } ?: it.boostedTopics,
+        )
+    }
+
+    suspend fun clearRecommendationFeedback() = context.dataStore.edit {
+        it.remove(K.RECOMMENDATION_FEEDBACK)
     }
 
     suspend fun setCustomShelf(entries: List<CustomShelfEntry>) = context.dataStore.edit {
