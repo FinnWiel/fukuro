@@ -64,7 +64,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -517,7 +516,7 @@ fun PlayerScreen(
                             Row(
                                 Modifier.fillMaxWidth()
                                     .padding(horizontal = 20.dp)
-                                    .padding(bottom = 8.dp),
+                                    .padding(bottom = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(fmtMs((absolutePosSec * 1000).toLong()),
@@ -537,7 +536,7 @@ fun PlayerScreen(
                                 modifier = Modifier.fillMaxWidth()
                                 // Artwork and the controls under it shift down as one
                                 // block, away from the fixed top bar.
-                                .padding(top = 24.dp)
+                                .padding(top = if (showCoverBookProgress) 16.dp else 24.dp)
                                 // exactly the shape every other cover in the app takes.
                                 // A fixed extra strip under the artwork used to make this
                                 // panel longer than 2:3, which read as the wrong ratio.
@@ -574,13 +573,26 @@ fun PlayerScreen(
                                         alignment = Alignment.TopEnd,
                                     )
                                 } else {
-                                    LinearProgressIndicator(
-                                        progress = { bookFraction },
-                                        modifier = Modifier.fillMaxWidth().height(5.dp)
-                                            .align(Alignment.TopCenter),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        trackColor = TxtPrimary.copy(alpha = 0.28f),
-                                    )
+                                    // Keep the book bar inside the cover's rounded top
+                                    // corners. Unlike Material's indicator, this has a
+                                    // stable, single-colour track and a clean accent fill.
+                                    Box(
+                                        Modifier.fillMaxWidth()
+                                            .padding(horizontal = 20.dp)
+                                            .height(5.dp)
+                                            .align(Alignment.TopCenter)
+                                            .clip(RoundedCornerShape(1.dp))
+                                            .background(PlayerTrack)
+                                    ) {
+                                        if (bookFraction > 0f) {
+                                            Box(
+                                                Modifier.fillMaxWidth(bookFraction)
+                                                    .fillMaxHeight()
+                                                    .clip(RoundedCornerShape(1.dp))
+                                                    .background(MaterialTheme.colorScheme.primary)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             // All now-playing controls live on the cover. The scrim follows the

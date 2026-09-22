@@ -19,6 +19,8 @@ data class CachedLibrary(
     val series: List<AbsSeries> = emptyList(),
     val authors: List<AbsAuthor> = emptyList(),
     val progress: List<MediaProgress> = emptyList(),
+    /** The server library that supplied this snapshot. Empty means an older cache. */
+    val libraryId: String = "",
 )
 
 class LibraryCache(context: Context) {

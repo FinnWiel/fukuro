@@ -1164,6 +1164,29 @@ fun LibraryScreen(
                                 color = c.onBackground,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
                             )
+                            if (state.serverOnline && state.libraries.size > 1) {
+                                // This is deliberately part of the server catalogue view,
+                                // rather than Settings: switching has an immediate effect on
+                                // the books, authors, and series shown below.
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    state.libraries.forEach { library ->
+                                        FilterChip(
+                                            selected = library.id == state.activeLibraryId,
+                                            onClick = {
+                                                query = ""
+                                                scope.launch { gridState.scrollToItem(0) }
+                                                vm.selectLibrary(library.id)
+                                            },
+                                            label = { Text(library.name, maxLines = 1) },
+                                        )
+                                    }
+                                }
+                            }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)

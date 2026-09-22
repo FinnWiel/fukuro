@@ -62,6 +62,7 @@ class Store(private val context: Context) {
         val SERVER = stringPreferencesKey("server_url")
         val TOKEN = stringPreferencesKey("token")
         val USERNAME = stringPreferencesKey("username")
+        val ACTIVE_LIBRARY = stringPreferencesKey("active_library_id")
         val THEME = stringPreferencesKey("theme") // system | dark | light
         val HOME_SECTIONS = stringPreferencesKey("home_sections") // csv order, pre-1.11 shelves
         val HOME_SHELVES = stringPreferencesKey("home_shelves") // json list of Shelf
@@ -236,6 +237,8 @@ class Store(private val context: Context) {
     suspend fun setServerUrl(v: String) = context.dataStore.edit { it[K.SERVER] = v }
     suspend fun setToken(v: String) = context.dataStore.edit { it[K.TOKEN] = v }
     suspend fun setUsername(v: String) = context.dataStore.edit { it[K.USERNAME] = v }
+    suspend fun activeLibraryId(): String = context.dataStore.data.first()[K.ACTIVE_LIBRARY].orEmpty()
+    suspend fun setActiveLibraryId(v: String) = context.dataStore.edit { it[K.ACTIVE_LIBRARY] = v }
     suspend fun setTheme(v: String) = context.dataStore.edit { it[K.THEME] = v }
     suspend fun setAccent(v: String) = context.dataStore.edit { it[K.ACCENT] = v }
     suspend fun setProgressStyle(v: String) = context.dataStore.edit { it[K.PROGRESS_STYLE] = v }

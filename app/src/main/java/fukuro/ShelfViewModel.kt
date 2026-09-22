@@ -28,8 +28,10 @@ data class UiState(
     val allItems: List<LibraryItem> = emptyList(),
     val series: List<AbsSeries> = emptyList(),
     val authors: List<AbsAuthor> = emptyList(),
-    /** Named libraries on the server; only for the shelf editor, so not cached. */
+    /** Named libraries currently available to this account. */
     val libraries: List<AbsLibrary> = emptyList(),
+    /** The server library whose catalogue is currently displayed. */
+    val activeLibraryId: String? = null,
     val serverProgress: Map<String, MediaProgress> = emptyMap(),
     val localProgress: Map<String, LocalProgress> = emptyMap(),
     val downloadedIds: Set<String> = emptySet(),
@@ -160,6 +162,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
     private var recommendationJob: kotlinx.coroutines.Job? = null
     private var autoMatchJob: kotlinx.coroutines.Job? = null
     private var manualReviewGate: CompletableDeferred<Boolean>? = null
+    /** Reject a stale response when the user changes libraries before it finishes loading. */
+    private var libraryLoadGeneration = 0L
 
     /** Loads the last discovery result immediately, then refreshes it when its daily cache expires. */
     fun refreshRecommendations(force: Boolean = false) {
@@ -290,6 +294,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 allItems = ((cached?.items ?: emptyList()) + localItems).unique(),
                 series = cached?.series ?: emptyList(),
                 authors = cached?.authors ?: emptyList(),
+                activeLibraryId = cached?.libraryId?.takeIf { it.isNotBlank() },
                 serverProgress = (cached?.progress ?: emptyList()).associateBy { it.libraryItemId },
                 // localProgress arrives via its own collector below, which DataStore fills
                 // in straight away — no disk read on the startup path
@@ -369,7 +374,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun refresh() {
+    /** Switch the catalogue shown in the Library tab, retaining that choice for next launch. */
+    fun selectLibrary(libraryId: String) {
+        if (libraryId == _state.value.activeLibraryId && !_state.value.loading) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(activeLibraryId = libraryId, loading = true, error = null)
+            store.setActiveLibraryId(libraryId)
+            refresh(libraryId)
+        }
+    }
+
+    fun refresh(requestedLibraryId: String? = null) {
+        val loadGeneration = ++libraryLoadGeneration
         viewModelScope.launch {
             // Details go stale too - a book can gain or lose files on the server - so a
             // refresh drops them; prefetchContinue re-warms the top of the shelf after.
@@ -389,6 +405,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
             // no server configured: nothing to wait for
             if (!hasServer) {
+                if (loadGeneration != libraryLoadGeneration) return@launch
                 _state.value = _state.value.copy(
                     loading = false, serverOnline = false, serverChecked = true,
                     allItems = offlineItems(), downloadedIds = downloaded, localCount = localItems.size,
@@ -401,6 +418,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
             // quick reachability probe (2s) so an absent server costs 2s, not four timeouts
             if (!api.reachable()) {
+                if (loadGeneration != libraryLoadGeneration) return@launch
                 _state.value = _state.value.copy(
                     loading = false, serverOnline = false, serverChecked = true,
                     allItems = offlineItems(),
@@ -411,16 +429,30 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
             try {
                 val libraries = api.libraries()
-                val lib = libraries.firstOrNull()
+                if (loadGeneration != libraryLoadGeneration) return@launch
+                val savedLibraryId = requestedLibraryId ?: store.activeLibraryId()
+                // A library may have been deleted or its access revoked since it was last
+                // selected. In that case use the first accessible one and repair the choice.
+                val lib = libraries.firstOrNull { it.id == savedLibraryId } ?: libraries.firstOrNull()
+                if (lib != null && lib.id != savedLibraryId) store.setActiveLibraryId(lib.id)
                 val items = if (lib != null) api.libraryItems(lib.id) else emptyList()
                 val series = if (lib != null) try { api.librarySeries(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
                 val authors = if (lib != null) try { api.libraryAuthors(lib.id) } catch (_: Exception) { emptyList() } else emptyList()
                 val me = api.me()
                 val progress = me.mediaProgress.associateBy { it.libraryItemId }
-                cache.write(CachedLibrary(items, series, authors, progress.values.toList()))
+                if (loadGeneration != libraryLoadGeneration) return@launch
+                cache.write(
+                    CachedLibrary(
+                        items = items,
+                        series = series,
+                        authors = authors,
+                        progress = progress.values.toList(),
+                        libraryId = lib?.id.orEmpty(),
+                    )
+                )
                 _state.value = _state.value.copy(
                     allItems = (items + localItems).unique(), series = series, authors = authors,
-                    libraries = libraries, serverProgress = progress,
+                    libraries = libraries, activeLibraryId = lib?.id, serverProgress = progress,
                     loading = false, serverOnline = true, serverChecked = true, downloadedIds = downloaded,
                     localCount = localItems.size,
                     currentUserRole = me.type,
@@ -432,6 +464,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching { api.syncListeningSessions() }
                 scheduleAutoMatchNewBooks(items, me.type)
             } catch (e: Exception) {
+                if (loadGeneration != libraryLoadGeneration) return@launch
                 // keep whatever is already on screen (cache + local + downloads)
                 _state.value = _state.value.copy(
                     loading = false, serverOnline = false, serverChecked = true,

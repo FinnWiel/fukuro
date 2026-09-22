@@ -819,7 +819,18 @@ class PlayerService : MediaLibraryService() {
                 .add(SessionCommand(CMD_SKIP_CHAPTER, Bundle.EMPTY))
                 .add(SessionCommand(CMD_RESTORE_LAST, Bundle.EMPTY))
                 .build()
-            return MediaSession.ConnectionResult.accept(cmds, base.availablePlayerCommands)
+            // The XM5's left/right swipes are standard previous/next-track commands.
+            // Fukuro has no meaningful track queue to expose: a book spans many source
+            // files, while its own 10s/30s controls remain custom session commands.
+            // Removing both the normal and media-item variants keeps external controls
+            // from restarting the book or jumping between its underlying files.
+            val playerCommands = base.availablePlayerCommands.buildUpon()
+                .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .remove(Player.COMMAND_SEEK_TO_NEXT)
+                .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .build()
+            return MediaSession.ConnectionResult.accept(cmds, playerCommands)
         }
 
         override fun onCustomCommand(
