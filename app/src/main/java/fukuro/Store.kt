@@ -68,6 +68,9 @@ class Store(private val context: Context) {
         val HOME_SHELVES = stringPreferencesKey("home_shelves") // json list of Shelf
         val LOCAL_PROGRESS = stringPreferencesKey("local_progress") // json {itemId: currentTimeSec}
         val PROGRESS_HISTORY = stringPreferencesKey("progress_history") // recent local position writes
+        // Durable finish timestamps. Missing library items stay here; only an explicit
+        // unfinished/reset state removes them.
+        val COMPLETION_DATES = stringPreferencesKey("completion_dates") // json {itemId: epochMs}
         val ACCENT = stringPreferencesKey("accent") // ACCENT_MATCH_BOOK, a key from ACCENT_COLORS, or "#RRGGBB"
         val PROGRESS_STYLE = stringPreferencesKey("progress_style") // "circle" | "bar"
         val DOWNLOAD_DIR = stringPreferencesKey("download_dir") // absolute path, blank = app storage
@@ -517,6 +520,9 @@ class Store(private val context: Context) {
     val localProgressFlow: Flow<Map<String, LocalProgress>> =
         context.dataStore.data.map { decodeProgress(it[K.LOCAL_PROGRESS]) }
 
+    val completionDatesFlow: Flow<Map<String, Long>> =
+        context.dataStore.data.map { decodeCompletionDates(it[K.COMPLETION_DATES]) }
+
     suspend fun localProgress(): Map<String, LocalProgress> =
         decodeProgress(context.dataStore.data.first()[K.LOCAL_PROGRESS])
 
@@ -541,6 +547,41 @@ class Store(private val context: Context) {
         if (raw.isNullOrBlank()) return emptyList()
         return runCatching { progressJson.decodeFromString<List<ProgressHistoryEntry>>(raw) }
             .getOrDefault(emptyList())
+    }
+
+    private fun decodeCompletionDates(raw: String?): Map<String, Long> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching { progressJson.decodeFromString<Map<String, Long>>(raw) }
+            .getOrDefault(emptyMap())
+    }
+
+    /**
+     * Imports known server/device completions without treating a missing progress row as
+     * unfinished. That distinction preserves the star after a book is deleted from a library.
+     */
+    suspend fun syncCompletionDates(
+        progress: Collection<MediaProgress>,
+        serverProgress: Collection<MediaProgress>,
+    ) {
+        context.dataStore.edit { prefs ->
+            val dates = decodeCompletionDates(prefs[K.COMPLETION_DATES]).toMutableMap()
+            var changed = false
+            progress.forEach { item ->
+                if (item.isFinished && item.lastUpdate > 0L) {
+                    if (dates.putIfAbsent(item.libraryItemId, item.lastUpdate) == null) changed = true
+                }
+            }
+            // A present unfinished server record is authoritative. An absent record is not:
+            // the whole book may have been deleted, which must preserve its completion.
+            serverProgress.forEach { item ->
+                if (!item.isFinished && dates.remove(item.libraryItemId) != null) {
+                    changed = true
+                }
+            }
+            if (changed) {
+                prefs[K.COMPLETION_DATES] = progressJson.encodeToString<Map<String, Long>>(dates)
+            }
+        }
     }
 
     private fun appendProgressHistory(
@@ -591,6 +632,14 @@ class Store(private val context: Context) {
                 finished = isFinished,
             )
             prefs[K.LOCAL_PROGRESS] = progressJson.encodeToString<Map<String, LocalProgress>>(map)
+
+            // A finish/unfinish command is authoritative for the heatmap. Ordinary playback
+            // position writes pass null and therefore leave the recorded completion alone.
+            if (finished != null) {
+                val dates = decodeCompletionDates(prefs[K.COMPLETION_DATES]).toMutableMap()
+                if (finished) dates[itemId] = now else dates.remove(itemId)
+                prefs[K.COMPLETION_DATES] = progressJson.encodeToString<Map<String, Long>>(dates)
+            }
 
             // Keep this deliberately bounded: it is diagnostic data, not a second library
             // database. A little over 200 writes covers the period around an interruption
