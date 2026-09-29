@@ -2,6 +2,8 @@ package fukuro
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.rounded.ShowChart
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -33,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -51,9 +54,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -88,6 +95,7 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
     val state by vm.state.collectAsState()
     val localDays by vm.store.listeningDaysFlow.collectAsState(initial = emptyMap())
     val localSessions by vm.store.listeningSessionsFlow.collectAsState(initial = emptyList())
+    val completionDates by vm.store.completionDatesFlow.collectAsState(initial = emptyMap())
     val cachedServerStats by vm.store.serverListeningStatsFlow.collectAsState(initial = null)
     val cachedServerSessions by vm.store.serverListeningSessionsFlow.collectAsState(initial = emptyList())
     var liveServerStats by remember { mutableStateOf<ListeningStats?>(null) }
@@ -181,6 +189,27 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
         .filter { it.isFinished }
         .mapNotNull { p -> state.allItems.firstOrNull { it.id == p.libraryItemId } }
     val allTimeCompletedSeconds = allTimeCompleted.sumOf { it.media.duration }
+    LaunchedEffect(state.progress, state.serverProgress) {
+        vm.store.syncCompletionDates(state.progress.values, state.serverProgress.values)
+    }
+    val completionsByDate = remember(completionDates, state.progress, state.serverProgress) {
+        val currentDates = completionDates.toMutableMap()
+        state.progress.values.forEach { progress ->
+            if (progress.isFinished && progress.lastUpdate > 0L) {
+                currentDates.putIfAbsent(progress.libraryItemId, progress.lastUpdate)
+            }
+        }
+        state.serverProgress.values.forEach { progress ->
+            if (!progress.isFinished) {
+                currentDates.remove(progress.libraryItemId)
+            }
+        }
+        currentDates.values.asSequence()
+            .mapNotNull(::epochDay)
+            .groupingBy { it }
+            .eachCount()
+    }
+    var selectedCompletionDate by remember { mutableStateOf<LocalDate?>(null) }
     val current = state.progress.values
         .filter { !it.isFinished && it.progress > 0.001 }
         .maxByOrNull { it.lastUpdate }
@@ -191,7 +220,16 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
         color = Fukuro.colors.background,
         contentColor = Fukuro.colors.onBackground,
     ) {
-      Column(Modifier.fillMaxSize()) {
+      Column(
+          Modifier.fillMaxSize().pointerInput(selectedCompletionDate) {
+              if (selectedCompletionDate != null) {
+                  awaitEachGesture {
+                      awaitFirstDown(requireUnconsumed = false)
+                      selectedCompletionDate = null
+                  }
+              }
+          }
+      ) {
         FlatTopBar("Stats")
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         PullToRefreshBox(
@@ -281,7 +319,13 @@ fun StatsScreen(vm: ShelfViewModel, onOpenBook: (String) -> Unit) {
                     SummaryTile("${longestStreak(allActive)} days", "Longest streak", Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(14.dp))
-                ContributionGrid(allDays, today)
+                ContributionGrid(
+                    days = allDays,
+                    today = today,
+                    completionsByDate = completionsByDate,
+                    selectedCompletionDate = selectedCompletionDate,
+                    onCompletionDateSelected = { selectedCompletionDate = it },
+                )
             }
 
             if (current != null && currentItem != null) item {
@@ -374,7 +418,13 @@ private fun heatLevel(seconds: Double, max: Double): Int = when {
  * year is what makes the shape of a habit visible.
  */
 @Composable
-private fun ContributionGrid(days: Map<String, Double>, today: LocalDate) {
+private fun ContributionGrid(
+    days: Map<String, Double>,
+    today: LocalDate,
+    completionsByDate: Map<LocalDate, Int>,
+    selectedCompletionDate: LocalDate?,
+    onCompletionDateSelected: (LocalDate?) -> Unit,
+) {
     val c = Fukuro.colors
     val cell = 11.dp
     val gap = 3.dp
@@ -438,6 +488,7 @@ private fun ContributionGrid(days: Map<String, Double>, today: LocalDate) {
                                 Spacer(Modifier.size(cell))
                             } else {
                                 val level = heatLevel(byDate[date] ?: 0.0, max)
+                                val completionCount = completionsByDate[date] ?: 0
                                 Box(
                                     Modifier.size(cell)
                                         .clip(RoundedCornerShape(2.dp))
@@ -445,7 +496,25 @@ private fun ContributionGrid(days: Map<String, Double>, today: LocalDate) {
                                             if (level == 0) c.track
                                             else c.accent.copy(alpha = 0.25f + 0.25f * level)
                                         )
-                                )
+                                        .then(
+                                            if (completionCount > 0) Modifier.clickable {
+                                                onCompletionDateSelected(date)
+                                            } else Modifier
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (completionCount > 0) {
+                                        CompletionStars(completionCount)
+                                    }
+                                    if (selectedCompletionDate == date) {
+                                        CompletionDatePopup(
+                                            date = date,
+                                            completionCount = completionCount,
+                                            cellSizePx = with(LocalDensity.current) { cell.roundToPx() },
+                                            onDismiss = { onCompletionDateSelected(null) },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -471,6 +540,101 @@ private fun ContributionGrid(days: Map<String, Double>, today: LocalDate) {
             }
             Spacer(Modifier.width(3.dp))
             Text("More", style = Fukuro.type.captionMeta, color = c.tertiaryText)
+        }
+    }
+}
+
+/** Places completion stars like dice pips, shrinking them as the 11dp cell fills up. */
+@Composable
+private fun CompletionStars(completionCount: Int) {
+    val tint = Fukuro.colors.onBackground
+    val visibleCount = completionCount.coerceIn(1, 6)
+    val positions = when (visibleCount) {
+        1 -> listOf(Alignment.Center)
+        2 -> listOf(Alignment.TopStart, Alignment.BottomEnd)
+        3 -> listOf(Alignment.TopStart, Alignment.Center, Alignment.BottomEnd)
+        4 -> listOf(
+            Alignment.TopStart, Alignment.TopEnd,
+            Alignment.BottomStart, Alignment.BottomEnd,
+        )
+        5 -> listOf(
+            Alignment.TopStart, Alignment.TopEnd, Alignment.Center,
+            Alignment.BottomStart, Alignment.BottomEnd,
+        )
+        else -> listOf(
+            Alignment.TopStart, Alignment.TopEnd,
+            Alignment.CenterStart, Alignment.CenterEnd,
+            Alignment.BottomStart, Alignment.BottomEnd,
+        )
+    }
+    val starSize = when (visibleCount) {
+        1 -> 8.dp
+        2 -> 5.dp
+        3, 4 -> 4.dp
+        else -> 3.5.dp
+    }
+    Box(Modifier.fillMaxSize()) {
+        positions.forEachIndexed { index, alignment ->
+            val description = when {
+                index > 0 -> null
+                completionCount == 1 -> "One book finished"
+                else -> "$completionCount books finished"
+            }
+            Icon(
+                Icons.Rounded.Star,
+                contentDescription = description,
+                modifier = Modifier.size(starSize).align(alignment),
+                tint = tint,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompletionDatePopup(
+    date: LocalDate,
+    completionCount: Int,
+    cellSizePx: Int,
+    onDismiss: () -> Unit,
+) {
+    val c = Fukuro.colors
+    val popupGapPx = with(LocalDensity.current) { 6.dp.roundToPx() }
+    val dateText = remember(date) {
+        date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.getDefault()))
+    }
+    Popup(
+        alignment = Alignment.BottomCenter,
+        offset = IntOffset(0, -(cellSizePx + popupGapPx)),
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            clippingEnabled = true,
+        ),
+    ) {
+        Surface(
+            modifier = Modifier.pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    onDismiss()
+                }
+            },
+            color = c.surface,
+            contentColor = c.onBackground,
+            shape = RoundedCornerShape(Fukuro.dims.tileRadius),
+            shadowElevation = 6.dp,
+        ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(dateText, style = Fukuro.type.body, maxLines = 1)
+                if (completionCount > 1) {
+                    Text(
+                        "$completionCount books finished",
+                        style = Fukuro.type.captionMeta,
+                        color = c.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }
